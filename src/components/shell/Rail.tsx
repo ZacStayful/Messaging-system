@@ -62,13 +62,13 @@ export function Rail() {
             >
               <Icon name={item.icon} size={22} />
               {badge > 0 && (
-                <span className="absolute -top-1.5 -right-2 flex h-5 min-w-5 items-center justify-center rounded-[10px] border-2 border-frame bg-white px-1.5 text-[11px] font-bold text-[#3E5A3A]">
+                <span className="absolute -top-1.5 -right-2 flex h-5 min-w-5 items-center justify-center rounded-[10px] border-2 border-frame bg-white px-1.5 text-[12px] font-bold text-[#3E5A3A]">
                   {badge}
                 </span>
               )}
               {dot && <span className="absolute top-0.5 right-1 h-2 w-2 rounded-full border-2 border-frame bg-white" />}
             </span>
-            <span className="text-center text-[11px] leading-[1.2] font-semibold whitespace-pre-line">
+            <span className="font-display text-center text-[12px] leading-[1.2] font-semibold whitespace-pre-line">
               {item.label}
             </span>
           </Link>

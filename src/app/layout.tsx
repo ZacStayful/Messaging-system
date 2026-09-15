@@ -1,8 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Poppins } from "next/font/google";
+import { Inter, Poppins } from "next/font/google";
 import { cookies } from "next/headers";
 import { readThemeCookie, THEME_COOKIE } from "@/lib/theme";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -28,7 +34,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const theme = readThemeCookie((await cookies()).get(THEME_COOKIE)?.value);
   return (
-    <html lang="en-GB" data-theme={theme} className={poppins.variable} suppressHydrationWarning>
+    <html lang="en-GB" data-theme={theme} className={`${inter.variable} ${poppins.variable}`} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

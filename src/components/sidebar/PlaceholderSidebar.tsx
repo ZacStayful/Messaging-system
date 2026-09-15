@@ -12,8 +12,8 @@ export function PlaceholderSidebar({ nav }: { nav: Nav }) {
   const copy = COPY[nav] ?? { title: "Stayful", hint: "" };
   return (
     <>
-      <div className="flex h-[50px] shrink-0 items-center px-4 text-[18px] font-bold">{copy.title}</div>
-      <p className="px-4 py-2 text-[14px] text-sb-dim">{copy.hint}</p>
+      <div className="font-display flex h-[50px] shrink-0 items-center px-4 text-[18px] font-bold">{copy.title}</div>
+      <p className="px-4 py-2 text-[15px] text-sb-dim">{copy.hint}</p>
     </>
   );
 }

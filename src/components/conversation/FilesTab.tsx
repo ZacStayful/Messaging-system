@@ -32,7 +32,7 @@ function iconFor(mime: string): { icon: IconName; bg: string } {
   return { icon: "file", bg: "#7A8C99" };
 }
 
-const chipCls = "flex h-[34px] items-center rounded-lg px-3.5 text-[14px]";
+const chipCls = "flex h-[34px] items-center rounded-lg px-3.5 text-[15px]";
 
 export function FilesTab({
   messages,
@@ -129,7 +129,7 @@ export function FilesTab({
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search"
           aria-label="Search files and links"
-          className="flex-1 border-0 bg-transparent text-[15px] text-ink outline-none"
+          className="flex-1 border-0 bg-transparent text-[16px] text-ink outline-none"
         />
       </div>
       <div className="my-4 flex flex-wrap items-center gap-2 md:mt-4 md:mb-5">
@@ -158,11 +158,11 @@ export function FilesTab({
       {showMedia && (
         <>
           <div className="mb-3 flex items-baseline justify-between">
-            <span className="text-[15px] font-semibold">Photos and videos</span>
-            {media.length > 0 && <span className="text-[14px] text-link">{media.length}</span>}
+            <span className="text-[16px] font-semibold">Photos and videos</span>
+            {media.length > 0 && <span className="text-[15px] text-link">{media.length}</span>}
           </div>
           {media.length === 0 ? (
-            <p className="mb-5 text-[14px] text-muted">No photos or videos in this conversation yet.</p>
+            <p className="mb-5 text-[15px] text-muted">No photos or videos in this conversation yet.</p>
           ) : (
             <div className="mb-5 grid grid-cols-3 gap-2 md:grid-cols-[repeat(auto-fill,minmax(150px,1fr))] md:gap-3">
               {media.map((m) => (
@@ -200,7 +200,7 @@ export function FilesTab({
 
       {chip !== "Media" && (
         <div className="overflow-hidden rounded-xl border border-line bg-card">
-          {visible.length === 0 && <p className="px-4 py-4 text-[14px] text-muted">Nothing to show.</p>}
+          {visible.length === 0 && <p className="px-4 py-4 text-[15px] text-muted">Nothing to show.</p>}
           {visible.map((r) => (
             <a
               key={r.key}
@@ -220,8 +220,8 @@ export function FilesTab({
                 )}
               </div>
               <div className="min-w-0">
-                <div className="truncate text-[15px] font-semibold">{r.name}</div>
-                <div className="truncate text-[13px] text-muted">{r.meta}</div>
+                <div className="truncate text-[16px] font-semibold">{r.name}</div>
+                <div className="truncate text-[14px] text-muted">{r.meta}</div>
               </div>
             </a>
           ))}

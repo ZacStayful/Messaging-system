@@ -61,7 +61,7 @@ export function Composer({ conversationId, placeholder, canPostInternal, onSend 
         }}
       >
         {internal && (
-          <div className="flex items-center gap-2 px-3.5 pt-2 text-[12px] font-semibold text-[#B4661F]">
+          <div className="flex items-center gap-2 px-3.5 pt-2 text-[13px] font-semibold text-[#B4661F]">
             Internal note · only the Stayful team will see this
           </div>
         )}
@@ -73,7 +73,7 @@ export function Composer({ conversationId, placeholder, canPostInternal, onSend 
           onKeyDown={onKeyDown}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="block w-full resize-none border-0 bg-transparent px-3.5 pt-3 pb-1 text-[15px] leading-normal text-ink outline-none"
+          className="block w-full resize-none border-0 bg-transparent px-3.5 pt-3 pb-1 text-[16px] leading-normal text-ink outline-none"
           style={{ minHeight: 44 }}
         />
         <div className="flex items-center gap-0.5 px-2 pt-1 pb-2 text-ink">
@@ -119,7 +119,7 @@ export function Composer({ conversationId, placeholder, canPostInternal, onSend 
               type="button"
               onClick={() => setInternal((v) => !v)}
               aria-pressed={internal}
-              className="ml-1 h-[26px] rounded-md px-2 text-[12px] font-semibold"
+              className="ml-1 h-[26px] rounded-md px-2 text-[13px] font-semibold"
               style={
                 internal
                   ? { background: "#E28A2B", color: "#fff" }

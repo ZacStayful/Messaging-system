@@ -142,8 +142,12 @@ topic. Presence runs on `org:<id>`. Clients back-fill from Postgres after any re
 | --- | --- |
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
 | `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint, TypeScript, Prettier |
-| `pnpm test` | Vitest: unit tests and the RLS suite (needs `.env.local`) |
-| `pnpm test:e2e` | Playwright smoke tests against a production build (`pnpm build` first) |
+| `pnpm test` | Vitest: unit tests; the RLS suite runs only when `SEED_TEST_PASSWORD` is set |
+| `pnpm test:e2e` | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
+
+The RLS and sign-in tests expect the fixtures from `supabase/seed.sql` (test accounts and groups).
+Run them against a local stack (`supabase start && supabase db reset`) or a staging project, never
+against production, which holds real accounts only.
 | `pnpm db:types` | Regenerate `src/lib/database.types.ts` from the hosted project |
 
 Playwright options for sandboxes: `PW_CHROMIUM_EXECUTABLE` to use a preinstalled Chromium,

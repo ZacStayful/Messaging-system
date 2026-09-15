@@ -38,12 +38,12 @@ export function MobileTabBar() {
             >
               <Icon name={item.icon} size={22} />
               {badge > 0 && (
-                <span className="absolute -top-1.5 right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-[9px] border-2 border-frame bg-white px-[5px] text-[11px] font-bold text-[#3E5A3A]">
+                <span className="absolute -top-1.5 right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-[9px] border-2 border-frame bg-white px-[5px] text-[12px] font-bold text-[#3E5A3A]">
                   {badge}
                 </span>
               )}
             </span>
-            <span className="text-[11px] font-semibold">{item.label}</span>
+            <span className="font-display text-[12px] font-semibold">{item.label}</span>
           </Link>
         );
       })}

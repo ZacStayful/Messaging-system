@@ -13,11 +13,11 @@ function safeNext(next?: string) {
 }
 
 const inputClass =
-  "h-[46px] w-full rounded-lg border border-[#C9CEC4] bg-white px-3.5 text-[15px] font-normal text-[#1D1C1D] outline-none focus:border-[#5D8156] focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]";
+  "h-[46px] w-full rounded-lg border border-[#C9CEC4] bg-white px-3.5 text-[16px] font-normal text-[#1D1C1D] outline-none focus:border-[#5D8156] focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]";
 const primaryBtn =
-  "h-12 rounded-lg bg-[#5D8156] text-[15px] font-semibold text-white hover:bg-[#4E6E49] disabled:opacity-60";
+  "h-12 rounded-lg bg-[#5D8156] text-[16px] font-semibold text-white hover:bg-[#4E6E49] disabled:opacity-60";
 const secondaryBtn =
-  "h-[46px] rounded-lg border border-[#C9CEC4] bg-white text-[14px] font-medium text-[#1D1C1D] hover:bg-[#F3F6F0]";
+  "h-[46px] rounded-lg border border-[#C9CEC4] bg-white text-[15px] font-medium text-[#1D1C1D] hover:bg-[#F3F6F0]";
 
 /**
  * Email + password is the primary sign-in (customers receive their password by email when the
@@ -105,7 +105,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
       {status === "sent" ? (
         <div className="flex flex-col gap-3 text-[#1E2A1C]">
           <div className="text-[17px] font-bold">Check your email</div>
-          <p className="text-[14px] text-[#3E5A3A]">
+          <p className="text-[15px] text-[#3E5A3A]">
             We sent a sign-in link to <span className="font-semibold">{email.trim()}</span>. It expires in an hour.
           </p>
           <button type="button" onClick={() => switchMode("password")} className={secondaryBtn}>
@@ -114,7 +114,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
         </div>
       ) : (
         <form onSubmit={mode === "password" ? signInWithPassword : sendLink} className="flex flex-col gap-3.5">
-          <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-[#1E2A1C]">
+          <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-[#1E2A1C]">
             Email address
             <input
               type="email"
@@ -129,7 +129,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
           </label>
 
           {mode === "password" && (
-            <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-[#1E2A1C]">
+            <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-[#1E2A1C]">
               Password
               <span className="relative block">
                 <input
@@ -156,7 +156,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
           )}
 
           {error && (
-            <p role="alert" className="rounded-lg bg-[#FBEDEA] px-3 py-2 text-[13px] text-[#8A2E22]">
+            <p role="alert" className="rounded-lg bg-[#FBEDEA] px-3 py-2 text-[14px] text-[#8A2E22]">
               {error}
             </p>
           )}
@@ -175,7 +175,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
             <button
               type="button"
               onClick={() => switchMode("link")}
-              className="text-[13px] font-medium text-[#3E6E3A] hover:underline"
+              className="text-[14px] font-medium text-[#3E6E3A] hover:underline"
             >
               Forgotten your password? Email me a sign-in link
             </button>
@@ -183,13 +183,13 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
             <button
               type="button"
               onClick={() => switchMode("password")}
-              className="text-[13px] font-medium text-[#3E6E3A] hover:underline"
+              className="text-[14px] font-medium text-[#3E6E3A] hover:underline"
             >
               Sign in with a password instead
             </button>
           )}
 
-          <div className="flex items-center gap-2.5 text-[12px] text-[#7A7F76]">
+          <div className="flex items-center gap-2.5 text-[13px] text-[#7A7F76]">
             <div className="h-px flex-1 bg-[#E2E6DE]" />
             or
             <div className="h-px flex-1 bg-[#E2E6DE]" />

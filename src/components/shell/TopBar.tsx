@@ -23,7 +23,7 @@ export function TopBar() {
         </button>
         <div className="flex h-[30px] min-w-0 flex-1 max-w-[720px] items-center gap-2 rounded-md border border-sb-border bg-sb-input px-2.5 text-sb-dim">
           <Icon name="search" size={16} strokeWidth={2} />
-          <span className="truncate text-[13px]">Search Stayful</span>
+          <span className="truncate text-[14px]">Search Stayful</span>
         </div>
         <Image
           src="/brand/stayful-logo.png"

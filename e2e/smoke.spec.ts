@@ -30,7 +30,8 @@ async function signIn(context: BrowserContext, email: string) {
   await context.addCookies(jar.map((c) => ({ ...c, domain: "localhost", path: "/" })));
 }
 
-test.skip(!URL || !KEY || !PASSWORD, "needs Supabase env and SEED_TEST_PASSWORD in .env.local");
+const FIXTURES = !!(URL && KEY && PASSWORD);
+const needsFixtures = () => test.skip(!FIXTURES, "needs a seeded database and SEED_TEST_PASSWORD in .env.local");
 
 test("unauthenticated users land on the login page", async ({ page }) => {
   await page.goto("/dms");
@@ -42,6 +43,7 @@ test("unauthenticated users land on the login page", async ({ page }) => {
 });
 
 test("staff can browse, open a channel and send a message", async ({ page, context }, testInfo) => {
+  needsFixtures();
   await signIn(context, "test-staff@stayful.test");
   await page.goto("/dms");
   await expect(page.getByText("Direct messages").first()).toBeVisible();
@@ -57,6 +59,7 @@ test("staff can browse, open a channel and send a message", async ({ page, conte
 });
 
 test("a message sent by staff reaches the customer in real time", async ({ browser }, testInfo) => {
+  needsFixtures();
   test.skip(testInfo.project.name !== "desktop", "one realtime run is enough");
   const staffCtx = await browser.newContext();
   const customerCtx = await browser.newContext();
@@ -84,6 +87,7 @@ test("a message sent by staff reaches the customer in real time", async ({ brows
 });
 
 test("dark mode toggle persists across reload", async ({ page, context }, testInfo) => {
+  needsFixtures();
   test.skip(testInfo.project.name !== "desktop", "rail is desktop-only");
   await signIn(context, "test-staff@stayful.test");
   await page.goto("/dms");
@@ -97,6 +101,7 @@ test("mobile shows the list with a bottom tab bar, then the conversation with a 
   page,
   context,
 }, testInfo) => {
+  needsFixtures();
   test.skip(testInfo.project.name !== "mobile", "mobile layout only");
   await signIn(context, "test-staff@stayful.test");
   await page.goto("/home");
@@ -108,6 +113,7 @@ test("mobile shows the list with a bottom tab bar, then the conversation with a 
 });
 
 test("password sign-in through the login form", async ({ page }, testInfo) => {
+  needsFixtures();
   test.skip(testInfo.project.name !== "desktop", "one run is enough");
   await page.goto("/login");
   await page.getByLabel("Email address").fill("test-staff@stayful.test");
@@ -126,6 +132,7 @@ test("password sign-in through the login form", async ({ page }, testInfo) => {
 });
 
 test("customers cannot open the invite page", async ({ page, context }, testInfo) => {
+  needsFixtures();
   test.skip(testInfo.project.name !== "desktop", "one run is enough");
   await signIn(context, "test-customer@stayful.test");
   const res = await page.goto("/customers/new");

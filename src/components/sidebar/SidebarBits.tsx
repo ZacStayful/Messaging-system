@@ -13,7 +13,7 @@ export function SidebarHeader({
 }) {
   return (
     <div className="flex h-[50px] shrink-0 items-center gap-2 pr-3 pl-4 pt-[env(safe-area-inset-top,0px)] md:pt-0">
-      <span className="text-[18px] font-bold whitespace-nowrap">{title}</span>
+      <span className="font-display text-[18px] font-bold whitespace-nowrap">{title}</span>
       {chevron && <Icon name="chevronDown" size={16} strokeWidth={2} />}
       <div className="flex-1" />
       {children}
@@ -24,7 +24,7 @@ export function SidebarHeader({
 export function UnreadToggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <>
-      <span className="hidden min-w-0 truncate text-[13px] font-semibold text-sb-dim sm:inline">Unread messages</span>
+      <span className="hidden min-w-0 truncate text-[14px] font-semibold text-sb-dim sm:inline">Unread messages</span>
       <button
         type="button"
         role="switch"
@@ -60,7 +60,7 @@ export function SidebarSearch({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="min-w-0 flex-1 border-0 bg-transparent text-[14px] text-sb-text outline-none"
+        className="min-w-0 flex-1 border-0 bg-transparent text-[15px] text-sb-text outline-none"
       />
     </div>
   );

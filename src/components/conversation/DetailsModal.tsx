@@ -27,7 +27,7 @@ const OTHER_TEXT: Record<string, string> = {
   settings: "Only workspace admins can change these settings.",
 };
 
-const chip = "flex h-9 items-center gap-1.5 rounded-lg border border-input-border px-3 text-[14px] font-medium";
+const chip = "flex h-9 items-center gap-1.5 rounded-lg border border-input-border px-3 text-[15px] font-medium";
 
 export function DetailsModal({ conversation, title, createdAt, description, initialTab, onClose }: DetailsModalProps) {
   const { me, org, profiles, isOnline, openDm } = useStore();
@@ -115,7 +115,7 @@ export function DetailsModal({ conversation, title, createdAt, description, init
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className="flex items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 pt-2 pb-2.5 text-[15px] whitespace-nowrap"
+                className="flex items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 pt-2 pb-2.5 text-[16px] whitespace-nowrap"
                 style={{
                   borderBottomColor: on ? "var(--tab)" : "transparent",
                   color: on ? "var(--text)" : "var(--muted)",
@@ -141,10 +141,10 @@ export function DetailsModal({ conversation, title, createdAt, description, init
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Find people or agents"
                   aria-label="Find people"
-                  className="flex-1 border-0 bg-transparent text-[15px] text-ink outline-none"
+                  className="flex-1 border-0 bg-transparent text-[16px] text-ink outline-none"
                 />
               </div>
-              <span className="hidden h-11 w-[200px] max-w-[35%] items-center justify-between rounded-lg border border-input-border px-3 text-[15px] sm:flex">
+              <span className="hidden h-11 w-[200px] max-w-[35%] items-center justify-between rounded-lg border border-input-border px-3 text-[16px] sm:flex">
                 All <Icon name="chevronDown" size={14} strokeWidth={2} />
               </span>
             </div>
@@ -160,12 +160,12 @@ export function DetailsModal({ conversation, title, createdAt, description, init
                     className="flex w-full items-center gap-3.5 border-0 bg-transparent px-5 py-2.5 text-left text-ink hover:bg-hover disabled:cursor-default md:px-6"
                   >
                     <Avatar profile={p} size={40} radius={8} />
-                    <span className="text-[15px] font-bold">{p.display_name}</span>
+                    <span className="text-[16px] font-bold">{p.display_name}</span>
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: look.bg, boxShadow: look.ring }} />
-                    <span className="truncate text-[15px] text-muted">{p.full_name}</span>
-                    {p.id === me.id && <span className="text-[13px] text-muted">(you)</span>}
+                    <span className="truncate text-[16px] text-muted">{p.full_name}</span>
+                    {p.id === me.id && <span className="text-[14px] text-muted">(you)</span>}
                     {p.account_type === "team" && (
-                      <span className="ml-auto rounded bg-soft px-1.5 py-0.5 text-[11px] font-semibold text-link">
+                      <span className="ml-auto rounded bg-soft px-1.5 py-0.5 text-[12px] font-semibold text-link">
                         Stayful
                       </span>
                     )}
@@ -179,12 +179,12 @@ export function DetailsModal({ conversation, title, createdAt, description, init
         {tab === "about" && (
           <div className="flex flex-col gap-3 px-5 pt-4 pb-5 md:px-6 md:pb-6">
             <div className="rounded-xl border border-line px-4 py-3.5">
-              <div className="mb-1 text-[14px] font-semibold">Topic</div>
-              <div className="text-[15px] text-muted">{conversation.topic || "No topic set"}</div>
+              <div className="mb-1 text-[15px] font-semibold">Topic</div>
+              <div className="text-[16px] text-muted">{conversation.topic || "No topic set"}</div>
             </div>
             <div className="rounded-xl border border-line px-4 py-3.5">
-              <div className="mb-1 text-[14px] font-semibold">Description</div>
-              <div className="text-[15px] text-muted">
+              <div className="mb-1 text-[15px] font-semibold">Description</div>
+              <div className="text-[16px] text-muted">
                 {description ||
                   (isChannel
                     ? "Private conversation between the Stayful team and the property owner. Onboarding, bookings and maintenance updates live here."
@@ -192,8 +192,8 @@ export function DetailsModal({ conversation, title, createdAt, description, init
               </div>
             </div>
             <div className="rounded-xl border border-line px-4 py-3.5">
-              <div className="mb-1 text-[14px] font-semibold">Managed by</div>
-              <div className="text-[15px] text-muted">
+              <div className="mb-1 text-[15px] font-semibold">Managed by</div>
+              <div className="text-[16px] text-muted">
                 {org.name} · created {longDate(createdAt)}
               </div>
             </div>
@@ -201,7 +201,7 @@ export function DetailsModal({ conversation, title, createdAt, description, init
         )}
 
         {tab !== "members" && tab !== "about" && (
-          <div className="px-6 pt-8 pb-10 text-center text-[15px] text-muted">{OTHER_TEXT[tab]}</div>
+          <div className="px-6 pt-8 pb-10 text-center text-[16px] text-muted">{OTHER_TEXT[tab]}</div>
         )}
       </div>
     </div>
