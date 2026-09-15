@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayLabel, listTime, pinWhen, previewOf, timeLabel } from "@/lib/format";
+import { dayLabel, futureTime, listTime, pinWhen, previewOf, timeLabel } from "@/lib/format";
 import { extractLinks, mentionToken, mentionedNames, parseBlocks, parseInline } from "@/lib/richtext";
 
 const now = new Date("2026-09-15T09:00:00+01:00");
@@ -83,5 +83,15 @@ describe("richtext", () => {
     expect(mentionToken("Zac")).toBe("@Zac");
     expect(mentionToken("Nigel Hyde")).toBe("@[Nigel Hyde]");
     expect(previewOf("cc @[Nigel Hyde] please")).toBe("cc @Nigel Hyde please");
+  });
+});
+
+describe("futureTime", () => {
+  const now = new Date("2026-09-15T13:00:00");
+  it("labels today, tomorrow, this week and later", () => {
+    expect(futureTime(new Date("2026-09-15T17:00:00"), now)).toMatch(/^today at/);
+    expect(futureTime(new Date("2026-09-16T09:00:00"), now)).toMatch(/^tomorrow at/);
+    expect(futureTime(new Date("2026-09-18T09:00:00"), now)).toMatch(/^Friday at/);
+    expect(futureTime(new Date("2026-10-02T09:00:00"), now)).toMatch(/^2 October at/);
   });
 });

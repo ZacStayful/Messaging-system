@@ -67,7 +67,7 @@ export function FilesSidebar() {
               role="tab"
               aria-selected={on}
               onClick={() => setChip(c)}
-              className="flex h-7 items-center rounded-[14px] px-3 text-[14px]"
+              className="flex h-7 items-center rounded-[14px] px-3 text-[14px] whitespace-nowrap"
               style={
                 on
                   ? { background: "#FFFFFF", color: "#3E5A3A", fontWeight: 600 }
