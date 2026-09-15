@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Avatar } from "@/components/ui/Avatar";
 import { useStore, type Nav } from "./store";
+import { useNow } from "@/lib/useNow";
 import { dndActive, presenceLook } from "@/lib/presence";
 
 const TEAM_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
@@ -20,18 +21,22 @@ const CUSTOMER_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
 ];
 
 export function useUnreadTotals() {
-  const { conversations, activity, activityRead } = useStore();
+  const { conversations, activity, activityRead, saved } = useStore();
+  const now = useNow();
   const live = conversations.filter((c) => !c.archived_at);
+  const laterDue = saved.filter(
+    (r) => !r.completed_at && !r.archived_at && r.remind_at && new Date(r.remind_at).getTime() <= now,
+  ).length;
   const dmUnread = live.filter((c) => c.type === "dm" || c.type === "group_dm").reduce((n, c) => n + c.unread_count, 0);
   const channelUnread = live.some((c) => c.type !== "dm" && c.type !== "group_dm" && c.unread_count > 0 && !c.muted);
   const activityUnread = activity.filter((a) => a.unread && !activityRead.has(a.message_id)).length;
-  return { dmUnread, channelUnread, activityUnread };
+  return { dmUnread, channelUnread, activityUnread, laterDue };
 }
 
 export function Rail() {
   const { nav, me, presenceOf, isTeam, isCustomer } = useStore();
   const myLook = presenceLook(presenceOf(me.id));
-  const { dmUnread, channelUnread, activityUnread } = useUnreadTotals();
+  const { dmUnread, channelUnread, activityUnread, laterDue } = useUnreadTotals();
   const items = isCustomer ? CUSTOMER_ITEMS : TEAM_ITEMS;
 
   return (
@@ -48,7 +53,8 @@ export function Rail() {
       />
       {items.map((item) => {
         const active = nav === item.id;
-        const badge = item.id === "dms" ? dmUnread : item.id === "activity" ? activityUnread : 0;
+        const badge =
+          item.id === "dms" ? dmUnread : item.id === "activity" ? activityUnread : item.id === "later" ? laterDue : 0;
         const dot = item.id === "home" && channelUnread;
         return (
           <Link

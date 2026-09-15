@@ -139,6 +139,22 @@ suite("RLS", () => {
     await customer.from("profiles").update({ status_text: null, status_emoji: null }).eq("id", CUSTOMER_ID);
   });
 
+  it("saved items: only visible messages, only your own rows", async () => {
+    const bad = await customer
+      .from("saved_items")
+      .insert({ org_id: ORG, user_id: CUSTOMER_ID, message_id: INTERNAL_NOTE });
+    expect(bad.error).not.toBeNull();
+    const { data: ok, error } = await customer
+      .from("saved_items")
+      .insert({ org_id: ORG, user_id: CUSTOMER_ID, message_id: "d0000000-0000-4000-8000-000000000041" })
+      .select("id")
+      .single();
+    expect(error).toBeNull();
+    const { data: staffSees } = await staff.from("saved_items").select("id").eq("id", ok!.id);
+    expect(staffSees).toEqual([]);
+    await customer.from("saved_items").delete().eq("id", ok!.id);
+  });
+
   it("customer cannot promote themselves", async () => {
     const { error } = await customer
       .from("profiles")

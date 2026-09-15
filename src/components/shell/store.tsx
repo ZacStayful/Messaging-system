@@ -3,7 +3,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ActivityItem, ConversationSummary, Json, Profile, ThreadSummary } from "@/lib/database.types";
+import type {
+  ActivityItem,
+  ConversationSummary,
+  Json,
+  Message,
+  Profile,
+  SavedItem,
+  ThreadSummary,
+} from "@/lib/database.types";
 import { previewOf } from "@/lib/format";
 import { isNav, type Nav } from "@/lib/nav";
 import { AWAY_AFTER_MS, type PresenceStatus } from "@/lib/presence";
@@ -49,6 +57,9 @@ export type ProfileChangedEvent = Pick<
   | "deactivated_at"
 >;
 
+/** A saved-for-later row with the message it points at (null if since deleted or hidden). */
+export type SavedRow = SavedItem & { message: Message | null };
+
 export interface ProfileCardState {
   id: string;
   x: number;
@@ -82,6 +93,12 @@ interface StoreValue {
   /** Threads I follow (my own parents and anything I replied to), unread first. Team only. */
   threads: ThreadSummary[];
   threadsUnread: number;
+  /** Saved for later (team only), newest first. */
+  saved: SavedRow[];
+  savedByMessage: ReadonlyMap<string, SavedRow>;
+  saveMessage: (message: Message) => Promise<void>;
+  unsaveMessage: (messageId: string) => Promise<void>;
+  updateSaved: (id: string, patch: Partial<SavedItem>) => Promise<void>;
   online: ReadonlySet<string>;
   activityRead: ReadonlySet<string>;
   nav: Nav;
@@ -136,6 +153,7 @@ interface StoreProviderProps {
   conversations: ConversationSummary[];
   activity: ActivityItem[];
   threads: ThreadSummary[];
+  saved: SavedRow[];
   children: ReactNode;
 }
 
@@ -146,6 +164,7 @@ export function StoreProvider({
   conversations: initialConversations,
   activity: initialActivity,
   threads: initialThreads,
+  saved: initialSaved,
   children,
 }: StoreProviderProps) {
   const router = useRouter();
@@ -155,6 +174,12 @@ export function StoreProvider({
   const [conversations, setConversations] = useState(initialConversations);
   const [activity, setActivity] = useState(initialActivity);
   const [threads, setThreads] = useState(initialThreads);
+  const [saved, setSaved] = useState(initialSaved);
+  const [seenSaved, setSeenSaved] = useState(initialSaved);
+  if (seenSaved !== initialSaved) {
+    setSeenSaved(initialSaved);
+    setSaved(initialSaved);
+  }
   // user id -> away? for everyone tracked on the org presence channel
   const [presence, setPresence] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const [profileCard, setProfileCard] = useState<ProfileCardState | null>(null);
@@ -298,6 +323,52 @@ export function StoreProvider({
     setActivity((prev) => prev.map((a) => ({ ...a, unread: false })));
     await supabase.from("profiles").update({ activity_seen_at: new Date().toISOString() }).eq("id", me.id);
   }, [supabase, me.id]);
+
+  const savedByMessage = useMemo(() => new Map(saved.map((r) => [r.message_id, r])), [saved]);
+
+  const saveMessage = useCallback(
+    async (message: Message) => {
+      const optimistic: SavedRow = {
+        id: `tmp-${message.id}`,
+        org_id: me.org_id,
+        user_id: me.id,
+        message_id: message.id,
+        saved_at: new Date().toISOString(),
+        remind_at: null,
+        reminded_at: null,
+        completed_at: null,
+        archived_at: null,
+        message,
+      };
+      setSaved((prev) => (prev.some((r) => r.message_id === message.id) ? prev : [optimistic, ...prev]));
+      const { data, error } = await supabase
+        .from("saved_items")
+        .insert({ org_id: me.org_id, user_id: me.id, message_id: message.id })
+        .select("*, message:messages(*)")
+        .single();
+      if (error || !data) setSaved((prev) => prev.filter((r) => r.message_id !== message.id));
+      else setSaved((prev) => prev.map((r) => (r.message_id === message.id ? (data as SavedRow) : r)));
+    },
+    [supabase, me.id, me.org_id],
+  );
+
+  const unsaveMessage = useCallback(
+    async (messageId: string) => {
+      const removed = saved.find((r) => r.message_id === messageId);
+      setSaved((prev) => prev.filter((r) => r.message_id !== messageId));
+      const { error } = await supabase.from("saved_items").delete().eq("message_id", messageId).eq("user_id", me.id);
+      if (error && removed) setSaved((prev) => [removed, ...prev]);
+    },
+    [supabase, me.id, saved],
+  );
+
+  const updateSaved = useCallback(
+    async (id: string, patch: Partial<SavedItem>) => {
+      setSaved((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+      await supabase.from("saved_items").update(patch).eq("id", id);
+    },
+    [supabase],
+  );
 
   const refreshThreads = useCallback(async () => {
     const { data } = await supabase.rpc("my_threads", { max_rows: 100 });
@@ -578,6 +649,11 @@ export function StoreProvider({
       activity,
       threads,
       threadsUnread: threads.reduce((n, t) => n + t.unread_count, 0),
+      saved,
+      savedByMessage,
+      saveMessage,
+      unsaveMessage,
+      updateSaved,
       online,
       activityRead,
       nav,
@@ -618,6 +694,11 @@ export function StoreProvider({
       conversations,
       activity,
       threads,
+      saved,
+      savedByMessage,
+      saveMessage,
+      unsaveMessage,
+      updateSaved,
       online,
       activityRead,
       nav,

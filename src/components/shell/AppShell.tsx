@@ -9,7 +9,8 @@ import { NewMessageModal } from "./NewMessageModal";
 import { DmList } from "@/components/sidebar/DmList";
 import { HomeSidebar } from "@/components/sidebar/HomeSidebar";
 import { ActivityList } from "@/components/sidebar/ActivityList";
-import { PlaceholderSidebar } from "@/components/sidebar/PlaceholderSidebar";
+import { LaterSidebar } from "@/components/sidebar/LaterSidebar";
+import { FilesSidebar } from "@/components/sidebar/FilesSidebar";
 import { YouSidebar } from "@/components/sidebar/YouSidebar";
 import { CustomerSidebar } from "@/components/sidebar/CustomerSidebar";
 import { ProfileCardHost } from "@/components/people/ProfileCard";
@@ -38,8 +39,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     <ActivityList />
   ) : nav === "you" ? (
     <YouSidebar />
+  ) : nav === "later" ? (
+    <LaterSidebar />
   ) : (
-    <PlaceholderSidebar nav={nav} />
+    <FilesSidebar />
   );
 
   return (

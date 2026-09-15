@@ -425,7 +425,9 @@ test("status, profile card and people directory", async ({ page, context }, test
   const dialog = page.getByRole("dialog", { name: "Set a status" });
   await dialog.getByLabel("Status text").fill("In a meeting");
   await dialog.getByLabel("Clear status after").selectOption("1h");
+  const saved = page.waitForResponse((r) => r.url().includes("/rest/v1/profiles") && r.request().method() === "PATCH");
   await dialog.getByRole("button", { name: "Save" }).click();
+  await saved;
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: /In a meeting/ })).toBeVisible();
 
@@ -450,7 +452,12 @@ test("status, profile card and people directory", async ({ page, context }, test
 
   // Clear the status again so the fixture stays neutral.
   await page.goto("/you");
+  const cleared = page.waitForResponse(
+    (r) => r.url().includes("/rest/v1/profiles") && r.request().method() === "PATCH",
+  );
   await page.getByRole("button", { name: "Clear status" }).click();
+  await cleared;
+  await page.reload();
   await expect(page.getByRole("button", { name: "Set a status" })).toBeVisible();
 });
 
@@ -460,6 +467,68 @@ test("customers cannot open the people directory", async ({ page, context }, tes
   await signIn(context, "test-customer@stayful.test");
   const res = await page.goto("/people");
   expect(res?.status()).toBe(404);
+});
+
+test("save for later, complete it, and browse Files", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "hover actions are desktop-only in this test");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+
+  const body = `later ${Date.now()}`;
+  await page.getByPlaceholder("Message #test-internal").fill(body);
+  await page.keyboard.press("Enter");
+  const row = page.locator("article", { hasText: body });
+  await expect(row).toBeVisible();
+  await expect(page.getByText("Sending…")).toHaveCount(0, { timeout: 10_000 });
+
+  await row.hover();
+  await row.getByRole("button", { name: "Save for later" }).click();
+  await expect(row.getByText("Saved for later")).toBeVisible();
+
+  // Later lists it under In progress; the row menu completes it and it moves to Completed.
+  await page.goto("/later");
+  const item = page.getByRole("link", { name: new RegExp(body) });
+  await expect(item).toBeVisible();
+  await page
+    .getByRole("button", { name: /Options for saved message from Test Staff/ })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: "Mark as complete" }).click();
+  await expect(item).toHaveCount(0);
+  await page.getByRole("tab", { name: /Completed/ }).click();
+  await expect(page.getByRole("link", { name: new RegExp(body) })).toBeVisible();
+  await page
+    .getByRole("button", { name: /Options for saved message from Test Staff/ })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: "Remove from Later" }).click();
+  await expect(page.getByRole("link", { name: new RegExp(body) })).toHaveCount(0);
+
+  // Files nav renders the workspace-wide list with its chips.
+  await page.goto("/files");
+  await expect(page.getByRole("tab", { name: "Voice notes" })).toBeVisible();
+  await expect(page.getByPlaceholder("Search files...")).toBeVisible();
+});
+
+test("consecutive messages from one sender group into a compact row", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+  const a = `group-a ${Date.now()}`;
+  const b = `group-b ${Date.now()}`;
+  await page.getByPlaceholder("Message #test-internal").fill(a);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("article", { hasText: a })).toBeVisible();
+  await page.getByPlaceholder("Message #test-internal").fill(b);
+  await page.keyboard.press("Enter");
+  const second = page.locator("article", { hasText: b });
+  await expect(second).toBeVisible();
+  // The second message hides the sender name (compact); the timeline still shows the name on group starts.
+  await expect(second.getByRole("button", { name: "Test Staff", exact: true })).toHaveCount(0);
+  await expect(second.getByText(/^\d{1,2}:\d{2}$/)).toHaveCount(1);
+  expect(await page.getByRole("button", { name: "Test Staff", exact: true }).count()).toBeGreaterThan(0);
 });
 
 test("history and help popovers open from the top bar", async ({ page, context }, testInfo) => {
