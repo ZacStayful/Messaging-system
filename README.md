@@ -297,6 +297,45 @@ curl -sS -X POST -H "Authorization: Bearer $K" -H 'content-type: application/jso
   "https://chat.stayful.co.uk/api/v1/conversations/$CID/messages"
 ```
 
+## MCP server
+
+`/api/mcp` speaks the Model Context Protocol over Streamable HTTP, so Claude, n8n, Zapier or
+anything else speaking MCP can drive the workspace with nothing to install. It authenticates
+with the same API keys and the same `verifyApiKey` helper as the REST API, so the two surfaces
+cannot end up authenticating differently, and every tool goes through the same
+`src/lib/api/service.ts` — neither front door holds logic of its own.
+
+Every tool acts as the key's Stayful team member and is bounded by that person's own access:
+an agent cannot see a group they are not in, and its messages are labelled "via MCP". Write
+tools say so in their own descriptions, so a model knows it is acting in a live workspace and
+not a sandbox.
+
+**Reading:** `list_conversations`, `get_conversation`, `list_messages`, `list_thread_replies`,
+`search_messages`, `list_people`, `list_bookmarks`, `whoami`.
+**Writing:** `send_message`, `create_group`, `open_dm`, `add_members`, `remove_member`,
+`invite_member`, `add_bookmark`, `remove_bookmark`, `set_my_status`.
+
+Scopes are checked per tool, not just at the endpoint, so a read-only key can still connect.
+
+```bash
+claude mcp add --transport http stayful https://chat.stayful.co.uk/api/mcp \
+  --header "Authorization: Bearer sk_live_..."
+```
+
+The endpoint is **stateless** — Vercel keeps nothing between requests, so there is no session
+to resume, and `maxSubscriptions: 0` rejects `subscriptions/listen` rather than opening an SSE
+stream a serverless function cannot hold. That rules out server-initiated notifications,
+resource subscriptions and streaming progress: every tool is plain request/response. The app's
+own live updates ride Supabase Realtime; MCP clients poll.
+
+**A bearer key works today** for Claude Code (above), the Anthropic Messages API `mcp_servers`
+block, n8n's MCP Client node, and stdio-only clients via `npx mcp-remote <url>`. **Adding this
+as a connector in the claude.ai or Claude Desktop UI generally needs OAuth**, which wants an
+authorization server this app does not have — that is a follow-up, not something this pass
+delivers. The groundwork is in place for it (`mcp-handler` ships `protectedResourceHandler` for
+RFC 9728, and the 401 already carries a spec-compliant `WWW-Authenticate` challenge). Check
+whether Zapier's MCP client accepts a static bearer header before promising it there.
+
 ## Scripts
 
 | Command                                        | What it does                                                                                                 |
