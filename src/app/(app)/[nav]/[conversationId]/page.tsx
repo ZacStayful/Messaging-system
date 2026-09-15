@@ -19,38 +19,47 @@ export default async function ConversationPage({
   } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const [{ data: conversation }, { data: membership }, { data: messages }, { data: pins }, { data: attachments }] =
-    await Promise.all([
-      supabase
-        .from("conversations")
-        .select("id, created_at, topic, description")
-        .eq("id", conversationId)
-        .maybeSingle(),
-      supabase
-        .from("conversation_members")
-        .select("last_read_at")
-        .eq("conversation_id", conversationId)
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .is("deleted_at", null)
-        .is("parent_id", null)
-        .order("created_at", { ascending: true })
-        .limit(300),
-      supabase
-        .from("pins")
-        .select("pinned_at, pinned_by, message:messages(*)")
-        .eq("conversation_id", conversationId)
-        .order("pinned_at", { ascending: false }),
-      supabase
-        .from("attachments")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: false }),
-    ]);
+  const [
+    { data: conversation },
+    { data: membership },
+    { data: messages },
+    { data: pins },
+    { data: attachments },
+    { data: bookmarks },
+  ] = await Promise.all([
+    supabase.from("conversations").select("id, created_at, topic, description").eq("id", conversationId).maybeSingle(),
+    supabase
+      .from("conversation_members")
+      .select("last_read_at")
+      .eq("conversation_id", conversationId)
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .is("deleted_at", null)
+      .is("parent_id", null)
+      .order("created_at", { ascending: true })
+      .limit(300),
+    supabase
+      .from("pins")
+      .select("pinned_at, pinned_by, message:messages(*)")
+      .eq("conversation_id", conversationId)
+      .order("pinned_at", { ascending: false }),
+    supabase
+      .from("attachments")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false }),
+    // Loaded here so the bookmark bar paints with the first render, not after a flash.
+    supabase
+      .from("conversation_bookmarks")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true }),
+  ]);
 
   if (!conversation) notFound();
 
@@ -68,6 +77,7 @@ export default async function ConversationPage({
       initialMessages={messages ?? []}
       pins={(pins ?? []).filter((p): p is PinWithMessage => p.message !== null) as PinWithMessage[]}
       attachments={attachments ?? []}
+      bookmarks={bookmarks ?? []}
       reactions={reactions ?? []}
       lastReadAt={membership?.last_read_at ?? null}
     />

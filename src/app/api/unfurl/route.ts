@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { safeHttpUrl } from "@/lib/urls";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +17,9 @@ export interface UnfurlResult {
 const CACHE_MS = 7 * 24 * 60 * 60_000;
 const MAX_BYTES = 512 * 1024;
 
+/** Shared with the bookmark features, so the rule exists once. See src/lib/urls.ts. */
 function blocked(u: URL): boolean {
-  if (u.protocol !== "http:" && u.protocol !== "https:") return true;
-  const h = u.hostname.toLowerCase();
-  if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) return true;
-  // IP literals (v4 / v6) are never unfurled: no poking at private networks from the server.
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":")) return true;
-  return false;
+  return safeHttpUrl(u.toString()) === null;
 }
 
 function meta(html: string, key: string): string | null {

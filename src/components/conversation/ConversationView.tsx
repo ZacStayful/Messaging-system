@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { notFound, useSearchParams } from "next/navigation";
-import type { Attachment, Message, Pin, Reaction, ScheduledMessage } from "@/lib/database.types";
+import type { Attachment, ConversationBookmark, Message, Pin, Reaction, ScheduledMessage } from "@/lib/database.types";
 import { useRouter } from "next/navigation";
 import { availableCommands } from "@/lib/slash";
 import { parseAwayArg } from "@/lib/presence";
@@ -20,6 +20,9 @@ import { ATTACH_EVENT, Composer, type OutgoingFile } from "./Composer";
 import { MessageItem, type LocalMessage } from "./MessageItem";
 import type { PendingAttachment } from "./AttachmentView";
 import { PinsTab } from "./PinsTab";
+import { BookmarkBar } from "./BookmarkBar";
+import { BookmarksTab } from "./BookmarksTab";
+import { BookmarkDialog, type BookmarkDraft } from "./BookmarkDialog";
 import { FilesTab } from "./FilesTab";
 import { DetailsModal, type DetailTab } from "./DetailsModal";
 import { ThreadPanel } from "./ThreadPanel";
@@ -38,14 +41,16 @@ interface ConversationViewProps {
   pins: PinWithMessage[];
   attachments: Attachment[];
   reactions: Reaction[];
+  bookmarks: ConversationBookmark[];
   lastReadAt: string | null;
 }
 
-type Tab = "messages" | "files" | "pins";
+type Tab = "messages" | "files" | "pins" | "bookmarks";
 const TABS: { id: Tab; label: string; icon: IconName; filled?: boolean }[] = [
   { id: "messages", label: "Messages", icon: "messages", filled: true },
   { id: "files", label: "Files and links", icon: "file" },
   { id: "pins", label: "Pins", icon: "pin" },
+  { id: "bookmarks", label: "Bookmarks", icon: "link" },
 ];
 
 /** "/dnd 30m", "/dnd 2h", "/dnd off" (default one hour) → pause-until timestamp. */
@@ -79,6 +84,7 @@ export function ConversationView({
   pins: initialPins,
   attachments: initialAttachments,
   reactions: initialReactions,
+  bookmarks: initialBookmarks,
   lastReadAt,
 }: ConversationViewProps) {
   const store = useStore();
@@ -116,6 +122,9 @@ export function ConversationView({
   const [reactions, setReactions] = useState<Reaction[]>(initialReactions);
   const [pins, setPins] = useState<PinWithMessage[]>(initialPins);
   const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
+  const [bookmarks, setBookmarks] = useState<ConversationBookmark[]>(initialBookmarks);
+  // null = closed; { bookmark: null } = adding; { bookmark } = editing that one.
+  const [bookmarkEdit, setBookmarkEdit] = useState<{ bookmark: ConversationBookmark | null } | null>(null);
   const [pending, setPending] = useState<Record<string, PendingAttachment[]>>({});
   const [tab, setTab] = useState<Tab>("messages");
   const [details, setDetails] = useState<DetailTab | null>(null);
@@ -337,6 +346,66 @@ export function ConversationView({
     [me.id],
   );
 
+  // ---- bookmarks ------------------------------------------------------------
+  const sortBookmarks = (list: ConversationBookmark[]) =>
+    [...list].sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
+
+  const onBookmarkChange = useCallback((c: Change<ConversationBookmark>) => {
+    setBookmarks((prev) => {
+      if (c.operation === "DELETE") {
+        const gone = c.old_record?.id;
+        return gone ? prev.filter((b) => b.id !== gone) : prev;
+      }
+      const row = c.record;
+      if (!row) return prev;
+      const without = prev.filter((b) => b.id !== row.id);
+      return sortBookmarks([...without, row]);
+    });
+  }, []);
+
+  const saveBookmark = async (draft: BookmarkDraft) => {
+    const editing = bookmarkEdit?.bookmark;
+    if (editing) {
+      // The row comes back over the BOOKMARK broadcast; patch locally so it feels immediate.
+      const { data } = await supabase
+        .from("conversation_bookmarks")
+        .update({ title: draft.title, url: draft.url, emoji: draft.emoji, note: draft.note })
+        .eq("id", editing.id)
+        .select()
+        .single();
+      if (data) onBookmarkChange({ operation: "UPDATE", record: data, old_record: editing });
+    } else {
+      const { data, error } = await supabase.rpc("add_bookmark", {
+        p_conversation_id: conversationId,
+        p_title: draft.title,
+        p_url: draft.url,
+        p_emoji: draft.emoji,
+        p_note: draft.note,
+      });
+      if (error) {
+        setFlash(error.message);
+        return;
+      }
+      if (data) onBookmarkChange({ operation: "INSERT", record: data, old_record: null });
+    }
+    setBookmarkEdit(null);
+  };
+
+  const removeBookmark = async (b: ConversationBookmark) => {
+    setBookmarks((prev) => prev.filter((x) => x.id !== b.id));
+    const { error } = await supabase.from("conversation_bookmarks").delete().eq("id", b.id);
+    if (error) {
+      setBookmarks((prev) => sortBookmarks([...prev, b]));
+      setFlash(error.message);
+    }
+  };
+
+  const moveBookmark = async (b: ConversationBookmark, delta: number) => {
+    const { error } = await supabase.rpc("move_bookmark", { p_id: b.id, p_delta: delta });
+    if (error) setFlash(error.message);
+    // Both swapped rows arrive over the broadcast; no optimistic reorder needed.
+  };
+
   const { sendTyping } = useConversationChannel({
     conversationId,
     onTyping: onTypingEvent,
@@ -358,6 +427,7 @@ export function ConversationView({
     onUpdate: upsert,
     onReaction: onReactionChange,
     onPin: (c) => void onPinChange(c),
+    onBookmark: onBookmarkChange,
     onAttachment: onAttachmentChange,
     onResubscribe: () => void backfill(),
   });
@@ -891,13 +961,27 @@ export function ConversationView({
           searchOpen={search.open}
         />
 
+        <BookmarkBar
+          bookmarks={bookmarks}
+          canAdd={!conversation.archived_at}
+          onAdd={() => setBookmarkEdit({ bookmark: null })}
+          onManage={() => setTab("bookmarks")}
+        />
+
         <div
           className="scroll-thin flex h-[46px] shrink-0 items-stretch gap-1 overflow-x-auto border-b border-line px-2 md:px-3"
           role="tablist"
         >
           {TABS.map((t) => {
             const on = tab === t.id;
-            const count = t.id === "pins" ? pins.length : t.id === "files" ? attachments.length : 0;
+            const count =
+              t.id === "pins"
+                ? pins.length
+                : t.id === "files"
+                  ? attachments.length
+                  : t.id === "bookmarks"
+                    ? bookmarks.length
+                    : 0;
             return (
               <button
                 key={t.id}
@@ -1145,6 +1229,19 @@ export function ConversationView({
             }}
           />
         )}
+        {tab === "bookmarks" && (
+          <BookmarksTab
+            bookmarks={bookmarks}
+            profiles={profiles}
+            isTeam={isTeam}
+            meId={me.id}
+            canAdd={!conversation.archived_at}
+            onAdd={() => setBookmarkEdit({ bookmark: null })}
+            onEdit={(b) => setBookmarkEdit({ bookmark: b })}
+            onRemove={(b) => void removeBookmark(b)}
+            onMove={(b, delta) => void moveBookmark(b, delta)}
+          />
+        )}
         {tab === "files" && (
           <FilesTab
             messages={messages}
@@ -1158,6 +1255,13 @@ export function ConversationView({
           />
         )}
 
+        {bookmarkEdit && (
+          <BookmarkDialog
+            bookmark={bookmarkEdit.bookmark}
+            onSave={saveBookmark}
+            onClose={() => setBookmarkEdit(null)}
+          />
+        )}
         {details && (
           <DetailsModal
             conversation={conversation}

@@ -32,6 +32,14 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   covering messages (Postgres full-text via `search_messages`, RLS-scoped), people and files;
   results deep-link to the message (`?m=<id>`). The magnifier in a conversation header opens
   in-conversation search with highlighted matches and next/previous.
+- Bookmarks (`0015_conversation_bookmarks.sql`): a scrolling row of link chips under the
+  conversation header plus a Bookmarks tab, for the third-party sites and important information a
+  group needs often — a listing, a cleaning rota, a shared folder, a gate code in the note field.
+  Any member can add one (http/https only, never a private or local address — the rule lives in
+  `src/lib/urls.ts` and is shared with `/api/unfurl`, with a CHECK constraint as the backstop);
+  pasting a link offers to fill the title from its Open Graph data. The team can reorder and
+  remove anything, a customer can edit their own. Changes reach everyone live over a `BOOKMARK`
+  broadcast on the conversation topic. Also available over the API and MCP.
 - Pins tab (jump to message, unpin), Files and links tab (newest/oldest), details modal with
   editable topic and description, member add/remove/leave, rename and archive (team).
 - Header menus: notification level (all / mentions / nothing) per conversation, mute, star,
@@ -153,6 +161,8 @@ Migrations live in `supabase/migrations` and are applied in order:
 14. `0014_manual_away.sql` manual away (`presence_mode`, `away_since`, `away_until`); away implies
     do-not-disturb inside `enqueue_message_notifications`; away travels on the `profile_changed`
     broadcast so everyone sees the badge live
+15. `0015_conversation_bookmarks.sql` `conversation_bookmarks` with pins-mirrored RLS,
+    `add_bookmark` / `move_bookmark`, and a `BOOKMARK` realtime broadcast
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
