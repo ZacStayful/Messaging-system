@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Message, Profile, Reaction } from "@/lib/database.types";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
-import { timeLabel } from "@/lib/format";
+import { listTime, timeLabel } from "@/lib/format";
 import { QUICK_REACTIONS } from "@/lib/emoji";
 import { MessageBody } from "./MessageBody";
 import { EmojiPicker } from "./EmojiPicker";
@@ -37,6 +37,10 @@ interface MessageItemProps {
   onEdit: (body: string) => void;
   onDelete: () => void;
   onOpenImage?: (attachment: AnyAttachment) => void;
+  /** Opens (or focuses) the thread for this message. Absent inside the thread panel. */
+  onOpenThread?: () => void;
+  /** Rendered inside the thread panel: no reply summary, no "reply in thread" action. */
+  inThread?: boolean;
 }
 
 const actionBtn =
@@ -58,6 +62,8 @@ export function MessageItem({
   onTogglePin,
   onEdit,
   onDelete,
+  onOpenThread,
+  inThread = false,
 }: MessageItemProps) {
   const internal = message.visibility === "internal";
   const system = message.kind === "system";
@@ -225,6 +231,19 @@ export function MessageItem({
           </div>
         )}
 
+        {!inThread && message.reply_count > 0 && onOpenThread && (
+          <button
+            type="button"
+            onClick={onOpenThread}
+            className="mt-0.5 mb-1 flex items-center gap-2 rounded-md py-0.5 pr-2 text-[14px] font-semibold text-link hover:underline"
+          >
+            <Icon name="messages" size={15} />
+            {message.reply_count} {message.reply_count === 1 ? "reply" : "replies"}
+            <span className="font-normal text-muted">
+              · Last reply {message.last_reply_at ? listTime(message.last_reply_at).toLowerCase() : ""}
+            </span>
+          </button>
+        )}
         {message._status === "sending" && <div className="-mt-1 text-[13px] text-muted">Sending…</div>}
         {message._status === "failed" && (
           <button
@@ -279,6 +298,17 @@ export function MessageItem({
               />
             )}
           </div>
+          {!inThread && onOpenThread && (
+            <button
+              type="button"
+              onClick={onOpenThread}
+              className={actionBtn}
+              aria-label="Reply in thread"
+              title="Reply in thread"
+            >
+              <Icon name="messages" size={18} />
+            </button>
+          )}
           <button
             type="button"
             onClick={onTogglePin}

@@ -11,6 +11,7 @@ import { listTime } from "@/lib/format";
 import { presenceLook } from "@/lib/presence";
 import { useDraftIds } from "@/lib/drafts";
 import { SearchLink, SidebarHeader, SidebarSearch, UnreadToggle, iconBtn } from "./SidebarBits";
+import { ThreadsRow } from "./ThreadsRow";
 
 export function DmList() {
   const { conversations, me, otherMember, conversationName, isOnline, activeConversationId, nav, openNewMessage } =
@@ -47,6 +48,7 @@ export function DmList() {
       </SidebarHeader>
       <SidebarSearch value={filter} onChange={setFilter} placeholder="Find a DM..." />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+        {!q && !unreadOnly && <ThreadsRow />}
         {rows.length === 0 && (
           <div className="px-4 py-6 text-[15px] text-sb-dim">
             <p>

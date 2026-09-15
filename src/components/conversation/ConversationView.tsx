@@ -18,6 +18,7 @@ import type { PendingAttachment } from "./AttachmentView";
 import { PinsTab } from "./PinsTab";
 import { FilesTab } from "./FilesTab";
 import { DetailsModal, type DetailTab } from "./DetailsModal";
+import { ThreadPanel } from "./ThreadPanel";
 
 export interface PinWithMessage {
   pinned_at: string;
@@ -79,6 +80,7 @@ export function ConversationView({
     toggleStar,
     toggleMute,
     setNotifyLevel,
+    markThreadRead,
     refresh,
   } = store;
   const conversation = conversationById(conversationId);
@@ -86,6 +88,7 @@ export function ConversationView({
   const router = useRouter();
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("m");
+  const deepLinkThread = searchParams.get("thread");
 
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
   const [reactions, setReactions] = useState<Reaction[]>(initialReactions);
@@ -97,6 +100,12 @@ export function ConversationView({
   const [initialLastRead] = useState(lastReadAt);
   const [search, setSearch] = useState<{ open: boolean; q: string; index: number }>({ open: false, q: "", index: 0 });
   const [flash, setFlash] = useState<string | null>(null);
+  // Thread panel: the open parent id, a copy of the parent (in case it is not in the loaded window) and its replies.
+  const [thread, setThread] = useState<string | null>(null);
+  const [threadParent, setThreadParent] = useState<LocalMessage | null>(null);
+  const [replies, setReplies] = useState<LocalMessage[]>([]);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const threadRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const outgoing = useRef<Record<string, OutgoingFile[]>>({});
@@ -108,16 +117,24 @@ export function ConversationView({
   }, [conversationId, markRead]);
 
   // ---- realtime -------------------------------------------------------------
+  const mergeRow = (prev: LocalMessage[], row: Message): LocalMessage[] => {
+    const clientId = clientIdOf(row);
+    const idx = prev.findIndex((m) => m.id === row.id || (clientId && m.id === clientId));
+    if (idx === -1) return row.deleted_at ? prev : sortByCreated([...prev, row]);
+    if (row.deleted_at) return prev.filter((_, i) => i !== idx);
+    const next = [...prev];
+    next[idx] = row;
+    return next;
+  };
+
   const upsert = useCallback((row: Message) => {
-    setMessages((prev) => {
-      const clientId = clientIdOf(row);
-      const idx = prev.findIndex((m) => m.id === row.id || (clientId && m.id === clientId));
-      if (idx === -1) return row.deleted_at ? prev : sortByCreated([...prev, row]);
-      if (row.deleted_at) return prev.filter((_, i) => i !== idx);
-      const next = [...prev];
-      next[idx] = row;
-      return next;
-    });
+    if (row.parent_id) {
+      // Replies live in the thread panel only; the parent's reply_count arrives as its own UPDATE.
+      if (row.parent_id === threadRef.current) setReplies((prev) => mergeRow(prev, row));
+    } else {
+      setMessages((prev) => mergeRow(prev, row));
+      setThreadParent((prev) => (prev && prev.id === row.id && !row.deleted_at ? row : prev));
+    }
     if (row.deleted_at) setPins((prev) => prev.filter((p) => p.message.id !== row.id));
     else setPins((prev) => prev.map((p) => (p.message.id === row.id ? { ...p, message: row } : p)));
   }, []);
@@ -134,30 +151,96 @@ export function ConversationView({
       .select("*")
       .eq("conversation_id", conversationId)
       .is("deleted_at", null)
+      .is("parent_id", null)
       .order("created_at", { ascending: true });
     const { data } = await (since ? base.gt("created_at", since) : base);
     data?.forEach(upsert);
-    if (data && data.length) {
-      const ids = data.map((m) => m.id);
-      const [{ data: rx }, { data: ax }] = await Promise.all([
-        supabase.from("reactions").select("*").in("message_id", ids),
-        supabase.from("attachments").select("*").in("message_id", ids),
-      ]);
-      if (rx) setReactions((prev) => [...prev.filter((r) => !rx.some((n) => sameReaction(r, n))), ...rx]);
-      if (ax) setAttachments((prev) => [...ax.filter((a) => !prev.some((p) => p.id === a.id)), ...prev]);
+    if (data && data.length) await loadExtras(data.map((m) => m.id));
+    if (threadRef.current) await loadReplies(threadRef.current, latestReplyAt.current);
+  };
+
+  /** Reactions and attachments for a batch of freshly loaded messages. */
+  const loadExtras = async (ids: string[]) => {
+    if (!ids.length) return;
+    const [{ data: rx }, { data: ax }] = await Promise.all([
+      supabase.from("reactions").select("*").in("message_id", ids),
+      supabase.from("attachments").select("*").in("message_id", ids),
+    ]);
+    if (rx) setReactions((prev) => [...prev.filter((r) => !rx.some((n) => sameReaction(r, n))), ...rx]);
+    if (ax) setAttachments((prev) => [...ax.filter((a) => !prev.some((p) => p.id === a.id)), ...prev]);
+  };
+
+  // ---- threads --------------------------------------------------------------
+  const latestReplyAt = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    latestReplyAt.current = replies.filter((r) => !r._status).at(-1)?.created_at;
+  }, [replies]);
+
+  const loadReplies = async (parentId: string, since?: string) => {
+    const base = supabase
+      .from("messages")
+      .select("*")
+      .eq("parent_id", parentId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(500);
+    const { data } = await (since ? base.gt("created_at", since) : base);
+    if (threadRef.current !== parentId) return;
+    if (data) {
+      setReplies((prev) => data.reduce(mergeRow, prev));
+      await loadExtras(data.map((m) => m.id));
     }
+  };
+
+  const closeThread = () => {
+    threadRef.current = null;
+    setThread(null);
+    setThreadParent(null);
+    setReplies([]);
+  };
+
+  const openThread = async (parentId: string, focusReplyId?: string) => {
+    if (threadRef.current !== parentId) {
+      threadRef.current = parentId;
+      setThread(parentId);
+      setReplies([]);
+      setThreadLoading(true);
+      const known = messages.find((m) => m.id === parentId);
+      setThreadParent(known ?? null);
+      if (!known) {
+        const { data } = await supabase.from("messages").select("*").eq("id", parentId).maybeSingle();
+        if (threadRef.current !== parentId) return;
+        if (!data || data.deleted_at) {
+          closeThread();
+          return;
+        }
+        setThreadParent(data);
+        void loadExtras([data.id]);
+      }
+      await loadReplies(parentId);
+      if (threadRef.current !== parentId) return;
+      setThreadLoading(false);
+    }
+    void markThreadRead(parentId);
+    if (focusReplyId) requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(focusReplyId)));
   };
 
   // Belt and braces: the personal topic tells us a message exists; if the conversation
   // channel has not delivered it yet, fetch it.
   const knownIds = useRef<Set<string>>(new Set());
   useEffect(() => {
-    knownIds.current = new Set(messages.map((m) => m.id));
-  }, [messages]);
+    knownIds.current = new Set([...messages, ...replies].map((m) => m.id));
+  }, [messages, replies]);
   useEffect(() => {
     const onMessage = (e: Event) => {
       const evt = (e as CustomEvent<IncomingMessageEvent>).detail;
       if (evt.conversation_id !== conversationId || knownIds.current.has(evt.message_id)) return;
+      if (evt.parent_id) {
+        if (evt.parent_id !== threadRef.current) return;
+        void loadReplies(evt.parent_id, latestReplyAt.current);
+        if (evt.sender_id !== me.id && document.visibilityState === "visible") void markThreadRead(evt.parent_id);
+        return;
+      }
       void backfill();
       if (evt.sender_id !== me.id && document.visibilityState === "visible") void markRead(conversationId);
     };
@@ -182,7 +265,7 @@ export function ConversationView({
         setPins((prev) => prev.filter((p) => p.message.id !== old.message_id));
       } else if (c.operation === "INSERT" && c.record) {
         const rec = c.record;
-        let message = messages.find((m) => m.id === rec.message_id) as Message | undefined;
+        let message = [...messages, ...replies].find((m) => m.id === rec.message_id) as Message | undefined;
         if (!message) {
           const { data } = await supabase.from("messages").select("*").eq("id", rec.message_id).maybeSingle();
           message = data ?? undefined;
@@ -196,7 +279,7 @@ export function ConversationView({
         );
       }
     },
-    [messages, supabase],
+    [messages, replies, supabase],
   );
 
   const onAttachmentChange = useCallback((c: Change<Attachment>) => {
@@ -213,7 +296,9 @@ export function ConversationView({
     conversationId,
     onInsert: (row) => {
       upsert(row);
-      if (row.sender_id !== me.id && document.visibilityState === "visible") void markRead(conversationId);
+      if (row.sender_id === me.id || document.visibilityState !== "visible") return;
+      if (!row.parent_id) void markRead(conversationId);
+      else if (row.parent_id === threadRef.current) void markThreadRead(row.parent_id);
     },
     onUpdate: upsert,
     onReaction: onReactionChange,
@@ -242,22 +327,39 @@ export function ConversationView({
     window.setTimeout(() => setFlash((f) => (f === messageId ? null : f)), 2500);
   }, []);
 
-  // Deep link (?m=<id>) from search results and activity: load older history if needed, then jump.
+  // Deep links from search results, activity and the Threads view:
+  //   ?m=<id>            jump to a message (a reply opens its thread and highlights it)
+  //   ?thread=<parent>   open a thread
   const handledDeepLink = useRef<string | null>(null);
+  const deepLinkKey = deepLinkId || deepLinkThread ? `${deepLinkId ?? ""}|${deepLinkThread ?? ""}` : null;
   useEffect(() => {
-    if (!deepLinkId || handledDeepLink.current === deepLinkId) return;
-    handledDeepLink.current = deepLinkId;
+    if (!deepLinkKey || handledDeepLink.current === deepLinkKey) return;
+    handledDeepLink.current = deepLinkKey;
     let cancelled = false;
     const run = async () => {
+      if (!deepLinkId) {
+        if (deepLinkThread) void openThread(deepLinkThread);
+        return;
+      }
+      let target: Message | undefined = [...messages, ...replies].find((m) => m.id === deepLinkId);
+      if (!target) {
+        const { data } = await supabase.from("messages").select("*").eq("id", deepLinkId).maybeSingle();
+        if (!data || cancelled) return;
+        target = data;
+      }
+      if (target.parent_id) {
+        setTab("messages");
+        void openThread(target.parent_id, deepLinkId);
+        return;
+      }
       if (!knownIds.current.has(deepLinkId)) {
-        const { data: target } = await supabase.from("messages").select("*").eq("id", deepLinkId).maybeSingle();
-        if (!target || cancelled) return;
         const [{ data: before }, { data: after }] = await Promise.all([
           supabase
             .from("messages")
             .select("*")
             .eq("conversation_id", conversationId)
             .is("deleted_at", null)
+            .is("parent_id", null)
             .lte("created_at", target.created_at)
             .order("created_at", { ascending: false })
             .limit(60),
@@ -266,6 +368,7 @@ export function ConversationView({
             .select("*")
             .eq("conversation_id", conversationId)
             .is("deleted_at", null)
+            .is("parent_id", null)
             .gt("created_at", target.created_at)
             .order("created_at", { ascending: true })
             .limit(60),
@@ -276,17 +379,10 @@ export function ConversationView({
           const ids = new Set(prev.map((m) => m.id));
           return sortByCreated([...prev, ...rows.filter((r) => !ids.has(r.id))]);
         });
-        const ids = rows.map((r) => r.id);
-        if (ids.length) {
-          const [{ data: rx }, { data: ax }] = await Promise.all([
-            supabase.from("reactions").select("*").in("message_id", ids),
-            supabase.from("attachments").select("*").in("message_id", ids),
-          ]);
-          if (rx) setReactions((prev) => [...prev.filter((r) => !rx.some((n) => sameReaction(r, n))), ...rx]);
-          if (ax) setAttachments((prev) => [...ax.filter((a) => !prev.some((p) => p.id === a.id)), ...prev]);
-        }
+        await loadExtras(rows.map((r) => r.id));
       }
       setTab("messages");
+      if (deepLinkThread) void openThread(deepLinkThread);
       // Wait a frame for the rows to render before scrolling.
       requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(deepLinkId)));
     };
@@ -294,7 +390,9 @@ export function ConversationView({
     return () => {
       cancelled = true;
     };
-  }, [deepLinkId, conversationId, supabase, jumpTo]);
+    // openThread/loadExtras are recreated each render; the handled-key ref makes this run once per link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkKey, deepLinkId, deepLinkThread, conversationId, supabase, jumpTo]);
 
   // ---- in-conversation search ----------------------------------------------
   const hitsFor = (raw: string): string[] => {
@@ -382,26 +480,36 @@ export function ConversationView({
     }
   };
 
+  /** Apply a patch to a message wherever it is shown (timeline, thread replies, thread parent). */
+  const patchMessage = (id: string, patch: (m: LocalMessage) => LocalMessage) => {
+    const apply = (list: LocalMessage[]) => list.map((m) => (m.id === id ? patch(m) : m));
+    setMessages(apply);
+    setReplies(apply);
+    setThreadParent((prev) => (prev && prev.id === id ? patch(prev) : prev));
+  };
+
   const editMessage = async (message: LocalMessage, body: string) => {
     const before = message.body;
-    setMessages((prev) =>
-      prev.map((m) => (m.id === message.id ? { ...m, body, edited_at: new Date().toISOString() } : m)),
-    );
+    patchMessage(message.id, (m) => ({ ...m, body, edited_at: new Date().toISOString() }));
     const { data, error } = await supabase.from("messages").update({ body }).eq("id", message.id).select().single();
-    if (error || !data) setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, body: before } : m)));
+    if (error || !data) patchMessage(message.id, (m) => ({ ...m, body: before }));
     else upsert(data);
   };
 
   const deleteMessage = async (message: LocalMessage) => {
-    const snapshot = messages;
+    const snapshot = { messages, replies };
     setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    setReplies((prev) => prev.filter((m) => m.id !== message.id));
     setPins((prev) => prev.filter((p) => p.message.id !== message.id));
+    if (message.id === threadRef.current) closeThread();
     const { error } = await supabase
       .from("messages")
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", message.id);
-    if (error) setMessages(snapshot);
-    else await supabase.from("pins").delete().eq("message_id", message.id);
+    if (error) {
+      setMessages(snapshot.messages);
+      setReplies(snapshot.replies);
+    } else await supabase.from("pins").delete().eq("message_id", message.id);
   };
 
   const toPending = (f: OutgoingFile, progress: PendingAttachment["progress"] = "uploading"): PendingAttachment => ({
@@ -460,6 +568,7 @@ export function ConversationView({
     visibility: "public" | "internal",
     files: OutgoingFile[] = [],
     existing?: LocalMessage,
+    parentId: string | null = existing?.parent_id ?? null,
   ) => {
     const clientId = existing?.id ?? crypto.randomUUID();
     const toSend = existing ? (outgoing.current[clientId] ?? []) : files;
@@ -480,7 +589,7 @@ export function ConversationView({
           body_tsv: null,
           kind: "text",
           visibility,
-          parent_id: null,
+          parent_id: parentId,
           reply_count: 0,
           last_reply_at: null,
           meta,
@@ -491,23 +600,35 @@ export function ConversationView({
           created_at: new Date().toISOString(),
           _status: "sending",
         };
-    stickToBottom.current = true;
-    setMessages((prev) =>
-      existing ? prev.map((m) => (m.id === existing.id ? optimistic : m)) : [...prev, optimistic],
-    );
+    const setList = parentId ? setReplies : setMessages;
+    if (!parentId) stickToBottom.current = true;
+    setList((prev) => (existing ? prev.map((m) => (m.id === existing.id ? optimistic : m)) : [...prev, optimistic]));
     if (toSend.length) setPending((prev) => ({ ...prev, [clientId]: toSend.map((f) => toPending(f)) }));
 
     const { data, error } = await supabase
       .from("messages")
-      .insert({ org_id: me.org_id, conversation_id: conversationId, sender_id: me.id, body, visibility, meta })
+      .insert({
+        org_id: me.org_id,
+        conversation_id: conversationId,
+        sender_id: me.id,
+        body,
+        visibility,
+        meta,
+        parent_id: parentId,
+      })
       .select()
       .single();
 
     if (error || !data) {
-      setMessages((prev) => prev.map((m) => (m.id === clientId ? { ...m, _status: "failed" } : m)));
+      setList((prev) => prev.map((m) => (m.id === clientId ? { ...m, _status: "failed" } : m)));
       return;
     }
     upsert(data);
+    if (parentId) {
+      // The trigger bumps reply_count on the parent; reflect it now rather than waiting for the UPDATE.
+      patchMessage(parentId, (m) => ({ ...m, reply_count: m.reply_count + 1, last_reply_at: data.created_at }));
+      void markThreadRead(parentId);
+    }
     delete outgoing.current[clientId];
     if (toSend.length) await uploadFiles(data.id, clientId, toSend);
   };
@@ -564,230 +685,266 @@ export function ConversationView({
     return map;
   }, [attachments]);
   const pinnedIds = useMemo(() => new Set(pins.map((p) => p.message.id)), [pins]);
+  const openParent = thread ? (messages.find((m) => m.id === thread) ?? threadParent) : null;
+  const canPostInternal = me.account_type === "team" && !isDm;
 
   return (
-    <>
-      <Header
-        conversation={conversation}
-        title={title}
-        other={other}
-        otherOnline={!!other && isOnline(other.id)}
-        backHref={`/${nav}`}
-        canManage={isTeam}
-        onOpenDetails={setDetails}
-        onToggleStar={() => void toggleStar(conversationId)}
-        onToggleMute={() => void toggleMute(conversationId)}
-        onSetNotifyLevel={(level) => void setNotifyLevel(conversationId, level)}
-        onLeave={() => void leaveConversation()}
-        onArchive={() => void toggleArchive()}
-        onToggleSearch={() => {
-          setTab("messages");
-          if (search.open) closeSearch();
-          else setSearch({ open: true, q: "", index: 0 });
-        }}
-        searchOpen={search.open}
-      />
-
-      <div
-        className="scroll-thin flex h-[46px] shrink-0 items-stretch gap-1 overflow-x-auto border-b border-line px-2 md:px-3"
-        role="tablist"
-      >
-        {TABS.map((t) => {
-          const on = tab === t.id;
-          const count = t.id === "pins" ? pins.length : t.id === "files" ? attachments.length : 0;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setTab(t.id)}
-              className="relative flex items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 text-[15px] whitespace-nowrap md:text-[16px]"
-              style={{
-                borderBottomColor: on ? "var(--tab)" : "transparent",
-                color: on ? "var(--text)" : "var(--muted)",
-                fontWeight: on ? 700 : 500,
-              }}
-            >
-              <Icon name={t.icon} size={18} filled={!!t.filled && on} className="hidden md:block" />
-              {t.label}
-              {count > 0 && <span className="text-[13px] font-medium text-muted">{count}</span>}
-            </button>
-          );
-        })}
-      </div>
-
-      {search.open && tab === "messages" && (
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-soft px-3 md:px-5" role="search">
-          <Icon name="search" size={18} className="text-muted" />
-          <input
-            autoFocus
-            value={search.q}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") closeSearch();
-              if (e.key === "Enter") stepSearch(e.shiftKey ? -1 : 1);
-            }}
-            placeholder={`Search in ${isDm ? "this conversation" : `#${conversation.name}`}`}
-            aria-label="Search in conversation"
-            className="min-w-0 flex-1 border-0 bg-transparent text-[16px] text-ink outline-none"
-          />
-          <span className="text-[13px] whitespace-nowrap text-muted tabular-nums">
-            {searchQuery ? (searchHits.length ? `${search.index + 1} of ${searchHits.length}` : "No matches") : ""}
-          </span>
-          <button
-            type="button"
-            onClick={() => stepSearch(-1)}
-            disabled={searchHits.length < 2}
-            className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover disabled:opacity-40"
-            aria-label="Previous match"
-          >
-            <Icon name="arrowUp" size={16} strokeWidth={2.2} />
-          </button>
-          <button
-            type="button"
-            onClick={() => stepSearch(1)}
-            disabled={searchHits.length < 2}
-            className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover disabled:opacity-40"
-            aria-label="Next match"
-          >
-            <Icon name="arrowDown" size={16} strokeWidth={2.2} />
-          </button>
-          <button
-            type="button"
-            onClick={closeSearch}
-            className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover"
-            aria-label="Close search"
-          >
-            <Icon name="close" size={18} />
-          </button>
-        </div>
-      )}
-
-      {tab === "messages" && (
-        <div
-          className="flex min-h-0 flex-1 flex-col"
-          onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
-          onDrop={onDropFiles}
-        >
-          <div
-            ref={scrollRef}
-            onScroll={onScroll}
-            className="scroll-thin flex min-h-0 flex-1 flex-col justify-end overflow-y-auto pt-2 pb-3"
-          >
-            <div className="px-3.5 md:px-5">
-              {messages.length === 0 && (
-                <p className="py-10 text-center text-[15px] text-muted">
-                  This is the very beginning of {isDm ? "your conversation" : `#${conversation.name}`}.
-                </p>
-              )}
-              {messages.map((m, i) => {
-                const showDay = i === 0 || dayKey(messages[i - 1].created_at) !== dayKey(m.created_at);
-                const clientId = clientIdOf(m) ?? m.id;
-                const own = attachmentsByMessage.get(m.id) ?? [];
-                const inflight = pending[clientId] ?? [];
-                return (
-                  <div key={m.id}>
-                    {showDay && (
-                      <div className="my-2.5 flex items-center md:mt-3.5">
-                        <div className="h-px flex-1 bg-line" />
-                        <span className="flex items-center gap-1 rounded-2xl border border-line bg-panel px-3 py-1 text-[14px] font-semibold">
-                          {dayLabel(m.created_at)}
-                          <Icon name="chevronDown" size={12} strokeWidth={2.4} />
-                        </span>
-                        <div className="h-px flex-1 bg-line" />
-                      </div>
-                    )}
-                    {m.id === firstNewId && (
-                      <div className="mt-1 mb-1.5 flex items-center gap-2">
-                        <div className="h-px flex-1 bg-new" />
-                        <span className="text-[14px] font-semibold text-new">New</span>
-                      </div>
-                    )}
-                    <MessageItem
-                      message={m}
-                      sender={m.sender_id ? profiles[m.sender_id] : undefined}
-                      me={me}
-                      profiles={profiles}
-                      reactions={reactionsByMessage.get(m.id) ?? []}
-                      attachments={[...own, ...inflight]}
-                      urls={urls}
-                      pinned={pinnedIds.has(m.id)}
-                      highlighted={flash === m.id || (search.open && currentHit === m.id)}
-                      query={searchQuery || undefined}
-                      onRetry={(msg) => void send(msg.body, msg.visibility, [], msg)}
-                      onReact={(emoji) => void toggleReaction(m.id, emoji)}
-                      onTogglePin={() => void togglePin(m)}
-                      onEdit={(body) => void editMessage(m, body)}
-                      onDelete={() => void deleteMessage(m)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {conversation.archived_at ? (
-            <div className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-[10px] border border-line bg-soft px-4 py-3 text-[15px] text-muted md:mx-5 md:mb-[18px]">
-              <Icon name="files" size={18} />
-              <span className="flex-1">This group is archived. You can read it, but nobody can post here.</span>
-              {isTeam && (
-                <button
-                  type="button"
-                  onClick={() => void toggleArchive()}
-                  className="font-semibold text-link hover:underline"
-                >
-                  Un-archive
-                </button>
-              )}
-            </div>
-          ) : (
-            <Composer
-              conversationId={conversationId}
-              placeholder={placeholder}
-              canPostInternal={me.account_type === "team" && !isDm}
-              members={memberProfiles.filter((p) => p.id !== me.id)}
-              onSend={(body, visibility, files) => void send(body, visibility, files)}
-            />
-          )}
-        </div>
-      )}
-
-      {tab === "pins" && (
-        <PinsTab
-          pins={pins}
-          profiles={profiles}
-          attachments={attachmentsByMessage}
-          urls={urls}
-          onUnpin={(m) => void togglePin(m)}
-          onJump={(id) => {
-            setTab("messages");
-            requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(id)));
-          }}
-        />
-      )}
-      {tab === "files" && (
-        <FilesTab
-          messages={messages}
-          attachments={attachments}
-          profiles={profiles}
-          urls={urls}
-          onJump={(id) => {
-            setTab("messages");
-            requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(id)));
-          }}
-        />
-      )}
-
-      {details && (
-        <DetailsModal
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Header
           conversation={conversation}
           title={title}
-          createdAt={createdAt}
-          description={description}
-          initialTab={details}
-          onClose={() => setDetails(null)}
+          other={other}
+          otherOnline={!!other && isOnline(other.id)}
+          backHref={`/${nav}`}
+          canManage={isTeam}
+          onOpenDetails={setDetails}
+          onToggleStar={() => void toggleStar(conversationId)}
+          onToggleMute={() => void toggleMute(conversationId)}
+          onSetNotifyLevel={(level) => void setNotifyLevel(conversationId, level)}
+          onLeave={() => void leaveConversation()}
+          onArchive={() => void toggleArchive()}
+          onToggleSearch={() => {
+            setTab("messages");
+            if (search.open) closeSearch();
+            else setSearch({ open: true, q: "", index: 0 });
+          }}
+          searchOpen={search.open}
+        />
+
+        <div
+          className="scroll-thin flex h-[46px] shrink-0 items-stretch gap-1 overflow-x-auto border-b border-line px-2 md:px-3"
+          role="tablist"
+        >
+          {TABS.map((t) => {
+            const on = tab === t.id;
+            const count = t.id === "pins" ? pins.length : t.id === "files" ? attachments.length : 0;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setTab(t.id)}
+                className="relative flex items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 text-[15px] whitespace-nowrap md:text-[16px]"
+                style={{
+                  borderBottomColor: on ? "var(--tab)" : "transparent",
+                  color: on ? "var(--text)" : "var(--muted)",
+                  fontWeight: on ? 700 : 500,
+                }}
+              >
+                <Icon name={t.icon} size={18} filled={!!t.filled && on} className="hidden md:block" />
+                {t.label}
+                {count > 0 && <span className="text-[13px] font-medium text-muted">{count}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {search.open && tab === "messages" && (
+          <div
+            className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-soft px-3 md:px-5"
+            role="search"
+          >
+            <Icon name="search" size={18} className="text-muted" />
+            <input
+              autoFocus
+              value={search.q}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") closeSearch();
+                if (e.key === "Enter") stepSearch(e.shiftKey ? -1 : 1);
+              }}
+              placeholder={`Search in ${isDm ? "this conversation" : `#${conversation.name}`}`}
+              aria-label="Search in conversation"
+              className="min-w-0 flex-1 border-0 bg-transparent text-[16px] text-ink outline-none"
+            />
+            <span className="text-[13px] whitespace-nowrap text-muted tabular-nums">
+              {searchQuery ? (searchHits.length ? `${search.index + 1} of ${searchHits.length}` : "No matches") : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => stepSearch(-1)}
+              disabled={searchHits.length < 2}
+              className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover disabled:opacity-40"
+              aria-label="Previous match"
+            >
+              <Icon name="arrowUp" size={16} strokeWidth={2.2} />
+            </button>
+            <button
+              type="button"
+              onClick={() => stepSearch(1)}
+              disabled={searchHits.length < 2}
+              className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover disabled:opacity-40"
+              aria-label="Next match"
+            >
+              <Icon name="arrowDown" size={16} strokeWidth={2.2} />
+            </button>
+            <button
+              type="button"
+              onClick={closeSearch}
+              className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover"
+              aria-label="Close search"
+            >
+              <Icon name="close" size={18} />
+            </button>
+          </div>
+        )}
+
+        {tab === "messages" && (
+          <div
+            className="flex min-h-0 flex-1 flex-col"
+            onDragOver={(e) => e.dataTransfer.types.includes("Files") && e.preventDefault()}
+            onDrop={onDropFiles}
+          >
+            <div
+              ref={scrollRef}
+              onScroll={onScroll}
+              className="scroll-thin flex min-h-0 flex-1 flex-col justify-end overflow-y-auto pt-2 pb-3"
+            >
+              <div className="px-3.5 md:px-5">
+                {messages.length === 0 && (
+                  <p className="py-10 text-center text-[15px] text-muted">
+                    This is the very beginning of {isDm ? "your conversation" : `#${conversation.name}`}.
+                  </p>
+                )}
+                {messages.map((m, i) => {
+                  const showDay = i === 0 || dayKey(messages[i - 1].created_at) !== dayKey(m.created_at);
+                  const clientId = clientIdOf(m) ?? m.id;
+                  const own = attachmentsByMessage.get(m.id) ?? [];
+                  const inflight = pending[clientId] ?? [];
+                  return (
+                    <div key={m.id}>
+                      {showDay && (
+                        <div className="my-2.5 flex items-center md:mt-3.5">
+                          <div className="h-px flex-1 bg-line" />
+                          <span className="flex items-center gap-1 rounded-2xl border border-line bg-panel px-3 py-1 text-[14px] font-semibold">
+                            {dayLabel(m.created_at)}
+                            <Icon name="chevronDown" size={12} strokeWidth={2.4} />
+                          </span>
+                          <div className="h-px flex-1 bg-line" />
+                        </div>
+                      )}
+                      {m.id === firstNewId && (
+                        <div className="mt-1 mb-1.5 flex items-center gap-2">
+                          <div className="h-px flex-1 bg-new" />
+                          <span className="text-[14px] font-semibold text-new">New</span>
+                        </div>
+                      )}
+                      <MessageItem
+                        message={m}
+                        sender={m.sender_id ? profiles[m.sender_id] : undefined}
+                        me={me}
+                        profiles={profiles}
+                        reactions={reactionsByMessage.get(m.id) ?? []}
+                        attachments={[...own, ...inflight]}
+                        urls={urls}
+                        pinned={pinnedIds.has(m.id)}
+                        highlighted={flash === m.id || (search.open && currentHit === m.id)}
+                        query={searchQuery || undefined}
+                        onRetry={(msg) => void send(msg.body, msg.visibility, [], msg)}
+                        onReact={(emoji) => void toggleReaction(m.id, emoji)}
+                        onTogglePin={() => void togglePin(m)}
+                        onEdit={(body) => void editMessage(m, body)}
+                        onDelete={() => void deleteMessage(m)}
+                        onOpenThread={m._status ? undefined : () => void openThread(m.id)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {conversation.archived_at ? (
+              <div className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-[10px] border border-line bg-soft px-4 py-3 text-[15px] text-muted md:mx-5 md:mb-[18px]">
+                <Icon name="files" size={18} />
+                <span className="flex-1">This group is archived. You can read it, but nobody can post here.</span>
+                {isTeam && (
+                  <button
+                    type="button"
+                    onClick={() => void toggleArchive()}
+                    className="font-semibold text-link hover:underline"
+                  >
+                    Un-archive
+                  </button>
+                )}
+              </div>
+            ) : (
+              <Composer
+                conversationId={conversationId}
+                placeholder={placeholder}
+                canPostInternal={canPostInternal}
+                members={memberProfiles.filter((p) => p.id !== me.id)}
+                onSend={(body, visibility, files) => void send(body, visibility, files)}
+              />
+            )}
+          </div>
+        )}
+
+        {tab === "pins" && (
+          <PinsTab
+            pins={pins}
+            profiles={profiles}
+            attachments={attachmentsByMessage}
+            urls={urls}
+            onUnpin={(m) => void togglePin(m)}
+            onJump={(id) => {
+              setTab("messages");
+              requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(id)));
+            }}
+          />
+        )}
+        {tab === "files" && (
+          <FilesTab
+            messages={messages}
+            attachments={attachments}
+            profiles={profiles}
+            urls={urls}
+            onJump={(id) => {
+              setTab("messages");
+              requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(id)));
+            }}
+          />
+        )}
+
+        {details && (
+          <DetailsModal
+            conversation={conversation}
+            title={title}
+            createdAt={createdAt}
+            description={description}
+            initialTab={details}
+            onClose={() => setDetails(null)}
+          />
+        )}
+      </div>
+
+      {openParent && (
+        <ThreadPanel
+          conversationId={conversationId}
+          conversationLabel={isDm ? title : `#${conversation.name}`}
+          parent={openParent}
+          replies={replies}
+          loading={threadLoading}
+          me={me}
+          profiles={profiles}
+          members={memberProfiles.filter((p) => p.id !== me.id)}
+          reactionsByMessage={reactionsByMessage}
+          attachmentsByMessage={attachmentsByMessage}
+          pending={pending}
+          urls={urls}
+          pinnedIds={pinnedIds}
+          flash={flash}
+          canPostInternal={canPostInternal}
+          archived={!!conversation.archived_at}
+          onClose={closeThread}
+          onSend={(body, visibility, files) => void send(body, visibility, files, undefined, openParent.id)}
+          onRetry={(msg) => void send(msg.body, msg.visibility, [], msg)}
+          onReact={(m, emoji) => void toggleReaction(m.id, emoji)}
+          onTogglePin={(m) => void togglePin(m)}
+          onEdit={(m, body) => void editMessage(m, body)}
+          onDelete={(m) => void deleteMessage(m)}
         />
       )}
-    </>
+    </div>
   );
 }
