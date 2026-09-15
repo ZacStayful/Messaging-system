@@ -51,7 +51,8 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except static assets and images
-    "/((?!_next/static|_next/image|brand/|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // Everything except API routes (they authenticate themselves: cron secret, webhook
+    // signature, signed unsubscribe token), static assets and images
+    "/((?!api/|_next/static|_next/image|brand/|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

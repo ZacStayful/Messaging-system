@@ -131,3 +131,13 @@ test("customers cannot open the invite page", async ({ page, context }, testInfo
   const res = await page.goto("/customers/new");
   expect(res?.status()).toBe(404);
 });
+
+test("API routes are never redirected to the login page", async ({ request }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  const cron = await request.get("/api/cron/notifications", { maxRedirects: 0 });
+  expect([401, 503]).toContain(cron.status());
+  const inbound = await request.post("/api/email/inbound", { data: {}, maxRedirects: 0 });
+  expect([401, 503]).toContain(inbound.status());
+  const unsub = await request.get("/api/email/unsubscribe?u=x&t=y", { maxRedirects: 0 });
+  expect(unsub.status()).toBe(400);
+});
