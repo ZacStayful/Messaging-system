@@ -54,6 +54,17 @@ export function listTime(value: string | Date | null | undefined, now: Date = ne
   return dayLabel(d, now);
 }
 
+/** A time in the future for schedules and reminders: "today at 9:00", "tomorrow at 9:00", "Monday at 9:00", "25 August at 9:00". */
+export function futureTime(value: string | Date, now: Date = new Date()): string {
+  const d = toDate(value);
+  const diff = -daysBetween(now, d); // days ahead
+  const time = timeLabel(d);
+  if (diff <= 0) return `today at ${time}`;
+  if (diff === 1) return `tomorrow at ${time}`;
+  if (diff < 7) return `${weekdayFmt.format(d)} at ${time}`;
+  return `${(d.getFullYear() === now.getFullYear() ? dayMonthFmt : dayMonthYearFmt).format(d)} at ${time}`;
+}
+
 /** "20 Aug 2024 at 1:43 PM" for pins. */
 export function pinWhen(value: string | Date): string {
   const d = toDate(value);

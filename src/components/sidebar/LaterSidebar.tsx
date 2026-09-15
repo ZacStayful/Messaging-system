@@ -6,7 +6,7 @@ import { useStore, type SavedRow } from "@/components/shell/store";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { Menu, type MenuItem } from "@/components/ui/Menu";
-import { listTime, previewOf } from "@/lib/format";
+import { futureTime, listTime, previewOf } from "@/lib/format";
 import { untilFor } from "@/components/people/StatusDialog";
 import { SidebarHeader } from "./SidebarBits";
 import { useNow } from "@/lib/useNow";
@@ -26,7 +26,7 @@ function remindLabel(r: SavedRow, now: number): { text: string; due: boolean } |
   if (!r.remind_at) return null;
   const t = new Date(r.remind_at).getTime();
   if (t <= now) return { text: "Reminder due", due: true };
-  return { text: `Remind ${listTime(r.remind_at).toLowerCase()}`, due: false };
+  return { text: `Remind ${futureTime(r.remind_at)}`, due: false };
 }
 
 /** Slack's Later: saved messages with reminders, In progress / Archived / Completed. */
@@ -34,7 +34,7 @@ export function LaterSidebar() {
   const { saved, profiles, conversationById, conversationName, updateSaved, unsaveMessage, activeConversationId } =
     useStore();
   const [tab, setTab] = useState<Tab>("In progress");
-  const [menu, setMenu] = useState<{ id: string; view: "main" | "remind" } | null>(null);
+  const [menu, setMenu] = useState<{ id: string; view: "main" | "remind"; x: number; y: number } | null>(null);
   const now = useNow();
 
   const rows = saved.filter((r) => {
@@ -48,6 +48,7 @@ export function LaterSidebar() {
     const bd = b.remind_at && new Date(b.remind_at).getTime() <= now ? 0 : 1;
     return ad - bd || b.saved_at.localeCompare(a.saved_at);
   });
+  const menuRow = menu ? saved.find((r) => r.id === menu.id) : undefined;
   const count = (t: Tab) =>
     saved.filter((r) =>
       t === "Completed"
@@ -85,7 +86,7 @@ export function LaterSidebar() {
           label: "Back",
           icon: "back",
           keepOpen: true,
-          onSelect: () => setMenu({ id: r.id, view: "main" }),
+          onSelect: () => setMenu((m) => (m ? { ...m, view: "main" } : m)),
         },
       ];
     }
@@ -126,7 +127,7 @@ export function LaterSidebar() {
       label: r.remind_at ? "Change reminder" : "Remind me",
       icon: "clock",
       keepOpen: true,
-      onSelect: () => setMenu({ id: r.id, view: "remind" }),
+      onSelect: () => setMenu((m) => (m ? { ...m, view: "remind" } : m)),
     });
     items.push("divider");
     items.push({
@@ -152,7 +153,7 @@ export function LaterSidebar() {
               role="tab"
               aria-selected={on}
               onClick={() => setTab(t)}
-              className="flex h-7 items-center gap-1 rounded-[14px] px-3 text-[14px]"
+              className="flex h-7 items-center gap-1 rounded-[14px] px-3 text-[14px] whitespace-nowrap"
               style={
                 on
                   ? { background: "#FFFFFF", color: "#3E5A3A", fontWeight: 600 }
@@ -221,30 +222,34 @@ export function LaterSidebar() {
                   )}
                 </span>
               </Link>
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setMenu(open ? null : { id: r.id, view: "main" })}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent text-current hover:bg-sb-hover"
-                  aria-label={`Options for saved message from ${sender?.display_name ?? "Stayful"}`}
-                  aria-expanded={open}
-                >
-                  <Icon name="more" size={16} strokeWidth={2.6} />
-                </button>
-                {open && (
-                  <Menu
-                    label="Saved item options"
-                    header={menu?.view === "remind" ? "Remind me" : undefined}
-                    items={itemsFor(r)}
-                    onClose={() => setMenu(null)}
-                    align="right"
-                  />
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (open) return setMenu(null);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setMenu({ id: r.id, view: "main", x: rect.right, y: rect.bottom + 4 });
+                }}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-current hover:bg-sb-hover"
+                aria-label={`Options for saved message from ${sender?.display_name ?? "Stayful"}`}
+                aria-expanded={open}
+              >
+                <Icon name="more" size={16} strokeWidth={2.6} />
+              </button>
             </div>
           );
         })}
       </div>
+      {menuRow && menu && (
+        <div className="fixed z-40" style={{ left: Math.max(8, menu.x - 260), top: menu.y }}>
+          <Menu
+            label="Saved item options"
+            header={menu.view === "remind" ? "Remind me" : undefined}
+            items={itemsFor(menuRow)}
+            onClose={() => setMenu(null)}
+            align="left"
+          />
+        </div>
+      )}
     </>
   );
 }

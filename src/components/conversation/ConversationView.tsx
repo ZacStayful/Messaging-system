@@ -5,7 +5,7 @@ import { notFound, useSearchParams } from "next/navigation";
 import type { Attachment, Message, Pin, Reaction, ScheduledMessage } from "@/lib/database.types";
 import { useRouter } from "next/navigation";
 import { availableCommands } from "@/lib/slash";
-import { listTime } from "@/lib/format";
+import { futureTime } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
 import { MESSAGE_EVENT, useStore, type IncomingMessageEvent } from "@/components/shell/store";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -1077,7 +1077,7 @@ export function ConversationView({
                 {scheduled.map((s) => (
                   <span key={s.id} className="flex items-center gap-2">
                     <Icon name="clock" size={13} />
-                    Scheduled for {listTime(s.send_at)}:{" "}
+                    Scheduled for {futureTime(s.send_at)}:{" "}
                     <span className="truncate text-ink">{s.body.slice(0, 40)}</span>
                     <button
                       type="button"
