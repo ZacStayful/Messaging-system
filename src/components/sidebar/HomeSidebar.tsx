@@ -11,7 +11,7 @@ import { presenceLook } from "@/lib/presence";
 import { SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
 
 export function HomeSidebar() {
-  const { conversations, org, otherMember, conversationName, isOnline, activeConversationId } = useStore();
+  const { conversations, org, me, otherMember, conversationName, isOnline, activeConversationId } = useStore();
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
 
@@ -28,7 +28,8 @@ export function HomeSidebar() {
   );
   const dms = useMemo(() => conversations.filter((c) => c.type === "dm").slice(0, 5), [conversations]);
 
-  const sel = (id: string) => (activeConversationId === id ? { background: "var(--sb-sel)", color: "var(--sb-sel-text)" } : undefined);
+  const sel = (id: string) =>
+    activeConversationId === id ? { background: "var(--sb-sel)", color: "var(--sb-sel-text)" } : undefined;
 
   return (
     <>
@@ -36,9 +37,16 @@ export function HomeSidebar() {
         <button type="button" className={iconBtn} aria-label="Workspace settings" title="Workspace settings">
           <Icon name="settings" />
         </button>
-        <button type="button" className={iconBtn} aria-label="New message" title="New message">
-          <Icon name="pencil" />
-        </button>
+        {me.account_type === "team" && (
+          <Link
+            href="/customers/new"
+            className={`${iconBtn} no-underline`}
+            aria-label="Invite a customer"
+            title="Invite a customer"
+          >
+            <Icon name="userPlus" />
+          </Link>
+        )}
       </SidebarHeader>
       <SidebarSearch value={filter} onChange={setFilter} placeholder="Find a conversation..." />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-3">

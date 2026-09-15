@@ -40,7 +40,9 @@ export function DmList() {
       <SidebarSearch value={filter} onChange={setFilter} placeholder="Find a DM..." />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 && (
-          <p className="px-4 py-6 text-[14px] text-sb-dim">{unreadOnly ? "You're all caught up." : "No direct messages match."}</p>
+          <p className="px-4 py-6 text-[14px] text-sb-dim">
+            {unreadOnly ? "You're all caught up." : "No direct messages match."}
+          </p>
         )}
         {rows.map((c) => {
           const other = otherMember(c);
@@ -71,7 +73,9 @@ export function DmList() {
                   {drafts.has(c.id) && <Icon name="pencil" size={14} strokeWidth={2} aria-label="Draft" />}
                   <UnreadBadge count={c.unread_count} />
                 </div>
-                <div className={`clamp-2 text-[14px] leading-[1.45] opacity-95 ${isSelf ? "italic" : ""}`}>{preview}</div>
+                <div className={`clamp-2 text-[14px] leading-[1.45] opacity-95 ${isSelf ? "italic" : ""}`}>
+                  {preview}
+                </div>
               </div>
             </Link>
           );

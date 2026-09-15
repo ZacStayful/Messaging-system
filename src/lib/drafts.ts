@@ -53,7 +53,11 @@ export function useDraftIds(conversationIds: string[]): ReadonlySet<string> {
   const key = conversationIds.join(",");
   const joined = useSyncExternalStore(
     subscribe,
-    () => key.split(",").filter((id) => id && hasDraft(id)).join(","),
+    () =>
+      key
+        .split(",")
+        .filter((id) => id && hasDraft(id))
+        .join(","),
     () => "",
   );
   return new Set(joined ? joined.split(",") : []);

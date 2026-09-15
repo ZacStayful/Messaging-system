@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useStore } from "@/components/shell/store";
 import { useTheme } from "@/lib/theme-client";
 import { Avatar } from "@/components/ui/Avatar";
@@ -31,6 +32,22 @@ export function YouSidebar() {
             </div>
           </div>
         </div>
+        <Link
+          href="/settings/account"
+          className="flex h-11 items-center gap-3 rounded-lg border border-sb-border bg-sb-input px-3 text-[14px] font-medium text-sb-text no-underline"
+        >
+          <Icon name="key" />
+          Account and password
+        </Link>
+        {me.account_type === "team" && (
+          <Link
+            href="/customers/new"
+            className="flex h-11 items-center gap-3 rounded-lg border border-sb-border bg-sb-input px-3 text-[14px] font-medium text-sb-text no-underline"
+          >
+            <Icon name="userPlus" />
+            Invite a customer
+          </Link>
+        )}
         <button
           type="button"
           onClick={toggleTheme}

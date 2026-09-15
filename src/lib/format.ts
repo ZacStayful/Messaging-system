@@ -4,7 +4,12 @@ const TZ = "Europe/London";
 const timeFmt = new Intl.DateTimeFormat("en-GB", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: TZ });
 const weekdayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "long", timeZone: TZ });
 const dayMonthFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", timeZone: TZ });
-const dayMonthYearFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: TZ });
+const dayMonthYearFmt = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: TZ,
+});
 const longDateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: TZ });
 const ymdFmt = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: TZ });
 

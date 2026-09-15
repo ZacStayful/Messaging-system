@@ -2,7 +2,15 @@
 
 import { Icon } from "@/components/ui/Icon";
 
-export function SidebarHeader({ title, children, chevron = true }: { title: string; children?: React.ReactNode; chevron?: boolean }) {
+export function SidebarHeader({
+  title,
+  children,
+  chevron = true,
+}: {
+  title: string;
+  children?: React.ReactNode;
+  chevron?: boolean;
+}) {
   return (
     <div className="flex h-[50px] shrink-0 items-center gap-2 pr-3 pl-4 pt-[env(safe-area-inset-top,0px)] md:pt-0">
       <span className="text-[18px] font-bold whitespace-nowrap">{title}</span>
@@ -35,7 +43,15 @@ export function UnreadToggle({ on, onToggle }: { on: boolean; onToggle: () => vo
   );
 }
 
-export function SidebarSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+export function SidebarSearch({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
   return (
     <div className="mx-3 mt-0.5 mb-2 flex h-9 shrink-0 items-center gap-2 rounded-lg border border-sb-border bg-sb-input px-2.5 text-sb-dim">
       <Icon name="filter" size={18} />
@@ -50,4 +66,5 @@ export function SidebarSearch({ value, onChange, placeholder }: { value: string;
   );
 }
 
-export const iconBtn = "flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent text-sb-text hover:bg-sb-hover";
+export const iconBtn =
+  "flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent text-sb-text hover:bg-sb-hover";

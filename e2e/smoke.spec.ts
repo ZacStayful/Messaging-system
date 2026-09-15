@@ -36,7 +36,8 @@ test("unauthenticated users land on the login page", async ({ page }) => {
   await page.goto("/dms");
   await expect(page).toHaveURL(/\/login/);
   await expect(page.getByRole("heading", { name: "Sign in to Stayful" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Send me a sign-in link" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
 });
 
@@ -92,7 +93,10 @@ test("dark mode toggle persists across reload", async ({ page, context }, testIn
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
-test("mobile shows the list with a bottom tab bar, then the conversation with a back button", async ({ page, context }, testInfo) => {
+test("mobile shows the list with a bottom tab bar, then the conversation with a back button", async ({
+  page,
+  context,
+}, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "mobile layout only");
   await signIn(context, "test-staff@stayful.test");
   await page.goto("/home");
@@ -101,4 +105,29 @@ test("mobile shows the list with a bottom tab bar, then the conversation with a 
   await expect(page).toHaveURL(new RegExp(`/home/${TEAM_ONLY}`));
   await expect(page.getByRole("link", { name: "Back" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Primary" })).toHaveCount(0);
+});
+
+test("password sign-in through the login form", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await page.goto("/login");
+  await page.getByLabel("Email address").fill("test-staff@stayful.test");
+  await page.getByLabel("Password", { exact: true }).fill("wrong-password");
+  await page.getByRole("button", { name: "Show password" }).click();
+  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("type", "text");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "don't match" })).toBeVisible();
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/\/dms/);
+  await page.goto("/settings/account");
+  await expect(page.getByRole("heading", { name: "Change password" })).toBeVisible();
+  await page.goto("/customers/new");
+  await expect(page.getByRole("heading", { name: "Invite a customer" })).toBeVisible();
+});
+
+test("customers cannot open the invite page", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-customer@stayful.test");
+  const res = await page.goto("/customers/new");
+  expect(res?.status()).toBe(404);
 });

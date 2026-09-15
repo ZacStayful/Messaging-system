@@ -48,7 +48,11 @@ suite("RLS", () => {
 
   it("customer only sees their own conversations", async () => {
     const { data } = await customer.rpc("my_conversations");
-    expect(data?.map((c) => c.id)).toEqual([CUSTOMER_GROUP]);
+    const ids = data?.map((c) => c.id) ?? [];
+    expect(ids).toContain(CUSTOMER_GROUP);
+    expect(ids).not.toContain(TEAM_ONLY);
+    // every visible conversation lists the customer as a member
+    expect(data?.every((c) => c.member_ids.includes(CUSTOMER_ID))).toBe(true);
     const { data: direct } = await customer.from("conversations").select("id").eq("id", TEAM_ONLY);
     expect(direct).toEqual([]);
   });
@@ -77,9 +81,13 @@ suite("RLS", () => {
   });
 
   it("customer cannot post an internal note", async () => {
-    const { error } = await customer
-      .from("messages")
-      .insert({ org_id: ORG, conversation_id: CUSTOMER_GROUP, sender_id: CUSTOMER_ID, body: "sneaky", visibility: "internal" });
+    const { error } = await customer.from("messages").insert({
+      org_id: ORG,
+      conversation_id: CUSTOMER_GROUP,
+      sender_id: CUSTOMER_ID,
+      body: "sneaky",
+      visibility: "internal",
+    });
     expect(error).not.toBeNull();
   });
 
@@ -112,7 +120,10 @@ suite("RLS", () => {
   });
 
   it("customer cannot promote themselves", async () => {
-    const { error } = await customer.from("profiles").update({ account_type: "team", role: "admin" }).eq("id", CUSTOMER_ID);
+    const { error } = await customer
+      .from("profiles")
+      .update({ account_type: "team", role: "admin" })
+      .eq("id", CUSTOMER_ID);
     expect(error).not.toBeNull();
   });
 
@@ -132,5 +143,93 @@ suite("RLS", () => {
     const { data: c } = await customer.from("audit_log").select("id").limit(1);
     expect(s).toEqual([]);
     expect(c).toEqual([]);
+  });
+});
+
+suite("customer accounts", () => {
+  let staff: SupabaseClient<Database>;
+  let customer: SupabaseClient<Database>;
+  const email = "rls-created-customer@stayful.test";
+  const password1 = `Pw1-${Date.now()}-abc`;
+
+  beforeAll(async () => {
+    staff = await signIn("test-staff@stayful.test");
+    customer = await signIn("test-customer@stayful.test");
+  });
+
+  it("customers cannot create accounts", async () => {
+    const { error } = await customer.rpc("create_customer_account", {
+      p_email: "nope@stayful.test",
+      p_full_name: "Nope",
+      p_display_name: "Nope",
+      p_password: "Something-long-1",
+    });
+    expect(error?.message).toMatch(/only Stayful team/);
+  });
+
+  it("staff cannot add a customer to a channel they are not in", async () => {
+    const { error } = await staff.rpc("create_customer_account", {
+      p_email: "nope2@stayful.test",
+      p_full_name: "Nope",
+      p_display_name: "Nope",
+      p_password: "Something-long-1",
+      p_conversation_ids: ["c0000000-0000-4000-8000-000000000001"],
+    });
+    expect(error?.message).toMatch(/conversations you belong to/);
+  });
+
+  it("staff creates a customer who can then sign in with the password", async () => {
+    const existing = await staff.from("profiles").select("id").eq("email", email).maybeSingle();
+    let userId = existing.data?.id;
+    if (userId) {
+      const { error } = await staff.rpc("reset_customer_password", { p_user_id: userId, p_password: password1 });
+      expect(error).toBeNull();
+    } else {
+      const { data, error } = await staff.rpc("create_customer_account", {
+        p_email: email,
+        p_full_name: "Created Customer",
+        p_display_name: "Created",
+        p_password: password1,
+        p_conversation_ids: [CUSTOMER_GROUP],
+      });
+      expect(error).toBeNull();
+      userId = data ?? undefined;
+    }
+    expect(userId).toBeTruthy();
+
+    const fresh = createClient<Database>(URL!, KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data: session, error: loginError } = await fresh.auth.signInWithPassword({ email, password: password1 });
+    expect(loginError).toBeNull();
+    expect(session.user?.id).toBe(userId);
+
+    const { data: profile } = await fresh
+      .from("profiles")
+      .select("account_type, role, org_id")
+      .eq("id", userId!)
+      .single();
+    expect(profile).toEqual({ account_type: "customer", role: "owner", org_id: ORG });
+
+    const { data: convs } = await fresh.rpc("my_conversations");
+    expect(convs?.map((c) => c.id)).toContain(CUSTOMER_GROUP);
+  });
+
+  it("duplicate emails are rejected", async () => {
+    const { error } = await staff.rpc("create_customer_account", {
+      p_email: email,
+      p_full_name: "Again",
+      p_display_name: "Again",
+      p_password: "Something-long-1",
+    });
+    expect(error?.message).toMatch(/already exists/);
+  });
+
+  it("customers cannot reset other passwords or read the outbox", async () => {
+    const { error } = await customer.rpc("reset_customer_password", {
+      p_user_id: STAFF_ID,
+      p_password: "Something-long-1",
+    });
+    expect(error).not.toBeNull();
+    const { data } = await customer.from("notification_outbox").select("id").limit(1);
+    expect(data ?? []).toEqual([]);
   });
 });

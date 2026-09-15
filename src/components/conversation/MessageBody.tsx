@@ -7,13 +7,23 @@ function Inlines({ parts }: { parts: Inline[] }) {
         switch (p.type) {
           case "link":
             return (
-              <a key={i} href={p.href} target="_blank" rel="noopener noreferrer" className="text-link underline break-all">
+              <a
+                key={i}
+                href={p.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-link underline break-all"
+              >
                 {p.text}
               </a>
             );
           case "mention":
             return (
-              <span key={i} className="rounded px-[3px] font-medium text-link" style={{ background: "rgba(93,129,86,.18)" }}>
+              <span
+                key={i}
+                className="rounded px-[3px] font-medium text-link"
+                style={{ background: "rgba(93,129,86,.18)" }}
+              >
                 {p.text}
               </span>
             );

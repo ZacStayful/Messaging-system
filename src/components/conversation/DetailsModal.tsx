@@ -43,7 +43,9 @@ export function DetailsModal({ conversation, title, createdAt, description, init
   }, [onClose]);
 
   const members = conversation.member_ids.map((id) => profiles[id]).filter((p): p is Profile => !!p);
-  const filtered = members.filter((p) => !q || `${p.display_name} ${p.full_name ?? ""}`.toLowerCase().includes(q.toLowerCase()));
+  const filtered = members.filter(
+    (p) => !q || `${p.display_name} ${p.full_name ?? ""}`.toLowerCase().includes(q.toLowerCase()),
+  );
 
   const tabs: { id: DetailTab; label: string; count?: number }[] = [
     { id: "about", label: "About" },
@@ -66,7 +68,11 @@ export function DetailsModal({ conversation, title, createdAt, description, init
   };
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-overlay p-3 md:p-6" onClick={onClose} role="presentation">
+    <div
+      className="fixed inset-0 z-20 flex items-center justify-center bg-overlay p-3 md:p-6"
+      onClick={onClose}
+      role="presentation"
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -77,14 +83,29 @@ export function DetailsModal({ conversation, title, createdAt, description, init
         <div className="flex items-center gap-2 px-5 pt-5 md:px-6 md:pt-[22px]">
           {isChannel && <Icon name="lock" size={22} strokeWidth={2.4} />}
           <span className="flex-1 truncate text-[22px] font-bold">{title}</span>
-          <button type="button" onClick={onClose} className="flex h-[34px] w-[34px] items-center justify-center rounded-lg border-0 bg-transparent text-ink hover:bg-hover" aria-label="Close">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-[34px] w-[34px] items-center justify-center rounded-lg border-0 bg-transparent text-ink hover:bg-hover"
+            aria-label="Close"
+          >
             <Icon name="close" strokeWidth={2} />
           </button>
         </div>
         <div className="flex flex-wrap gap-2 px-5 pt-3.5 md:px-6">
-          <span className={chip}><Icon name="filter" size={18} /><Icon name="chevronDown" size={14} strokeWidth={2} /></span>
-          <span className={chip}><Icon name="bell" size={18} />{conversation.muted ? "Muted" : "Just mentions"}<Icon name="chevronDown" size={14} strokeWidth={2} /></span>
-          <span className={chip} title="Calls are coming in a later release"><Icon name="huddle" size={18} />Huddle</span>
+          <span className={chip}>
+            <Icon name="filter" size={18} />
+            <Icon name="chevronDown" size={14} strokeWidth={2} />
+          </span>
+          <span className={chip}>
+            <Icon name="bell" size={18} />
+            {conversation.muted ? "Muted" : "Just mentions"}
+            <Icon name="chevronDown" size={14} strokeWidth={2} />
+          </span>
+          <span className={chip} title="Calls are coming in a later release">
+            <Icon name="huddle" size={18} />
+            Huddle
+          </span>
         </div>
         <div className="scroll-thin flex gap-1 overflow-x-auto border-b border-line px-5 pt-3 md:px-6">
           {tabs.map((t) => {
@@ -95,7 +116,11 @@ export function DetailsModal({ conversation, title, createdAt, description, init
                 type="button"
                 onClick={() => setTab(t.id)}
                 className="flex items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 pt-2 pb-2.5 text-[15px] whitespace-nowrap"
-                style={{ borderBottomColor: on ? "var(--tab)" : "transparent", color: on ? "var(--text)" : "var(--muted)", fontWeight: on ? 700 : 500 }}
+                style={{
+                  borderBottomColor: on ? "var(--tab)" : "transparent",
+                  color: on ? "var(--text)" : "var(--muted)",
+                  fontWeight: on ? 700 : 500,
+                }}
                 aria-selected={on}
                 role="tab"
               >
@@ -111,7 +136,13 @@ export function DetailsModal({ conversation, title, createdAt, description, init
             <div className="flex gap-3 px-5 py-4 md:px-6">
               <div className="flex h-11 flex-1 items-center gap-2.5 rounded-lg border border-input-border bg-input px-3 text-muted">
                 <Icon name="search" size={18} />
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find people or agents" aria-label="Find people" className="flex-1 border-0 bg-transparent text-[15px] text-ink outline-none" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Find people or agents"
+                  aria-label="Find people"
+                  className="flex-1 border-0 bg-transparent text-[15px] text-ink outline-none"
+                />
               </div>
               <span className="hidden h-11 w-[200px] max-w-[35%] items-center justify-between rounded-lg border border-input-border px-3 text-[15px] sm:flex">
                 All <Icon name="chevronDown" size={14} strokeWidth={2} />
@@ -133,7 +164,11 @@ export function DetailsModal({ conversation, title, createdAt, description, init
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: look.bg, boxShadow: look.ring }} />
                     <span className="truncate text-[15px] text-muted">{p.full_name}</span>
                     {p.id === me.id && <span className="text-[13px] text-muted">(you)</span>}
-                    {p.account_type === "team" && <span className="ml-auto rounded bg-soft px-1.5 py-0.5 text-[11px] font-semibold text-link">Stayful</span>}
+                    {p.account_type === "team" && (
+                      <span className="ml-auto rounded bg-soft px-1.5 py-0.5 text-[11px] font-semibold text-link">
+                        Stayful
+                      </span>
+                    )}
                   </button>
                 );
               })}

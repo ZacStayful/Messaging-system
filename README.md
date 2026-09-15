@@ -7,7 +7,8 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 
 ## What is in this pass
 
-- Sign in with an email magic link or Google (Supabase Auth). No passwords.
+- Sign in with email + password (customers get a generated password by email when the team
+  creates their account), an email magic link, or Google (Supabase Auth). Sessions persist.
 - Desktop layout: top bar, icon rail (Home, DMs, Activity, Files, Later, Agents & tools),
   sidebar and conversation pane on the green frame, light and dark themes.
 - Mobile layout: single pane with a bottom tab bar (Home, DMs, Activity, You).
@@ -18,15 +19,23 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   links, @mention chips), composer with drafts, optimistic send with retry, internal notes
   for team accounts, live updates over Supabase Realtime, read state.
 - Pins tab, Files and links tab, details modal (About, Members).
+- Account page: change password, email notification preference, sign out.
+- Team: "Invite a customer" creates the account, adds them to groups and emails the login details.
+- Email notifications (D8): every customer-visible message is queued in `notification_outbox`;
+  a Vercel cron drains it through Resend (grouping messages within two minutes), with a
+  signed one-click unsubscribe link.
+- Reply by email: notification emails carry `Reply-To: reply+<token>@<EMAIL_REPLY_DOMAIN>`;
+  Resend Inbound posts replies to `/api/email/inbound`, which stores them in the same
+  conversation as the customer (`sent_via = email`).
 - Multi-tenant schema (`org_id` everywhere), customer vs team accounts and roles, RLS
   policies for every table, audit log table, private attachments bucket.
 - Seed data reproducing the prototype (`supabase/seed.sql`).
 - Tests: unit (formatting, rich text), RLS suite against the live project, Playwright smoke
   tests on desktop and mobile including two-user realtime delivery.
 
-Out of scope for this pass (next passes): invitations UI, customer restrictions beyond RLS,
-staff inbox with SLA, attachment uploads, reactions, threads, email notifications, Monday and
-Uplisting sync, public API, webhooks, MCP server, Slack import.
+Out of scope for this pass (next passes): staff inbox with SLA, attachment uploads (including
+email attachments), reactions, threads, digest emails, Monday and Uplisting sync, public API,
+webhooks, MCP server, Slack import.
 
 ## Stack
 
@@ -49,6 +58,12 @@ Environment variables (`.env.local`, also set in Vercel):
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (anon) key |
 | `NEXT_PUBLIC_SITE_URL` | Public URL of the deployment, used for auth redirects |
 | `SEED_TEST_PASSWORD` | Only for the test-suites; the password given to the two seeded test accounts |
+| `RESEND_API_KEY` | Resend API key; without it accounts are still created and the password is shown to the team member instead of emailed |
+| `EMAIL_FROM` | Sender, e.g. `Stayful <noreply@stayful.co.uk>` (domain verified in Resend) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only. Used by the cron worker, unsubscribe links and the inbound email webhook |
+| `CRON_SECRET` | Random string. Vercel sends it to the cron route; it also signs unsubscribe links |
+| `EMAIL_REPLY_DOMAIN` | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk` |
+| `RESEND_WEBHOOK_SECRET` | Optional. `whsec_…` secret of the Resend webhook for `email.received` |
 
 ## Database
 
@@ -60,6 +75,9 @@ Migrations live in `supabase/migrations` and are applied in order:
 3. `0003_realtime.sql` broadcast trigger and `realtime.messages` policies
 4. `0004_storage.sql` private `attachments` bucket and policies
 5. `0005_hardening.sql` advisor fixes (search_path, grants, indexes, per-statement auth)
+6. `0006_customer_accounts_notifications.sql` `create_customer_account`, `reset_customer_password`,
+   `notification_outbox` + trigger, welcome-email helpers
+7. `0007_reply_by_email.sql` `email_reply_threads`, unique inbound email ref
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -104,6 +122,19 @@ topic. Presence runs on `org:<id>`. Clients back-fill from Postgres after any re
   secret (authorised redirect URI is `https://dqgdhmlgojhiidxlxzsr.supabase.co/auth/v1/callback`).
 - Magic links only work for existing users (`shouldCreateUser: false`); invitations create
   the user first. Google sign-in creates users on first login.
+
+## Email set-up (Resend)
+
+1. Create a Resend account, add and verify `stayful.co.uk` (Domains), create an API key and set
+   `RESEND_API_KEY` and `EMAIL_FROM` in Vercel.
+2. Set `SUPABASE_SERVICE_ROLE_KEY` and a random `CRON_SECRET` in Vercel. `vercel.json` schedules
+   `/api/cron/notifications` every minute; Vercel adds the `Authorization: Bearer <CRON_SECRET>`
+   header automatically when `CRON_SECRET` is set.
+3. Reply by email: in Resend, enable Receiving for a subdomain such as `reply.stayful.co.uk`
+   (add the MX record it gives you), then create a webhook for `email.received` pointing at
+   `https://chat.stayful.co.uk/api/email/inbound`. Set `EMAIL_REPLY_DOMAIN` and
+   `RESEND_WEBHOOK_SECRET`. Replies are stripped of quoted history, matched to the customer by
+   the token in the To address, and rejected if the From address differs from the account email.
 
 ## Scripts
 

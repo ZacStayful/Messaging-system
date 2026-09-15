@@ -13,7 +13,9 @@ export function PinsTab({ pins, profiles }: { pins: PinWithMessage[]; profiles: 
     <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5">
       <div className="mb-3.5 text-[15px] font-semibold">Pinned messages</div>
       {pins.length === 0 && (
-        <p className="text-[14px] text-muted">Nothing pinned yet. Pin important messages so everyone can find them quickly.</p>
+        <p className="text-[14px] text-muted">
+          Nothing pinned yet. Pin important messages so everyone can find them quickly.
+        </p>
       )}
       <div className="flex flex-col gap-3">
         {pins.map((p) => {
@@ -29,11 +31,18 @@ export function PinsTab({ pins, profiles }: { pins: PinWithMessage[]; profiles: 
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[15px] font-bold">{m.sender_id ? sender?.display_name ?? "Former member" : "Stayful"}</span>
+                  <span className="text-[15px] font-bold">
+                    {m.sender_id ? (sender?.display_name ?? "Former member") : "Stayful"}
+                  </span>
                   <span className="text-[12px] text-muted">{pinWhen(m.created_at)}</span>
                 </div>
                 {linkOnly ? (
-                  <a href={links[0].href} target="_blank" rel="noopener noreferrer" className="block text-[15px] break-all text-link no-underline hover:underline">
+                  <a
+                    href={links[0].href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-[15px] break-all text-link no-underline hover:underline"
+                  >
                     {links[0].href}
                   </a>
                 ) : (
@@ -46,13 +55,20 @@ export function PinsTab({ pins, profiles }: { pins: PinWithMessage[]; profiles: 
                     </div>
                     <div className="max-w-[720px] overflow-hidden rounded-xl border border-line bg-card">
                       <div className="flex items-center gap-3 px-3.5 py-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#E2394A] text-[11px] font-bold text-white">PDF</div>
+                        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#E2394A] text-[11px] font-bold text-white">
+                          PDF
+                        </div>
                         <div>
                           <div className="text-[15px] font-semibold">{pdf[1]}</div>
-                          <div className="text-[13px] text-muted">{links.some((l) => l.host.includes("google")) ? "Google PDF" : "PDF"}</div>
+                          <div className="text-[13px] text-muted">
+                            {links.some((l) => l.host.includes("google")) ? "Google PDF" : "PDF"}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex h-[260px] items-center justify-center text-[13px] font-semibold text-[#3E5A3A]" style={{ background: "var(--thumb)" }}>
+                      <div
+                        className="flex h-[260px] items-center justify-center text-[13px] font-semibold text-[#3E5A3A]"
+                        style={{ background: "var(--thumb)" }}
+                      >
                         Document preview
                       </div>
                     </div>

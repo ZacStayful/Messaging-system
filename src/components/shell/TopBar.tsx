@@ -25,7 +25,13 @@ export function TopBar() {
           <Icon name="search" size={16} strokeWidth={2} />
           <span className="truncate text-[13px]">Search Stayful</span>
         </div>
-        <Image src="/brand/stayful-logo.png" alt="" width={26} height={26} className="ml-2 h-[26px] w-[26px] rounded-md" />
+        <Image
+          src="/brand/stayful-logo.png"
+          alt=""
+          width={26}
+          height={26}
+          className="ml-2 h-[26px] w-[26px] rounded-md"
+        />
       </div>
       <button type="button" className={btn} aria-label="Help" title="Help">
         <Icon name="help" />

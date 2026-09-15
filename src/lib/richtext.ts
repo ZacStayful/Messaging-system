@@ -13,10 +13,7 @@ export type Inline =
   | { type: "link"; text: string; href: string }
   | { type: "mention"; text: string };
 
-export type Block =
-  | { type: "p"; lines: Inline[][] }
-  | { type: "h"; text: string }
-  | { type: "ul"; items: Inline[][] };
+export type Block = { type: "p"; lines: Inline[][] } | { type: "h"; text: string } | { type: "ul"; items: Inline[][] };
 
 const URL_RE = /https?:\/\/[^\s<>()\]]+[^\s<>()\].,;:!?'"]/g;
 const MENTION = String.raw`@[A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)*`;

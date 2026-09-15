@@ -5,7 +5,11 @@ import { ConversationView, type PinWithMessage } from "@/components/conversation
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export default async function ConversationPage({ params }: { params: Promise<{ nav: string; conversationId: string }> }) {
+export default async function ConversationPage({
+  params,
+}: {
+  params: Promise<{ nav: string; conversationId: string }>;
+}) {
   const { nav, conversationId } = await params;
   if (!isNav(nav) || !UUID_RE.test(conversationId)) notFound();
 
@@ -17,7 +21,11 @@ export default async function ConversationPage({ params }: { params: Promise<{ n
 
   const [{ data: conversation }, { data: membership }, { data: messages }, { data: pins }, { data: attachments }] =
     await Promise.all([
-      supabase.from("conversations").select("id, created_at, topic, description").eq("id", conversationId).maybeSingle(),
+      supabase
+        .from("conversations")
+        .select("id, created_at, topic, description")
+        .eq("id", conversationId)
+        .maybeSingle(),
       supabase
         .from("conversation_members")
         .select("last_read_at")
@@ -36,7 +44,11 @@ export default async function ConversationPage({ params }: { params: Promise<{ n
         .select("pinned_at, pinned_by, message:messages(*)")
         .eq("conversation_id", conversationId)
         .order("pinned_at", { ascending: false }),
-      supabase.from("attachments").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: false }),
+      supabase
+        .from("attachments")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false }),
     ]);
 
   if (!conversation) notFound();

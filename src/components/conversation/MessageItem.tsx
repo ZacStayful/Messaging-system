@@ -16,7 +16,7 @@ interface MessageItemProps {
 
 export function MessageItem({ message, sender, onRetry }: MessageItemProps) {
   const internal = message.visibility === "internal";
-  const name = message.sender_id ? sender?.display_name ?? "Former member" : "Stayful";
+  const name = message.sender_id ? (sender?.display_name ?? "Former member") : "Stayful";
   return (
     <article
       className="-mx-2 flex gap-2.5 rounded-lg px-2 py-1.5 hover:bg-hover"
@@ -31,7 +31,14 @@ export function MessageItem({ message, sender, onRetry }: MessageItemProps) {
           <span className="text-[15px] font-bold">{name}</span>
           <span className="text-[12px] text-muted">{timeLabel(message.created_at)}</span>
           {message.edited_at && <span className="text-[12px] text-muted">(edited)</span>}
-          {internal && <span className="text-[12px] font-semibold text-[#B4661F]">Internal note · not visible to owners</span>}
+          {message.sent_via === "email" && (
+            <span className="flex items-center gap-1 text-[12px] text-muted" title="Sent by replying to an email">
+              <Icon name="mail" size={13} /> via email
+            </span>
+          )}
+          {internal && (
+            <span className="text-[12px] font-semibold text-[#B4661F]">Internal note · not visible to owners</span>
+          )}
         </div>
         <div style={{ opacity: message._status === "sending" ? 0.6 : 1 }}>
           <MessageBody body={message.body} />

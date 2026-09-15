@@ -21,11 +21,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const wide = nav === "dms" || nav === "activity";
 
   const sidebar =
-    nav === "dms" ? <DmList /> :
-    nav === "home" ? <HomeSidebar /> :
-    nav === "activity" ? <ActivityList /> :
-    nav === "you" ? <YouSidebar /> :
-    <PlaceholderSidebar nav={nav} />;
+    nav === "dms" ? (
+      <DmList />
+    ) : nav === "home" ? (
+      <HomeSidebar />
+    ) : nav === "activity" ? (
+      <ActivityList />
+    ) : nav === "you" ? (
+      <YouSidebar />
+    ) : (
+      <PlaceholderSidebar nav={nav} />
+    );
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-frame text-ink">

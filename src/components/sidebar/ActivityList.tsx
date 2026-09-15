@@ -11,7 +11,15 @@ const CHIPS = ["All", "Mentions", "Threads", "Reactions"] as const;
 type Chip = (typeof CHIPS)[number];
 
 export function ActivityList() {
-  const { activity, activityRead, profiles, conversationById, conversationName, markActivityRead, activeConversationId } = useStore();
+  const {
+    activity,
+    activityRead,
+    profiles,
+    conversationById,
+    conversationName,
+    markActivityRead,
+    activeConversationId,
+  } = useStore();
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [chip, setChip] = useState<Chip>("All");
 
@@ -52,7 +60,9 @@ export function ActivityList() {
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 && (
           <p className="px-4 py-6 text-[14px] text-sb-dim">
-            {chip === "Threads" || chip === "Reactions" ? `${chip} are coming in a later release.` : "Nothing here yet."}
+            {chip === "Threads" || chip === "Reactions"
+              ? `${chip} are coming in a later release.`
+              : "Nothing here yet."}
           </p>
         )}
         {rows.map((a) => {
@@ -62,7 +72,11 @@ export function ActivityList() {
           const person = a.sender_id
             ? profiles[a.sender_id]
             : Object.values(profiles).find((p) => p.full_name === joinedName || p.display_name === joinedName);
-          const where = convo ? (convo.type === "dm" || convo.type === "group_dm" ? "Direct message" : `#${convo.name}`) : "";
+          const where = convo
+            ? convo.type === "dm" || convo.type === "group_dm"
+              ? "Direct message"
+              : `#${convo.name}`
+            : "";
           const text = a.kind === "New member" ? `${joinedName ?? "Someone"} joined Stayful` : previewOf(a.body, 90);
           const selected = activeConversationId === a.conversation_id;
           const nav = convo && convo.type !== "dm" && convo.type !== "group_dm" ? "activity" : "activity";
@@ -83,7 +97,11 @@ export function ActivityList() {
                   <span className="whitespace-nowrap">{listTime(a.created_at)}</span>
                 </div>
                 <div className="mt-0.5 text-[14px]">
-                  <span className="font-bold">{a.kind === "New member" ? joinedName : person?.display_name ?? (convo ? conversationName(convo) : "Stayful")}</span>{" "}
+                  <span className="font-bold">
+                    {a.kind === "New member"
+                      ? joinedName
+                      : (person?.display_name ?? (convo ? conversationName(convo) : "Stayful"))}
+                  </span>{" "}
                   <span className="opacity-95">{text}</span>
                 </div>
               </div>

@@ -11,7 +11,8 @@ interface ComposerProps {
   onSend: (body: string, visibility: "public" | "internal") => void;
 }
 
-const toolBtn = "flex h-[30px] w-[30px] items-center justify-center rounded-md border-0 bg-transparent text-ink hover:bg-hover";
+const toolBtn =
+  "flex h-[30px] w-[30px] items-center justify-center rounded-md border-0 bg-transparent text-ink hover:bg-hover";
 
 export function Composer({ conversationId, placeholder, canPostInternal, onSend }: ComposerProps) {
   const [draft, update] = useDraft(conversationId);
@@ -54,7 +55,10 @@ export function Composer({ conversationId, placeholder, canPostInternal, onSend 
     <div className="shrink-0 px-3 pb-3 md:px-5 md:pb-[18px]">
       <div
         className="rounded-[10px] border bg-input shadow-[0_1px_2px_rgba(0,0,0,.04)] focus-within:border-muted"
-        style={{ borderColor: internal ? "#E28A2B" : "var(--input-border)", background: internal ? "rgba(226,138,43,.06)" : undefined }}
+        style={{
+          borderColor: internal ? "#E28A2B" : "var(--input-border)",
+          background: internal ? "rgba(226,138,43,.06)" : undefined,
+        }}
       >
         {internal && (
           <div className="flex items-center gap-2 px-3.5 pt-2 text-[12px] font-semibold text-[#B4661F]">
@@ -73,10 +77,20 @@ export function Composer({ conversationId, placeholder, canPostInternal, onSend 
           style={{ minHeight: 44 }}
         />
         <div className="flex items-center gap-0.5 px-2 pt-1 pb-2 text-ink">
-          <button type="button" className="mr-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-full border-0 bg-soft text-ink" aria-label="Attach" title="Attachments are coming in the next release">
+          <button
+            type="button"
+            className="mr-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-full border-0 bg-soft text-ink"
+            aria-label="Attach"
+            title="Attachments are coming in the next release"
+          >
             <Icon name="plus" size={18} strokeWidth={2} />
           </button>
-          <button type="button" className="h-[30px] rounded-md border-0 bg-transparent px-1.5 text-[16px] font-medium text-ink hover:bg-hover" aria-label="Formatting" title="Use **bold**, - lists and [links](url)">
+          <button
+            type="button"
+            className="h-[30px] rounded-md border-0 bg-transparent px-1.5 text-[16px] font-medium text-ink hover:bg-hover"
+            aria-label="Formatting"
+            title="Use **bold**, - lists and [links](url)"
+          >
             Aa
           </button>
           {tools.map((t) => (
@@ -86,7 +100,13 @@ export function Composer({ conversationId, placeholder, canPostInternal, onSend 
           ))}
           <span className="mx-1.5 h-5 w-px bg-line" />
           {media.map((t) => (
-            <button key={t.icon} type="button" className={`${toolBtn} hidden sm:flex`} aria-label={t.label} title={t.label}>
+            <button
+              key={t.icon}
+              type="button"
+              className={`${toolBtn} hidden sm:flex`}
+              aria-label={t.label}
+              title={t.label}
+            >
               <Icon name={t.icon} size={19} />
             </button>
           ))}
@@ -100,7 +120,11 @@ export function Composer({ conversationId, placeholder, canPostInternal, onSend 
               onClick={() => setInternal((v) => !v)}
               aria-pressed={internal}
               className="ml-1 h-[26px] rounded-md px-2 text-[12px] font-semibold"
-              style={internal ? { background: "#E28A2B", color: "#fff" } : { border: "1px solid var(--input-border)", color: "var(--muted)" }}
+              style={
+                internal
+                  ? { background: "#E28A2B", color: "#fff" }
+                  : { border: "1px solid var(--input-border)", color: "var(--muted)" }
+              }
               title="Internal notes are never shown to owners"
             >
               Internal note

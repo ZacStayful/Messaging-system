@@ -57,9 +57,15 @@ describe("richtext", () => {
   });
 
   it("extracts unique links with host and path", () => {
-    const links = extractLinks("see https://drive.google.com/file/d/1/view and https://www.stayful.co.uk/x, again https://drive.google.com/file/d/1/view");
+    const links = extractLinks(
+      "see https://drive.google.com/file/d/1/view and https://www.stayful.co.uk/x, again https://drive.google.com/file/d/1/view",
+    );
     expect(links).toHaveLength(2);
-    expect(links[0]).toEqual({ href: "https://drive.google.com/file/d/1/view", host: "drive.google.com", path: "/file/d/1/view" });
+    expect(links[0]).toEqual({
+      href: "https://drive.google.com/file/d/1/view",
+      host: "drive.google.com",
+      path: "/file/d/1/view",
+    });
     expect(links[1].host).toBe("stayful.co.uk");
   });
 
