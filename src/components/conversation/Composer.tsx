@@ -36,6 +36,8 @@ export const ATTACH_EVENT = "stayful:attach";
 
 interface ComposerProps {
   conversationId: string;
+  /** Separate draft storage, e.g. one per thread. Defaults to the conversation. */
+  draftKey?: string;
   placeholder: string;
   canPostInternal: boolean;
   members: Profile[];
@@ -55,8 +57,8 @@ function pickRecorderMime(): string {
   return "";
 }
 
-export function Composer({ conversationId, placeholder, canPostInternal, members, onSend }: ComposerProps) {
-  const [draft, update] = useDraft(conversationId);
+export function Composer({ conversationId, draftKey, placeholder, canPostInternal, members, onSend }: ComposerProps) {
+  const [draft, update] = useDraft(draftKey ?? conversationId);
   const [internal, setInternal] = useState(false);
   const [files, setFiles] = useState<OutgoingFile[]>([]);
   const [error, setError] = useState<string | null>(null);

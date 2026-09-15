@@ -11,6 +11,7 @@ import { Icon } from "@/components/ui/Icon";
 import { presenceLook } from "@/lib/presence";
 import { useBoolPref } from "@/lib/prefs";
 import { SearchLink, SectionHeader, SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
+import { ThreadsRow } from "./ThreadsRow";
 
 function byUnreadThenName(a: ConversationSummary, b: ConversationSummary) {
   const au = a.unread_count > 0 && !a.muted ? 0 : 1;
@@ -133,6 +134,11 @@ export function HomeSidebar() {
       </SidebarHeader>
       <SidebarSearch value={filter} onChange={setFilter} placeholder="Find a conversation..." />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {!q && (
+          <div className="pt-1 pb-2">
+            <ThreadsRow compact />
+          </div>
+        )}
         {starred.length > 0 && (
           <>
             <SectionHeader

@@ -169,6 +169,76 @@ suite("RLS", () => {
     expect(spoof.error).not.toBeNull();
   });
 
+  it("threads: replies follow message rules and bookkeeping runs", async () => {
+    const parentId = "d0000000-0000-4000-8000-000000000041";
+    // A customer cannot reply inside a thread on a message they cannot see.
+    const bad = await customer.from("messages").insert({
+      org_id: ORG,
+      conversation_id: CUSTOMER_GROUP,
+      sender_id: CUSTOMER_ID,
+      body: "x",
+      parent_id: INTERNAL_NOTE,
+    });
+    expect(bad.error).not.toBeNull();
+    // A reply to a visible message works and bumps the parent's reply_count.
+    const { data: reply, error } = await customer
+      .from("messages")
+      .insert({
+        org_id: ORG,
+        conversation_id: CUSTOMER_GROUP,
+        sender_id: CUSTOMER_ID,
+        body: "thread reply",
+        parent_id: parentId,
+      })
+      .select()
+      .single();
+    expect(error).toBeNull();
+    const { data: parent } = await customer
+      .from("messages")
+      .select("reply_count, last_reply_at")
+      .eq("id", parentId)
+      .single();
+    expect(parent?.reply_count).toBeGreaterThanOrEqual(1);
+    expect(parent?.last_reply_at).not.toBeNull();
+    // The replier follows the thread; the parent author does too. Both see it in my_threads.
+    const { data: mine } = await customer.rpc("my_threads", { max_rows: 20 });
+    expect(mine?.map((t) => t.message_id)).toContain(parentId);
+    const { data: theirs } = await staff.rpc("my_threads", { max_rows: 20 });
+    const t = theirs?.find((x) => x.message_id === parentId);
+    expect(t).toBeDefined();
+    expect(t!.unread_count).toBeGreaterThanOrEqual(1);
+    // Marking read zeroes the unread count for the caller only.
+    expect((await staff.rpc("mark_thread_read", { p_message_id: parentId })).error).toBeNull();
+    const { data: after } = await staff.rpc("my_threads", { max_rows: 20 });
+    expect(after?.find((x) => x.message_id === parentId)?.unread_count).toBe(0);
+    // A customer cannot read the staff member's follow row, nor anything from a channel they are not in.
+    const { data: follows } = await customer.from("thread_follows").select("user_id").eq("message_id", parentId);
+    expect(follows?.every((f) => f.user_id === CUSTOMER_ID)).toBe(true);
+    // Replies under an internal note are forced internal, so customers never see them.
+    const { data: internalReply } = await staff
+      .from("messages")
+      .insert({
+        org_id: ORG,
+        conversation_id: CUSTOMER_GROUP,
+        sender_id: STAFF_ID,
+        body: "team only",
+        parent_id: INTERNAL_NOTE,
+      })
+      .select()
+      .single();
+    expect(internalReply?.visibility).toBe("internal");
+    const { data: hidden } = await customer.from("messages").select("id").eq("parent_id", INTERNAL_NOTE);
+    expect(hidden).toEqual([]);
+    if (internalReply)
+      await staff.from("messages").update({ deleted_at: new Date().toISOString() }).eq("id", internalReply.id);
+    // Soft-deleting the reply decrements the count.
+    if (reply) {
+      await customer.from("messages").update({ deleted_at: new Date().toISOString() }).eq("id", reply.id);
+      const { data: p2 } = await customer.from("messages").select("reply_count").eq("id", parentId).single();
+      expect(p2?.reply_count).toBe((parent?.reply_count ?? 1) - 1);
+    }
+  });
+
   it("customer cannot start group messages or create groups", async () => {
     const { error } = await customer.rpc("create_group_dm", { p_member_ids: [STAFF_ID, ZAC_ID] });
     expect(error?.message).toMatch(/only Stayful team/);

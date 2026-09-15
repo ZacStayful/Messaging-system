@@ -27,12 +27,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const [{ data: org }, { data: conversations }, { data: profiles }, { data: activity }] = await Promise.all([
-    supabase.from("organisations").select("id, name, slug, settings").eq("id", me.org_id).single(),
-    supabase.rpc("my_conversations"),
-    supabase.from("profiles").select("*").eq("org_id", me.org_id).is("deactivated_at", null).order("display_name"),
-    supabase.rpc("my_activity"),
-  ]);
+  const [{ data: org }, { data: conversations }, { data: profiles }, { data: activity }, { data: threads }] =
+    await Promise.all([
+      supabase.from("organisations").select("id, name, slug, settings").eq("id", me.org_id).single(),
+      supabase.rpc("my_conversations"),
+      supabase.from("profiles").select("*").eq("org_id", me.org_id).is("deactivated_at", null).order("display_name"),
+      supabase.rpc("my_activity"),
+      me.account_type === "team" ? supabase.rpc("my_threads", { max_rows: 100 }) : Promise.resolve({ data: [] }),
+    ]);
 
   return (
     <StoreProvider
@@ -41,6 +43,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       profiles={profiles ?? []}
       conversations={conversations ?? []}
       activity={activity ?? []}
+      threads={threads ?? []}
     >
       <AppShell>{children}</AppShell>
     </StoreProvider>

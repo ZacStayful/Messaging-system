@@ -184,6 +184,63 @@ test("react, pin, edit and delete a message", async ({ page, context }, testInfo
   await expect(page.locator("article", { hasText: body })).toHaveCount(0);
 });
 
+test("reply in a thread, see it in the Threads view and deep-link back", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "hover actions are desktop-only in this test");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+
+  const body = `thread parent ${Date.now()}`;
+  await page.getByPlaceholder("Message #test-internal").fill(body);
+  await page.keyboard.press("Enter");
+  const row = page.locator("article", { hasText: body });
+  await expect(row).toBeVisible();
+  await expect(page.getByText("Sending…")).toHaveCount(0, { timeout: 10_000 });
+
+  // Open the thread panel from the hover action and reply.
+  await row.hover();
+  await row.getByRole("button", { name: "Reply in thread" }).click();
+  const panel = page.getByRole("region", { name: "Thread" });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText(body)).toBeVisible();
+  await expect(panel.getByText("No replies yet")).toBeVisible();
+  const reply = `thread reply ${Date.now()}`;
+  await panel.getByPlaceholder("Reply…").fill(reply);
+  await page.keyboard.press("Enter");
+  await expect(panel.getByText(reply)).toBeVisible();
+  await expect(panel.getByText("Sending…")).toHaveCount(0, { timeout: 10_000 });
+  await expect(panel.getByText("1 reply", { exact: true })).toBeVisible();
+  // The reply stays out of the main timeline; the parent shows a reply summary instead.
+  await expect(page.locator("article", { hasText: reply })).toHaveCount(1);
+  await expect(row.getByRole("button", { name: /1 reply/ })).toBeVisible();
+  await panel.getByRole("button", { name: "Close thread" }).click();
+  await expect(panel).toHaveCount(0);
+
+  // Threads view lists it and links back into the conversation with the panel open.
+  await page
+    .getByRole("link", { name: /Threads/ })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/\/threads$/);
+  const card = page.getByRole("link", { name: new RegExp(body) });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("#test-internal")).toBeVisible();
+  await card.click();
+  await expect(page).toHaveURL(new RegExp(`/home/${TEAM_ONLY}\\?thread=`));
+  await expect(page.getByRole("region", { name: "Thread" }).getByText(reply)).toBeVisible();
+
+  // A deep link to the reply itself opens the thread too.
+  await page.goto(`/home/${TEAM_ONLY}`);
+  await expect(page.getByRole("region", { name: "Thread" })).toHaveCount(0);
+  const replyId = await page.evaluate(
+    (text) => Array.from(document.querySelectorAll("article")).find((a) => a.textContent?.includes(text))?.id,
+    body,
+  );
+  expect(replyId).toMatch(/^m-/);
+  await page.goto(`/home/${TEAM_ONLY}?thread=${replyId!.slice(2)}`);
+  await expect(page.getByRole("region", { name: "Thread" }).getByText(reply)).toBeVisible();
+});
+
 test("attach a photo and a file to a message", async ({ page, context }, testInfo) => {
   needsFixtures();
   test.skip(testInfo.project.name !== "desktop", "one run is enough");

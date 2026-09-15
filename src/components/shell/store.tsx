@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { ActivityItem, ConversationSummary, Json, Profile } from "@/lib/database.types";
+import type { ActivityItem, ConversationSummary, Json, Profile, ThreadSummary } from "@/lib/database.types";
 import { previewOf } from "@/lib/format";
 import { isNav, type Nav } from "@/lib/nav";
 
@@ -55,6 +55,9 @@ interface StoreValue {
   profiles: Record<string, Profile>;
   conversations: ConversationSummary[];
   activity: ActivityItem[];
+  /** Threads I follow (my own parents and anything I replied to), unread first. Team only. */
+  threads: ThreadSummary[];
+  threadsUnread: number;
   online: ReadonlySet<string>;
   activityRead: ReadonlySet<string>;
   nav: Nav;
@@ -72,6 +75,8 @@ interface StoreValue {
   markRead: (conversationId: string) => Promise<void>;
   markActivityRead: (messageId: string) => void;
   markAllActivityRead: () => Promise<void>;
+  markThreadRead: (messageId: string) => Promise<void>;
+  refreshThreads: () => Promise<void>;
   toggleStar: (conversationId: string) => Promise<void>;
   toggleMute: (conversationId: string) => Promise<void>;
   setNotifyLevel: (conversationId: string, level: NotifyLevel) => Promise<void>;
@@ -87,6 +92,7 @@ interface StoreProviderProps {
   profiles: Profile[];
   conversations: ConversationSummary[];
   activity: ActivityItem[];
+  threads: ThreadSummary[];
   children: ReactNode;
 }
 
@@ -96,6 +102,7 @@ export function StoreProvider({
   profiles: profileList,
   conversations: initialConversations,
   activity: initialActivity,
+  threads: initialThreads,
   children,
 }: StoreProviderProps) {
   const router = useRouter();
@@ -104,6 +111,7 @@ export function StoreProvider({
 
   const [conversations, setConversations] = useState(initialConversations);
   const [activity, setActivity] = useState(initialActivity);
+  const [threads, setThreads] = useState(initialThreads);
   const [online, setOnline] = useState<ReadonlySet<string>>(() => new Set());
   const [activityRead, setActivityRead] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -117,6 +125,11 @@ export function StoreProvider({
   if (seenActivity !== initialActivity) {
     setSeenActivity(initialActivity);
     setActivity(initialActivity);
+  }
+  const [seenThreads, setSeenThreads] = useState(initialThreads);
+  if (seenThreads !== initialThreads) {
+    setSeenThreads(initialThreads);
+    setThreads(initialThreads);
   }
 
   const profiles = useMemo(() => Object.fromEntries(profileList.map((p) => [p.id, p])), [profileList]);
@@ -188,6 +201,20 @@ export function StoreProvider({
     setActivity((prev) => prev.map((a) => ({ ...a, unread: false })));
     await supabase.from("profiles").update({ activity_seen_at: new Date().toISOString() }).eq("id", me.id);
   }, [supabase, me.id]);
+
+  const refreshThreads = useCallback(async () => {
+    const { data } = await supabase.rpc("my_threads", { max_rows: 100 });
+    if (data) setThreads(data);
+  }, [supabase]);
+
+  const markThreadRead = useCallback(
+    async (messageId: string) => {
+      setThreads((prev) => prev.map((t) => (t.message_id === messageId ? { ...t, unread_count: 0 } : t)));
+      setActivity((prev) => prev.map((a) => (a.parent_id === messageId ? { ...a, unread: false } : a)));
+      await supabase.rpc("mark_thread_read", { p_message_id: messageId });
+    },
+    [supabase],
+  );
 
   const updateMember = useCallback(
     async (conversationId: string, patch: { starred?: boolean; muted?: boolean; notify_level?: NotifyLevel }) => {
@@ -298,6 +325,33 @@ export function StoreProvider({
               ].slice(0, 80),
         );
       }
+      if (isReply && evt.parent_id) {
+        const parentId = evt.parent_id;
+        let knownThread = false;
+        setThreads((prev) => {
+          const idx = prev.findIndex((t) => t.message_id === parentId);
+          if (idx === -1) return prev;
+          knownThread = true;
+          const t = prev[idx];
+          const updated: ThreadSummary = {
+            ...t,
+            reply_count: t.reply_count + 1,
+            last_reply_at: evt.created_at,
+            unread_count: isMine ? 0 : t.unread_count + 1,
+            participant_ids:
+              evt.sender_id && !(t.participant_ids ?? []).includes(evt.sender_id)
+                ? [...(t.participant_ids ?? []), evt.sender_id]
+                : t.participant_ids,
+          };
+          const next = [...prev];
+          next.splice(idx, 1);
+          return [updated, ...next];
+        });
+        // A reply in a thread we did not follow yet (someone replied to us, or our own first reply).
+        queueMicrotask(() => {
+          if (!knownThread && !cancelled) void refreshThreads();
+        });
+      }
       // A conversation we have never seen (e.g. a new DM): pull fresh server data.
       queueMicrotask(() => {
         if (!known && !cancelled) refresh();
@@ -320,7 +374,7 @@ export function StoreProvider({
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [supabase, me.id, me.display_name, refresh, router]);
+  }, [supabase, me.id, me.display_name, refresh, refreshThreads, router]);
 
   // ---- Realtime: org presence ----------------------------------------------
   useEffect(() => {
@@ -351,6 +405,8 @@ export function StoreProvider({
       profiles,
       conversations,
       activity,
+      threads,
+      threadsUnread: threads.reduce((n, t) => n + t.unread_count, 0),
       online,
       activityRead,
       nav,
@@ -366,6 +422,8 @@ export function StoreProvider({
       markRead,
       markActivityRead,
       markAllActivityRead,
+      markThreadRead,
+      refreshThreads,
       toggleStar,
       toggleMute,
       setNotifyLevel,
@@ -381,6 +439,7 @@ export function StoreProvider({
       profiles,
       conversations,
       activity,
+      threads,
       online,
       activityRead,
       nav,
@@ -396,6 +455,8 @@ export function StoreProvider({
       markRead,
       markActivityRead,
       markAllActivityRead,
+      markThreadRead,
+      refreshThreads,
       toggleStar,
       toggleMute,
       setNotifyLevel,

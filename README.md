@@ -38,6 +38,9 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   copy link, leave, archive; top-bar History (recent conversations) and Help sheet; collapsible
   sidebar sections; archived groups hidden behind a toggle and read-only.
 - Activity filters: Mentions, Threads (replies), Reactions, plus mark-all-read.
+- Threads: "Reply in thread" on any message, a side panel (full screen on mobile) with its own
+  composer, reply counts under the parent, a Threads view (team) listing every thread you
+  follow with unread counts, and deep links (`?thread=<parent>` or `?m=<reply>`).
 - Customers get a simplified shell: their groups and direct messages with people in those
   groups, nothing else (team routes return 404 for customer accounts).
 - Admins add team members from the workspace menu (`/team/new`).
@@ -55,7 +58,7 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Tests: unit (formatting, rich text), RLS suite against the live project, Playwright smoke
   tests on desktop and mobile including two-user realtime delivery.
 
-Out of scope for this pass (next passes): staff inbox with SLA, email attachments, threads,
+Out of scope for this pass (next passes): staff inbox with SLA, email attachments,
 huddles/calls, canvases, digest emails, Monday and Uplisting sync, public API, webhooks, MCP
 server, Slack import.
 
@@ -108,6 +111,9 @@ Migrations live in `supabase/migrations` and are applied in order:
     `set_channel_details`, `archive_channel`, `add_members`, `remove_member`), `create_team_account`,
     notify-level aware `my_conversations`/`my_activity`, `conversation_changed` realtime events,
     profile status/DND columns, public `avatars` bucket
+11. `0011_thread_fixes.sql` replies inherit an internal parent's visibility and cannot target
+    messages the sender cannot read; messages update policy no longer self-references (soft
+    delete works again), immutable columns guarded by trigger
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

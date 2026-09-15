@@ -37,6 +37,7 @@ export default async function ConversationPage({
         .select("*")
         .eq("conversation_id", conversationId)
         .is("deleted_at", null)
+        .is("parent_id", null)
         .order("created_at", { ascending: true })
         .limit(300),
       supabase
