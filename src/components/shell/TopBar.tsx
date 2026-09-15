@@ -36,7 +36,7 @@ export function TopBar() {
         <form
           onSubmit={submit}
           role="search"
-          className="flex h-[30px] min-w-0 flex-1 max-w-[720px] items-center gap-2 rounded-md border border-sb-border bg-sb-input px-2.5 text-sb-dim focus-within:bg-white focus-within:text-[#1E2A1C]"
+          className="flex h-[30px] min-w-0 flex-1 max-w-[720px] items-center gap-2 rounded-md border border-sb-border bg-sb-input px-2.5 text-sb-dim focus-within:bg-input focus-within:text-ink"
         >
           <Icon name="search" size={16} strokeWidth={2} />
           <input

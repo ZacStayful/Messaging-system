@@ -13,11 +13,10 @@ function safeNext(next?: string) {
 }
 
 const inputClass =
-  "h-[46px] w-full rounded-lg border border-[#C9CEC4] bg-white px-3.5 text-[16px] font-normal text-[#1D1C1D] outline-none focus:border-[#5D8156] focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]";
-const primaryBtn =
-  "h-12 rounded-lg bg-[#5D8156] text-[16px] font-semibold text-white hover:bg-[#4E6E49] disabled:opacity-60";
+  "h-[46px] w-full rounded-lg border border-input-border bg-input px-3.5 text-[16px] font-normal text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.35)]";
+const primaryBtn = "h-12 rounded-lg bg-brand text-[16px] font-semibold text-white hover:opacity-90 disabled:opacity-60";
 const secondaryBtn =
-  "h-[46px] rounded-lg border border-[#C9CEC4] bg-white text-[15px] font-medium text-[#1D1C1D] hover:bg-[#F3F6F0]";
+  "h-[46px] rounded-lg border border-input-border bg-input text-[15px] font-medium text-ink hover:bg-hover";
 
 /**
  * Email + password is the primary sign-in (customers receive their password by email when the
@@ -101,11 +100,11 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
   };
 
   return (
-    <div className="flex w-full flex-col gap-3.5 rounded-[14px] bg-white p-7 shadow-[0_12px_40px_rgba(30,42,28,0.12)]">
+    <div className="flex w-full flex-col gap-3.5 rounded-[14px] border border-line bg-panel p-7 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
       {status === "sent" ? (
-        <div className="flex flex-col gap-3 text-[#1E2A1C]">
+        <div className="flex flex-col gap-3 text-ink">
           <div className="text-[17px] font-bold">Check your email</div>
-          <p className="text-[15px] text-[#3E5A3A]">
+          <p className="text-[15px] text-muted">
             We sent a sign-in link to <span className="font-semibold">{email.trim()}</span>. It expires in an hour.
           </p>
           <button type="button" onClick={() => switchMode("password")} className={secondaryBtn}>
@@ -114,7 +113,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
         </div>
       ) : (
         <form onSubmit={mode === "password" ? signInWithPassword : sendLink} className="flex flex-col gap-3.5">
-          <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-[#1E2A1C]">
+          <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
             Email address
             <input
               type="email"
@@ -129,7 +128,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
           </label>
 
           {mode === "password" && (
-            <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-[#1E2A1C]">
+            <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
               Password
               <span className="relative block">
                 <input
@@ -147,7 +146,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                   aria-pressed={showPassword}
-                  className="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#616061] hover:bg-[#F3F6F0]"
+                  className="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted hover:bg-hover"
                 >
                   <Icon name={showPassword ? "eyeOff" : "eye"} size={18} />
                 </button>
@@ -156,7 +155,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
           )}
 
           {error && (
-            <p role="alert" className="rounded-lg bg-[#FBEDEA] px-3 py-2 text-[14px] text-[#8A2E22]">
+            <p role="alert" className="alert-error">
               {error}
             </p>
           )}
@@ -175,7 +174,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
             <button
               type="button"
               onClick={() => switchMode("link")}
-              className="text-[14px] font-medium text-[#3E6E3A] hover:underline"
+              className="text-[14px] font-medium text-link hover:underline"
             >
               Forgotten your password? Email me a sign-in link
             </button>
@@ -183,16 +182,16 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
             <button
               type="button"
               onClick={() => switchMode("password")}
-              className="text-[14px] font-medium text-[#3E6E3A] hover:underline"
+              className="text-[14px] font-medium text-link hover:underline"
             >
               Sign in with a password instead
             </button>
           )}
 
-          <div className="flex items-center gap-2.5 text-[13px] text-[#7A7F76]">
-            <div className="h-px flex-1 bg-[#E2E6DE]" />
+          <div className="flex items-center gap-2.5 text-[13px] text-muted">
+            <div className="h-px flex-1 bg-line" />
             or
-            <div className="h-px flex-1 bg-[#E2E6DE]" />
+            <div className="h-px flex-1 bg-line" />
           </div>
           <button type="button" onClick={google} className={secondaryBtn}>
             Continue with Google

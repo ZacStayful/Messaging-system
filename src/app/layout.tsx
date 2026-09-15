@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Poppins } from "next/font/google";
-import { cookies } from "next/headers";
-import { readThemeCookie, THEME_COOKIE } from "@/lib/theme";
 import "./globals.css";
 
 const inter = Inter({
@@ -25,16 +23,16 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#5D8156",
+  themeColor: "#1E2B1C",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  colorScheme: "dark",
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const theme = readThemeCookie((await cookies()).get(THEME_COOKIE)?.value);
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en-GB" data-theme={theme} className={`${inter.variable} ${poppins.variable}`} suppressHydrationWarning>
+    <html lang="en-GB" data-theme="dark" className={`${inter.variable} ${poppins.variable}`}>
       <body>{children}</body>
     </html>
   );

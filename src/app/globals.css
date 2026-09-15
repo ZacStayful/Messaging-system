@@ -1,43 +1,16 @@
 @import "tailwindcss";
 
-/* Design tokens from the Claude Design handoff (Stayful Messaging.dc.html) */
-:root,
-[data-theme="light"] {
-  --frame: #5d8156;
-  --sb: #67895f;
+/* Design tokens from the Claude Design handoff (Stayful Messaging.dc.html), dark theme only. */
+:root {
+  --frame: #1e2b1c;
+  --sb: #26372a;
   --sb-text: #ffffff;
   --sb-dim: rgba(255, 255, 255, 0.92);
   --sb-hover: rgba(255, 255, 255, 0.12);
-  --sb-sel: #cfd5b9;
-  --sb-sel-text: #1e2a1c;
-  --sb-border: rgba(255, 255, 255, 0.22);
-  --sb-input: rgba(255, 255, 255, 0.16);
-  --panel: #ffffff;
-  --text: #171a17;
-  --muted: #4b514b;
-  --ph: #667066;
-  --border: #e2e6de;
-  --hover: #f3f6f0;
-  --link: #3e6e3a;
-  --input: #ffffff;
-  --input-border: #c9cec4;
-  --card: #ffffff;
-  --soft: #eef2e9;
-  --overlay: rgba(20, 30, 18, 0.5);
-  --new: #c2503a;
-  --tab: #5d8156;
-  --brand: #5d8156;
-  --sage: #cfd5b9;
-  --mint: #b9d5c6;
-  --thumb: linear-gradient(135deg, #cfd5b9, #b9d5c6);
-  color-scheme: light;
-}
-
-[data-theme="dark"] {
-  --frame: #1e2b1c;
-  --sb: #26372a;
   --sb-sel: #b9d5c6;
   --sb-sel-text: #16201a;
+  --sb-border: rgba(255, 255, 255, 0.22);
+  --sb-input: rgba(255, 255, 255, 0.16);
   --panel: #191c19;
   --text: #f1f4ee;
   --muted: #bcc4b8;
@@ -52,7 +25,11 @@
   --overlay: rgba(0, 0, 0, 0.65);
   --new: #e07a66;
   --tab: #b9d5c6;
+  --brand: #5d8156;
+  --sage: #cfd5b9;
+  --mint: #b9d5c6;
   --thumb: linear-gradient(135deg, #34523b, #26372a);
+  --danger-bg: rgba(224, 122, 102, 0.16);
   color-scheme: dark;
 }
 
@@ -83,6 +60,7 @@
   --color-brand: var(--brand);
   --color-sage: var(--sage);
   --color-mint: var(--mint);
+  --color-danger-bg: var(--danger-bg);
   --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-display: var(--font-poppins), var(--font-inter), system-ui, sans-serif;
 }
@@ -127,6 +105,15 @@ a {
 /* Brand face for headings, section titles and nav labels */
 .font-display {
   font-family: var(--font-display);
+}
+
+/* Inline error notice */
+.alert-error {
+  border-radius: 0.5rem;
+  background: var(--danger-bg);
+  color: var(--new);
+  padding: 0.5rem 0.75rem;
+  font-size: 14px;
 }
 
 /* Thin scrollbars inside panes */

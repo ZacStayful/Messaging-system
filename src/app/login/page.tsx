@@ -12,7 +12,7 @@ export default async function LoginPage({
 }) {
   const { next, error } = await searchParams;
   return (
-    <main className="flex min-h-dvh flex-1 items-center justify-center bg-sage p-6">
+    <main className="flex min-h-dvh flex-1 items-center justify-center bg-frame p-6">
       <div className="flex w-full max-w-[420px] flex-col items-center gap-5">
         <Image
           src="/brand/stayful-logo.png"
@@ -20,15 +20,15 @@ export default async function LoginPage({
           width={88}
           height={88}
           priority
-          className="h-[88px] w-[88px] rounded-full shadow-[0_8px_24px_rgba(30,42,28,0.15)]"
+          className="h-[88px] w-[88px] rounded-full shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
         />
         <div className="text-center">
-          <h1 className="font-display text-[28px] leading-[1.2] font-bold text-[#1E2A1C]">Sign in to Stayful</h1>
-          <div className="mt-1.5 text-[#3E5A3A]">chat.stayful.co.uk</div>
+          <h1 className="font-display text-[28px] leading-[1.2] font-bold text-ink">Sign in to Stayful</h1>
+          <div className="mt-1.5 text-muted">chat.stayful.co.uk</div>
         </div>
         <HashError />
         <LoginForm next={next} initialError={error} />
-        <p className="text-center text-[14px] text-[#3E5A3A]">
+        <p className="text-center text-[14px] text-muted">
           New to Stayful? Your onboarding contact will send you an invite link.
         </p>
       </div>
