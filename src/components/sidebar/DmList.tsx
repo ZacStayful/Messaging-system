@@ -12,12 +12,14 @@ import { presenceLook } from "@/lib/presence";
 import { useDraftIds } from "@/lib/drafts";
 import { SearchLink, SidebarHeader, SidebarSearch, UnreadToggle, iconBtn } from "./SidebarBits";
 import { ThreadsRow } from "./ThreadsRow";
+import { ConversationMenu, RowMenuButton, useConversationMenu } from "./ConversationMenu";
 
 export function DmList() {
   const { conversations, me, otherMember, conversationName, isOnline, activeConversationId, nav, openNewMessage } =
     useStore();
   const [filter, setFilter] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const rowMenu = useConversationMenu();
 
   const dms = useMemo(() => conversations.filter((c) => c.type === "dm" || c.type === "group_dm"), [conversations]);
   const ids = useMemo(() => dms.map((d) => d.id), [dms]);
@@ -79,9 +81,10 @@ export function DmList() {
             <Link
               key={c.id}
               href={`/dms/${c.id}`}
-              className="sb-row text-sb-text no-underline flex gap-2.5 border-t border-sb-border px-3.5 py-3"
+              className="sb-row group text-sb-text no-underline flex gap-2.5 border-t border-sb-border px-3.5 py-3"
               style={selected ? { background: "var(--sb-sel)", color: "var(--sb-sel-text)" } : undefined}
               aria-current={selected ? "page" : undefined}
+              onContextMenu={rowMenu.openAt(c.id)}
             >
               <div className="relative h-11 w-11 shrink-0">
                 <Avatar profile={other} size={44} radius={10} />
@@ -97,6 +100,7 @@ export function DmList() {
                   <span className="text-[14px] whitespace-nowrap opacity-90">{listTime(c.last_message_at)}</span>
                   {drafts.has(c.id) && <Icon name="pencil" size={14} strokeWidth={2} aria-label="Draft" />}
                   <UnreadBadge count={c.unread_count} />
+                  <RowMenuButton onOpen={rowMenu.openFrom(c.id)} name={conversationName(c)} />
                 </div>
                 <div className={`clamp-2 text-[15px] leading-[1.45] opacity-95 ${isSelf ? "italic" : ""}`}>
                   {preview}
@@ -106,6 +110,7 @@ export function DmList() {
           );
         })}
       </div>
+      <ConversationMenu menu={rowMenu.menu} onClose={rowMenu.close} />
     </>
   );
 }

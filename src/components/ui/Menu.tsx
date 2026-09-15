@@ -11,6 +11,8 @@ export interface MenuItem {
   hint?: string;
   danger?: boolean;
   checked?: boolean;
+  /** Leave the menu open after selecting (for switching to a sub-view). */
+  keepOpen?: boolean;
   onSelect: () => void;
 }
 
@@ -39,7 +41,7 @@ export function Menu({ items, onClose, label, align = "right", below = true, hea
             role="menuitem"
             onClick={() => {
               item.onSelect();
-              onClose();
+              if (!item.keepOpen) onClose();
             }}
             className={`flex w-full items-center gap-3 px-3.5 py-2 text-left text-[15px] hover:bg-hover ${item.danger ? "text-new" : "text-ink"}`}
           >

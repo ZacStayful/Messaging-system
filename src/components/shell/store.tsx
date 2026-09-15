@@ -81,6 +81,9 @@ interface StoreValue {
   toggleMute: (conversationId: string) => Promise<void>;
   setNotifyLevel: (conversationId: string, level: NotifyLevel) => Promise<void>;
   openDm: (userId: string) => Promise<string | null>;
+  /** Leave a group or group message (team only). Navigates home when leaving the open conversation. */
+  leaveConversation: (conversationId: string) => Promise<boolean>;
+  setArchived: (conversationId: string, archived: boolean) => Promise<boolean>;
   refresh: () => void;
 }
 
@@ -145,9 +148,11 @@ export function StoreProvider({
   const openNewMessage = useCallback((mode: NewMessageMode = "people") => setNewMessage(mode), []);
   const closeNewMessage = useCallback(() => setNewMessage(null), []);
   const activeRef = useRef(activeConversationId);
+  const navRef = useRef(nav);
   useEffect(() => {
     activeRef.current = activeConversationId;
-  }, [activeConversationId]);
+    navRef.current = nav;
+  }, [activeConversationId, nav]);
 
   const conversationById = useCallback((id: string) => conversations.find((c) => c.id === id), [conversations]);
 
@@ -250,6 +255,36 @@ export function StoreProvider({
   );
 
   const refresh = useCallback(() => router.refresh(), [router]);
+
+  const leaveConversation = useCallback(
+    async (conversationId: string) => {
+      const { error } = await supabase.rpc("remove_member", { p_conversation_id: conversationId, p_user_id: me.id });
+      if (error) return false;
+      setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+      if (activeRef.current === conversationId) router.push(`/${navRef.current === "dms" ? "dms" : "home"}`);
+      refresh();
+      return true;
+    },
+    [supabase, me.id, router, refresh],
+  );
+
+  const setArchived = useCallback(
+    async (conversationId: string, archived: boolean) => {
+      const { error } = await supabase.rpc("archive_channel", {
+        p_conversation_id: conversationId,
+        p_archived: archived,
+      });
+      if (error) return false;
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conversationId ? { ...c, archived_at: archived ? new Date().toISOString() : null } : c,
+        ),
+      );
+      refresh();
+      return true;
+    },
+    [supabase, refresh],
+  );
 
   const openDm = useCallback(
     async (userId: string) => {
@@ -428,6 +463,8 @@ export function StoreProvider({
       toggleMute,
       setNotifyLevel,
       openDm,
+      leaveConversation,
+      setArchived,
       refresh,
     }),
     [
@@ -461,6 +498,8 @@ export function StoreProvider({
       toggleMute,
       setNotifyLevel,
       openDm,
+      leaveConversation,
+      setArchived,
       refresh,
     ],
   );
