@@ -33,14 +33,14 @@ export function NewMessageModal({ mode, onClose }: { mode: NewMessageMode; onClo
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Customers can only message team members they share a group with (D14); the list they
-  // receive from the server is already limited by RLS, so exclude other customers here.
+  // Customers may message anyone in their groups; the profiles they receive are already
+  // limited by RLS to people they share a conversation with.
   const people = useMemo(
     () =>
       Object.values(profiles)
-        .filter((p) => p.id !== me.id && !p.deactivated_at && (isTeam || p.account_type === "team"))
+        .filter((p) => p.id !== me.id && !p.deactivated_at)
         .sort((a, b) => a.display_name.localeCompare(b.display_name)),
-    [profiles, me.id, isTeam],
+    [profiles, me.id],
   );
   const query = q.trim().toLowerCase();
   const results = people.filter(

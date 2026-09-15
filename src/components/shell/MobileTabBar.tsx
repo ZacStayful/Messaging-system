@@ -5,23 +5,29 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { useStore, type Nav } from "./store";
 import { useUnreadTotals } from "./Rail";
 
-const ITEMS: { id: Nav; label: string; icon: IconName }[] = [
+const TEAM_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
   { id: "home", label: "Home", icon: "home" },
   { id: "dms", label: "DMs", icon: "dms" },
   { id: "activity", label: "Activity", icon: "activity" },
   { id: "you", label: "You", icon: "you" },
 ];
+const CUSTOMER_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
+  { id: "home", label: "Home", icon: "home" },
+  { id: "dms", label: "DMs", icon: "dms" },
+  { id: "you", label: "You", icon: "you" },
+];
 
 export function MobileTabBar() {
-  const { nav } = useStore();
+  const { nav, isCustomer } = useStore();
   const { dmUnread, activityUnread } = useUnreadTotals();
+  const items = isCustomer ? CUSTOMER_ITEMS : TEAM_ITEMS;
   return (
     <nav
       className="flex h-[84px] shrink-0 items-start border-t border-sb-border bg-frame px-2 pt-2.5 text-white md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       aria-label="Primary"
     >
-      {ITEMS.map((item) => {
+      {items.map((item) => {
         const active = nav === item.id;
         const badge = item.id === "dms" ? dmUnread : item.id === "activity" ? activityUnread : 0;
         return (

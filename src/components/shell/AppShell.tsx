@@ -11,28 +11,35 @@ import { HomeSidebar } from "@/components/sidebar/HomeSidebar";
 import { ActivityList } from "@/components/sidebar/ActivityList";
 import { PlaceholderSidebar } from "@/components/sidebar/PlaceholderSidebar";
 import { YouSidebar } from "@/components/sidebar/YouSidebar";
+import { CustomerSidebar } from "@/components/sidebar/CustomerSidebar";
 
 /**
  * Desktop: 44px top bar, 72px rail, sidebar + conversation pane on the green frame.
  * Mobile (< md): a single pane; list with a bottom tab bar, or the conversation with a back button.
+ * Customers get a simplified shell: their groups and direct messages only.
  */
 export function AppShell({ children }: { children: ReactNode }) {
-  const { nav, activeConversationId, isPage, newMessage, closeNewMessage } = useStore();
+  const { nav, activeConversationId, isPage, newMessage, closeNewMessage, isCustomer } = useStore();
   const showMain = !!activeConversationId || isPage;
   const wide = nav === "dms" || nav === "activity";
 
-  const sidebar =
-    nav === "dms" ? (
-      <DmList />
-    ) : nav === "home" ? (
-      <HomeSidebar />
-    ) : nav === "activity" ? (
-      <ActivityList />
-    ) : nav === "you" ? (
+  const sidebar = isCustomer ? (
+    nav === "you" ? (
       <YouSidebar />
     ) : (
-      <PlaceholderSidebar nav={nav} />
-    );
+      <CustomerSidebar />
+    )
+  ) : nav === "dms" ? (
+    <DmList />
+  ) : nav === "home" ? (
+    <HomeSidebar />
+  ) : nav === "activity" ? (
+    <ActivityList />
+  ) : nav === "you" ? (
+    <YouSidebar />
+  ) : (
+    <PlaceholderSidebar nav={nav} />
+  );
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-frame text-ink">
@@ -41,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Rail />
         <div className="flex min-h-0 min-w-0 flex-1 md:gap-1 md:pr-1 md:pb-1">
           <aside
-            className={`${showMain ? "hidden md:flex" : "flex"} min-h-0 w-full shrink-0 flex-col bg-sb text-sb-text md:rounded-l-lg ${wide ? "md:w-[380px]" : "md:w-[300px]"}`}
+            className={`${showMain ? "hidden md:flex" : "flex"} min-h-0 w-full shrink-0 flex-col bg-sb text-sb-text md:rounded-l-lg ${wide && !isCustomer ? "md:w-[380px]" : "md:w-[320px]"}`}
           >
             {sidebar}
           </aside>

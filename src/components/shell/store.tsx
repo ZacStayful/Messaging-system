@@ -5,6 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { ActivityItem, ConversationSummary, Json, Profile } from "@/lib/database.types";
 import { previewOf } from "@/lib/format";
+import { isNav, type Nav } from "@/lib/nav";
+
+export type { Nav } from "@/lib/nav";
 
 export interface Org {
   id: string;
@@ -23,21 +26,32 @@ export interface IncomingMessageEvent {
   visibility: string;
   preview: string;
   created_at: string;
+  parent_id?: string | null;
+  mentions?: string[];
 }
 
-import { isNav, type Nav } from "@/lib/nav";
-
-export type { Nav } from "@/lib/nav";
+/** Payload of `conversation_changed` (rename, topic, archive, membership). */
+export interface ConversationChangedEvent {
+  conversation_id: string;
+  event: string;
+  user_id?: string;
+}
 
 /** Window event fired for every `message_created` realtime event, so open views can back-fill. */
 export const MESSAGE_EVENT = "stayful:message";
+/** Window event fired for every `conversation_changed` realtime event. */
+export const CONVERSATION_EVENT = "stayful:conversation";
 
 /** "people" starts a DM or group DM; "group" creates a named group (team only). */
 export type NewMessageMode = "people" | "group";
+export type NotifyLevel = "all" | "mentions" | "none";
 
 interface StoreValue {
   me: Profile;
   org: Org;
+  isTeam: boolean;
+  isAdmin: boolean;
+  isCustomer: boolean;
   profiles: Record<string, Profile>;
   conversations: ConversationSummary[];
   activity: ActivityItem[];
@@ -57,8 +71,10 @@ interface StoreValue {
   isOnline: (userId: string) => boolean;
   markRead: (conversationId: string) => Promise<void>;
   markActivityRead: (messageId: string) => void;
+  markAllActivityRead: () => Promise<void>;
   toggleStar: (conversationId: string) => Promise<void>;
   toggleMute: (conversationId: string) => Promise<void>;
+  setNotifyLevel: (conversationId: string, level: NotifyLevel) => Promise<void>;
   openDm: (userId: string) => Promise<string | null>;
   refresh: () => void;
 }
@@ -92,7 +108,6 @@ export function StoreProvider({
   const [activityRead, setActivityRead] = useState<ReadonlySet<string>>(() => new Set());
 
   // Server data wins whenever the layout re-renders with fresh props (router.refresh()).
-  // "Adjusting state when a prop changes" pattern from the React docs.
   const [seenConversations, setSeenConversations] = useState(initialConversations);
   if (seenConversations !== initialConversations) {
     setSeenConversations(initialConversations);
@@ -105,6 +120,9 @@ export function StoreProvider({
   }
 
   const profiles = useMemo(() => Object.fromEntries(profileList.map((p) => [p.id, p])), [profileList]);
+  const isTeam = me.account_type === "team";
+  const isAdmin = isTeam && me.role === "admin";
+  const isCustomer = !isTeam;
 
   const segments = pathname.split("/").filter(Boolean);
   const nav: Nav = isNav(segments[0]) ? segments[0] : "dms";
@@ -152,9 +170,11 @@ export function StoreProvider({
     async (conversationId: string) => {
       const now = new Date().toISOString();
       setConversations((prev) =>
-        prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0, last_read_at: now } : c)),
+        prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0, mention_count: 0, last_read_at: now } : c)),
       );
-      setActivity((prev) => prev.map((a) => (a.conversation_id === conversationId ? { ...a, unread: false } : a)));
+      setActivity((prev) =>
+        prev.map((a) => (a.conversation_id === conversationId && !a.parent_id ? { ...a, unread: false } : a)),
+      );
       await supabase.rpc("mark_read", { cid: conversationId });
     },
     [supabase],
@@ -164,8 +184,13 @@ export function StoreProvider({
     setActivityRead((prev) => new Set(prev).add(messageId));
   }, []);
 
+  const markAllActivityRead = useCallback(async () => {
+    setActivity((prev) => prev.map((a) => ({ ...a, unread: false })));
+    await supabase.from("profiles").update({ activity_seen_at: new Date().toISOString() }).eq("id", me.id);
+  }, [supabase, me.id]);
+
   const updateMember = useCallback(
-    async (conversationId: string, patch: { starred?: boolean; muted?: boolean }) => {
+    async (conversationId: string, patch: { starred?: boolean; muted?: boolean; notify_level?: NotifyLevel }) => {
       setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c)));
       await supabase
         .from("conversation_members")
@@ -192,6 +217,11 @@ export function StoreProvider({
     [conversations, updateMember],
   );
 
+  const setNotifyLevel = useCallback(
+    async (id: string, level: NotifyLevel) => updateMember(id, { notify_level: level }),
+    [updateMember],
+  );
+
   const refresh = useCallback(() => router.refresh(), [router]);
 
   const openDm = useCallback(
@@ -204,7 +234,7 @@ export function StoreProvider({
     [supabase, conversations, refresh],
   );
 
-  // ---- Realtime: personal topic (new messages anywhere) --------------------
+  // ---- Realtime: personal topic (new messages anywhere, conversation changes) --------
   useEffect(() => {
     let cancelled = false;
     const channel = supabase.channel(`user:${me.id}`, { config: { private: true } });
@@ -214,19 +244,26 @@ export function StoreProvider({
       window.dispatchEvent(new CustomEvent<IncomingMessageEvent>(MESSAGE_EVENT, { detail: evt }));
       const isMine = evt.sender_id === me.id;
       const isActive = activeRef.current === evt.conversation_id;
+      const isReply = !!evt.parent_id;
+      const mentionsMe =
+        (evt.mentions ?? []).includes(me.id) || new RegExp(`@\\[?${me.display_name}\\b`, "i").test(evt.preview);
       let known = false;
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.id === evt.conversation_id);
         if (idx === -1) return prev;
         known = true;
         const c = prev[idx];
+        if (isReply) return prev; // thread replies never move or badge the conversation
+        const counts =
+          c.notify_level === "none" || (c.notify_level === "mentions" && !mentionsMe) ? 0 : isMine || isActive ? 0 : 1;
         const updated: ConversationSummary = {
           ...c,
           last_message_at: evt.created_at,
           last_message_body: evt.preview,
           last_message_sender_id: evt.sender_id,
           last_message_kind: evt.kind as ConversationSummary["last_message_kind"],
-          unread_count: isMine || isActive ? c.unread_count : c.unread_count + 1,
+          unread_count: c.unread_count + counts,
+          mention_count: c.mention_count + (mentionsMe && !isMine && !isActive ? 1 : 0),
           last_read_at: isMine || isActive ? evt.created_at : c.last_read_at,
         };
         const next = [...prev];
@@ -235,11 +272,13 @@ export function StoreProvider({
       });
       if (!isMine) {
         const kind =
-          evt.kind === "system" && /accepted your invitation/i.test(evt.preview)
+          evt.kind === "system" && /has been added|accepted your invitation/i.test(evt.preview)
             ? "New member"
-            : new RegExp(`@${me.display_name}\\b`, "i").test(evt.preview)
+            : mentionsMe
               ? "Mention"
-              : "Message";
+              : isReply
+                ? "Reply"
+                : "Message";
         setActivity((prev) =>
           prev.some((a) => a.message_id === evt.message_id)
             ? prev
@@ -252,15 +291,26 @@ export function StoreProvider({
                   body: evt.preview,
                   created_at: evt.created_at,
                   unread: !isActive,
+                  parent_id: evt.parent_id ?? null,
+                  emoji: null,
                 },
                 ...prev,
-              ].slice(0, 50),
+              ].slice(0, 80),
         );
       }
       // A conversation we have never seen (e.g. a new DM): pull fresh server data.
       queueMicrotask(() => {
         if (!known && !cancelled) refresh();
       });
+    });
+
+    channel.on("broadcast", { event: "conversation_changed" }, ({ payload }) => {
+      const evt = payload as ConversationChangedEvent;
+      window.dispatchEvent(new CustomEvent<ConversationChangedEvent>(CONVERSATION_EVENT, { detail: evt }));
+      if (evt.event === "removed" && evt.user_id === me.id && activeRef.current === evt.conversation_id) {
+        router.push("/home");
+      }
+      refresh();
     });
 
     supabase.realtime.setAuth().then(() => {
@@ -270,7 +320,7 @@ export function StoreProvider({
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [supabase, me.id, me.display_name, refresh]);
+  }, [supabase, me.id, me.display_name, refresh, router]);
 
   // ---- Realtime: org presence ----------------------------------------------
   useEffect(() => {
@@ -295,6 +345,9 @@ export function StoreProvider({
     () => ({
       me,
       org,
+      isTeam,
+      isAdmin,
+      isCustomer,
       profiles,
       conversations,
       activity,
@@ -312,14 +365,19 @@ export function StoreProvider({
       isOnline,
       markRead,
       markActivityRead,
+      markAllActivityRead,
       toggleStar,
       toggleMute,
+      setNotifyLevel,
       openDm,
       refresh,
     }),
     [
       me,
       org,
+      isTeam,
+      isAdmin,
+      isCustomer,
       profiles,
       conversations,
       activity,
@@ -337,8 +395,10 @@ export function StoreProvider({
       isOnline,
       markRead,
       markActivityRead,
+      markAllActivityRead,
       toggleStar,
       toggleMute,
+      setNotifyLevel,
       openDm,
       refresh,
     ],
@@ -358,4 +418,9 @@ export function lastMessagePreview(c: ConversationSummary, meId: string): string
   const text = previewOf(c.last_message_body);
   if (!text) return "";
   return c.last_message_sender_id === meId && c.last_message_kind !== "system" ? `You: ${text}` : text;
+}
+
+/** Conversations that should appear in sidebars (archived ones are hidden unless asked for). */
+export function liveConversations(list: ConversationSummary[], includeArchived = false): ConversationSummary[] {
+  return includeArchived ? list : list.filter((c) => !c.archived_at);
 }

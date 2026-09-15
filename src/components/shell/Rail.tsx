@@ -6,30 +6,31 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { Avatar } from "@/components/ui/Avatar";
 import { useStore, type Nav } from "./store";
 
-const ITEMS: { id: Nav; label: string; icon: IconName }[] = [
+const TEAM_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
   { id: "home", label: "Home", icon: "home" },
   { id: "dms", label: "DMs", icon: "dms" },
   { id: "activity", label: "Activity", icon: "activity" },
   { id: "files", label: "Files", icon: "files" },
   { id: "later", label: "Later", icon: "later" },
-  { id: "agents", label: "Agents\n& tools", icon: "agents" },
+];
+const CUSTOMER_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
+  { id: "home", label: "Home", icon: "home" },
+  { id: "dms", label: "DMs", icon: "dms" },
 ];
 
 export function useUnreadTotals() {
   const { conversations, activity, activityRead } = useStore();
-  const dmUnread = conversations
-    .filter((c) => c.type === "dm" || c.type === "group_dm")
-    .reduce((n, c) => n + c.unread_count, 0);
-  const channelUnread = conversations.some(
-    (c) => c.type !== "dm" && c.type !== "group_dm" && c.unread_count > 0 && !c.muted,
-  );
+  const live = conversations.filter((c) => !c.archived_at);
+  const dmUnread = live.filter((c) => c.type === "dm" || c.type === "group_dm").reduce((n, c) => n + c.unread_count, 0);
+  const channelUnread = live.some((c) => c.type !== "dm" && c.type !== "group_dm" && c.unread_count > 0 && !c.muted);
   const activityUnread = activity.filter((a) => a.unread && !activityRead.has(a.message_id)).length;
   return { dmUnread, channelUnread, activityUnread };
 }
 
 export function Rail() {
-  const { nav, me, isOnline } = useStore();
+  const { nav, me, isOnline, isTeam, isCustomer } = useStore();
   const { dmUnread, channelUnread, activityUnread } = useUnreadTotals();
+  const items = isCustomer ? CUSTOMER_ITEMS : TEAM_ITEMS;
 
   return (
     <nav
@@ -43,7 +44,7 @@ export function Rail() {
         height={38}
         className="mb-2.5 h-[38px] w-[38px] rounded-[9px]"
       />
-      {ITEMS.map((item) => {
+      {items.map((item) => {
         const active = nav === item.id;
         const badge = item.id === "dms" ? dmUnread : item.id === "activity" ? activityUnread : 0;
         const dot = item.id === "home" && channelUnread;
@@ -72,7 +73,7 @@ export function Rail() {
           </Link>
         );
       })}
-      {me.account_type === "team" && (
+      {isTeam && (
         <Link
           href="/customers/new"
           className="mt-1.5 flex h-[38px] w-[38px] items-center justify-center rounded-full border-0 bg-white/[.18] text-sb-text hover:bg-white/30"

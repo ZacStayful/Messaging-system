@@ -3,9 +3,14 @@
 import type { Nav } from "@/components/shell/store";
 
 const COPY: Partial<Record<Nav, { title: string; hint: string }>> = {
-  files: { title: "Files", hint: "Files shared across your conversations will appear here." },
-  later: { title: "Later", hint: "Save messages for later and they will show up here." },
-  agents: { title: "Agents & tools", hint: "Automations and connected tools for the Stayful workspace." },
+  files: {
+    title: "Files",
+    hint: "Every file shared in your conversations, in one place. Arriving in the next update.",
+  },
+  later: {
+    title: "Later",
+    hint: "Messages you save for later and reminders will show up here. Arriving in the next update.",
+  },
 };
 
 export function PlaceholderSidebar({ nav }: { nav: Nav }) {

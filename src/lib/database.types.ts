@@ -318,6 +318,8 @@ export type Database = {
           meta: Json;
           org_id: string;
           parent_id: string | null;
+          reply_count: number;
+          last_reply_at: string | null;
           sender_id: string | null;
           sent_via: string;
           visibility: Database["public"]["Enums"]["message_visibility"];
@@ -335,6 +337,8 @@ export type Database = {
           meta?: Json;
           org_id: string;
           parent_id?: string | null;
+          reply_count?: number;
+          last_reply_at?: string | null;
           sender_id?: string | null;
           sent_via?: string;
           visibility?: Database["public"]["Enums"]["message_visibility"];
@@ -352,6 +356,8 @@ export type Database = {
           meta?: Json;
           org_id?: string;
           parent_id?: string | null;
+          reply_count?: number;
+          last_reply_at?: string | null;
           sender_id?: string | null;
           sent_via?: string;
           visibility?: Database["public"]["Enums"]["message_visibility"];
@@ -542,6 +548,11 @@ export type Database = {
           presence: Database["public"]["Enums"]["presence_status"];
           role: Database["public"]["Enums"]["user_role"];
           status_text: string | null;
+          status_emoji: string | null;
+          status_expires_at: string | null;
+          dnd_until: string | null;
+          activity_seen_at: string | null;
+          timezone: string;
           updated_at: string;
         };
         Insert: {
@@ -561,6 +572,11 @@ export type Database = {
           presence?: Database["public"]["Enums"]["presence_status"];
           role?: Database["public"]["Enums"]["user_role"];
           status_text?: string | null;
+          status_emoji?: string | null;
+          status_expires_at?: string | null;
+          dnd_until?: string | null;
+          activity_seen_at?: string | null;
+          timezone?: string;
           updated_at?: string;
         };
         Update: {
@@ -580,6 +596,11 @@ export type Database = {
           presence?: Database["public"]["Enums"]["presence_status"];
           role?: Database["public"]["Enums"]["user_role"];
           status_text?: string | null;
+          status_emoji?: string | null;
+          status_expires_at?: string | null;
+          dnd_until?: string | null;
+          activity_seen_at?: string | null;
+          timezone?: string;
           updated_at?: string;
         };
         Relationships: [
@@ -638,12 +659,196 @@ export type Database = {
           },
         ];
       };
+      thread_follows: {
+        Row: { message_id: string; user_id: string; org_id: string; last_read_at: string | null; created_at: string };
+        Insert: {
+          message_id: string;
+          user_id: string;
+          org_id: string;
+          last_read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          message_id?: string;
+          user_id?: string;
+          org_id?: string;
+          last_read_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "thread_follows_message_id_fkey";
+            columns: ["message_id"];
+            isOneToOne: false;
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      saved_items: {
+        Row: {
+          id: string;
+          org_id: string;
+          user_id: string;
+          message_id: string;
+          saved_at: string;
+          remind_at: string | null;
+          reminded_at: string | null;
+          completed_at: string | null;
+          archived_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          user_id: string;
+          message_id: string;
+          saved_at?: string;
+          remind_at?: string | null;
+          reminded_at?: string | null;
+          completed_at?: string | null;
+          archived_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          user_id?: string;
+          message_id?: string;
+          saved_at?: string;
+          remind_at?: string | null;
+          reminded_at?: string | null;
+          completed_at?: string | null;
+          archived_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "saved_items_message_id_fkey";
+            columns: ["message_id"];
+            isOneToOne: false;
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      scheduled_messages: {
+        Row: {
+          id: string;
+          org_id: string;
+          conversation_id: string;
+          sender_id: string;
+          parent_id: string | null;
+          body: string;
+          visibility: Database["public"]["Enums"]["message_visibility"];
+          send_at: string;
+          sent_message_id: string | null;
+          cancelled_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          conversation_id: string;
+          sender_id: string;
+          parent_id?: string | null;
+          body: string;
+          visibility?: Database["public"]["Enums"]["message_visibility"];
+          send_at: string;
+          sent_message_id?: string | null;
+          cancelled_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          conversation_id?: string;
+          sender_id?: string;
+          parent_id?: string | null;
+          body?: string;
+          visibility?: Database["public"]["Enums"]["message_visibility"];
+          send_at?: string;
+          sent_message_id?: string | null;
+          cancelled_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_messages_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      link_previews: {
+        Row: {
+          url: string;
+          title: string | null;
+          description: string | null;
+          image_url: string | null;
+          site_name: string | null;
+          fetched_at: string;
+          ok: boolean;
+        };
+        Insert: {
+          url: string;
+          title?: string | null;
+          description?: string | null;
+          image_url?: string | null;
+          site_name?: string | null;
+          fetched_at?: string;
+          ok?: boolean;
+        };
+        Update: {
+          url?: string;
+          title?: string | null;
+          description?: string | null;
+          image_url?: string | null;
+          site_name?: string | null;
+          fetched_at?: string;
+          ok?: boolean;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
       auth_org_id: { Args: never; Returns: string };
+      add_members: { Args: { p_conversation_id: string; p_user_ids: string[] }; Returns: undefined };
+      archive_channel: { Args: { p_conversation_id: string; p_archived?: boolean }; Returns: undefined };
+      remove_member: { Args: { p_conversation_id: string; p_user_id: string }; Returns: undefined };
+      rename_channel: { Args: { p_conversation_id: string; p_name: string }; Returns: undefined };
+      set_channel_details: {
+        Args: { p_conversation_id: string; p_topic: string | null; p_description: string | null };
+        Returns: undefined;
+      };
+      mark_thread_read: { Args: { p_message_id: string }; Returns: undefined };
+      my_threads: {
+        Args: { max_rows?: number };
+        Returns: {
+          message_id: string;
+          conversation_id: string;
+          sender_id: string | null;
+          body: string;
+          created_at: string;
+          reply_count: number;
+          last_reply_at: string | null;
+          last_read_at: string | null;
+          unread_count: number;
+          participant_ids: string[] | null;
+        }[];
+      };
+      create_team_account: {
+        Args: {
+          p_email: string;
+          p_full_name: string;
+          p_display_name: string;
+          p_password: string;
+          p_role?: Database["public"]["Enums"]["user_role"];
+        };
+        Returns: string;
+      };
       create_channel: {
         Args: {
           p_name: string;
@@ -701,6 +906,8 @@ export type Database = {
           message_id: string;
           sender_id: string | null;
           unread: boolean;
+          parent_id: string | null;
+          emoji: string | null;
         }[];
       };
       my_conversations: {
@@ -719,6 +926,8 @@ export type Database = {
           member_count: number;
           member_ids: string[];
           muted: boolean;
+          notify_level: string;
+          mention_count: number;
           name: string | null;
           owner_user_id: string | null;
           slug: string | null;
@@ -754,6 +963,10 @@ export type Message = Tables<"messages">;
 export type Pin = Tables<"pins">;
 export type Attachment = Tables<"attachments">;
 export type Reaction = Tables<"reactions">;
+export type SavedItem = Tables<"saved_items">;
+export type ScheduledMessage = Tables<"scheduled_messages">;
+export type LinkPreview = Tables<"link_previews">;
+export type ThreadSummary = Database["public"]["Functions"]["my_threads"]["Returns"][number];
 export type SearchHit = Database["public"]["Functions"]["search_messages"]["Returns"][number];
 export type NotificationOutbox = Tables<"notification_outbox">;
 export type ConversationSummary = Database["public"]["Functions"]["my_conversations"]["Returns"][number];

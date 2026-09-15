@@ -10,7 +10,6 @@ const TITLES: Record<string, string> = {
   activity: "Your activity",
   files: "Files",
   later: "Later",
-  agents: "Agents & tools",
   you: "You",
 };
 
