@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Avatar } from "@/components/ui/Avatar";
 import { useStore, type Nav } from "./store";
+import { dndActive, presenceLook } from "@/lib/presence";
 
 const TEAM_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
   { id: "home", label: "Home", icon: "home" },
@@ -28,7 +29,8 @@ export function useUnreadTotals() {
 }
 
 export function Rail() {
-  const { nav, me, isOnline, isTeam, isCustomer } = useStore();
+  const { nav, me, presenceOf, isTeam, isCustomer } = useStore();
+  const myLook = presenceLook(presenceOf(me.id));
   const { dmUnread, channelUnread, activityUnread } = useUnreadTotals();
   const items = isCustomer ? CUSTOMER_ITEMS : TEAM_ITEMS;
 
@@ -91,10 +93,19 @@ export function Rail() {
         aria-label="Account"
       >
         <Avatar profile={me} size={38} radius={9} />
-        <span
-          className="absolute -right-[3px] -bottom-[3px] h-3 w-3 rounded-full border-2 border-frame"
-          style={{ background: isOnline(me.id) ? "#2BAC76" : "#B9D5C6" }}
-        />
+        {dndActive(me) ? (
+          <span
+            className="absolute -right-[4px] -bottom-[4px] flex h-4 w-4 items-center justify-center rounded-full border-2 border-frame bg-[#3E5A3A] text-white"
+            title="Notifications paused"
+          >
+            <Icon name="bellOff" size={9} strokeWidth={2.6} />
+          </span>
+        ) : (
+          <span
+            className="absolute -right-[3px] -bottom-[3px] h-3 w-3 rounded-full border-2 border-frame"
+            style={{ background: myLook.bg === "transparent" ? "#B9D5C6" : myLook.bg }}
+          />
+        )}
       </Link>
     </nav>
   );

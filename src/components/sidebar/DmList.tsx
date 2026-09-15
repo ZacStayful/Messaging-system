@@ -15,7 +15,7 @@ import { ThreadsRow } from "./ThreadsRow";
 import { ConversationMenu, RowMenuButton, useConversationMenu } from "./ConversationMenu";
 
 export function DmList() {
-  const { conversations, me, otherMember, conversationName, isOnline, activeConversationId, nav, openNewMessage } =
+  const { conversations, me, otherMember, conversationName, presenceOf, activeConversationId, nav, openNewMessage } =
     useStore();
   const [filter, setFilter] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -75,7 +75,7 @@ export function DmList() {
           const other = otherMember(c);
           const selected = activeConversationId === c.id && nav === "dms";
           const isSelf = other?.id === me.id;
-          const look = presenceLook(other, !!other && isOnline(other.id));
+          const look = presenceLook(other ? presenceOf(other.id) : "offline");
           const preview = lastMessagePreview(c, me.id);
           return (
             <Link

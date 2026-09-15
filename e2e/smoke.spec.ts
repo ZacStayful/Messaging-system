@@ -346,10 +346,7 @@ test("customers get the simplified shell and no team routes", async ({ page, con
   await expect(page.getByText("Hello from the team (public)")).toBeVisible();
   // Customers can DM anyone in their group from the members list
   await page.getByRole("button", { name: /\d+ members/ }).click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: /Test Staff/ })
-    .click();
+  await page.getByRole("dialog").getByRole("button", { name: "Message Test Staff" }).click();
   await expect(page).toHaveURL(/\/dms\/[0-9a-f-]{36}/);
 });
 
@@ -415,6 +412,54 @@ test("sidebar row context menu: star, mute and notification level", async ({ pag
   await row.click({ button: "right" });
   await menu.getByRole("menuitem", { name: /Notification preferences/ }).click();
   await menu.getByRole("menuitem", { name: "All new messages" }).click();
+});
+
+test("status, profile card and people directory", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+
+  // Set a status from the You panel.
+  await page.goto("/you");
+  await page.getByRole("button", { name: "Set a status" }).click();
+  const dialog = page.getByRole("dialog", { name: "Set a status" });
+  await dialog.getByLabel("Status text").fill("In a meeting");
+  await dialog.getByLabel("Clear status after").selectOption("1h");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /In a meeting/ })).toBeVisible();
+
+  // The people directory lists everyone, filters, and opens a profile card with the status.
+  await page.goto("/people");
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Profile: Test Customer" })).toBeVisible();
+  await page.getByLabel("Search people").fill("test staff");
+  await expect(page.getByRole("button", { name: "Profile: Test Customer" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Profile: Test Staff" }).click();
+  const card = page.getByRole("dialog", { name: "Profile: Test Staff" });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("In a meeting")).toBeVisible();
+  await expect(card.getByRole("link", { name: "Edit profile" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Clicking a sender's name in a conversation opens their card with a Message button.
+  await page.goto(`/home/${CUSTOMER_GROUP}`);
+  await page.getByRole("button", { name: "Test Staff", exact: true }).first().click();
+  await expect(page.getByRole("dialog", { name: "Profile: Test Staff" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Clear the status again so the fixture stays neutral.
+  await page.goto("/you");
+  await page.getByRole("button", { name: "Clear status" }).click();
+  await expect(page.getByRole("button", { name: "Set a status" })).toBeVisible();
+});
+
+test("customers cannot open the people directory", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-customer@stayful.test");
+  const res = await page.goto("/people");
+  expect(res?.status()).toBe(404);
 });
 
 test("history and help popovers open from the top bar", async ({ page, context }, testInfo) => {

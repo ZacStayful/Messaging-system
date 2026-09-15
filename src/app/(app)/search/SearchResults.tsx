@@ -37,7 +37,7 @@ interface SearchResultsProps {
 const chipCls = "flex h-[34px] items-center gap-1.5 rounded-lg px-3.5 text-[15px]";
 
 export function SearchResults({ query, messages, people, files }: SearchResultsProps) {
-  const { me, profiles, conversationById, conversationName, isOnline, openDm } = useStore();
+  const { me, profiles, conversationById, conversationName, presenceOf, openDm } = useStore();
   const router = useRouter();
   const [chip, setChip] = useState<Chip>("All");
   const [q, setQ] = useState(query);
@@ -147,7 +147,7 @@ export function SearchResults({ query, messages, people, files }: SearchResultsP
                 <h2 className="mb-2 text-[16px] font-semibold">People</h2>
                 <div className="overflow-hidden rounded-xl border border-line bg-card">
                   {people.map((p) => {
-                    const look = presenceLook(p, isOnline(p.id));
+                    const look = presenceLook(presenceOf(p.id));
                     return (
                       <button
                         key={p.id}

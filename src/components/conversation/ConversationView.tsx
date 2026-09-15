@@ -75,7 +75,8 @@ export function ConversationView({
     conversationById,
     conversationName,
     otherMember,
-    isOnline,
+    presenceOf,
+    openProfile,
     markRead,
     toggleStar,
     toggleMute,
@@ -625,8 +626,12 @@ export function ConversationView({
     }
     upsert(data);
     if (parentId) {
-      // The trigger bumps reply_count on the parent; reflect it now rather than waiting for the UPDATE.
-      patchMessage(parentId, (m) => ({ ...m, reply_count: m.reply_count + 1, last_reply_at: data.created_at }));
+      // The trigger bumps reply_count on the parent; reflect it now unless its UPDATE already arrived.
+      patchMessage(parentId, (m) =>
+        m.last_reply_at && new Date(m.last_reply_at).getTime() >= new Date(data.created_at).getTime()
+          ? m
+          : { ...m, reply_count: m.reply_count + 1, last_reply_at: data.created_at },
+      );
       void markThreadRead(parentId);
     }
     delete outgoing.current[clientId];
@@ -683,7 +688,8 @@ export function ConversationView({
           conversation={conversation}
           title={title}
           other={other}
-          otherOnline={!!other && isOnline(other.id)}
+          otherStatus={other ? presenceOf(other.id) : "offline"}
+          onOpenProfile={other ? openProfile(other.id) : undefined}
           backHref={`/${nav}`}
           canManage={isTeam}
           onOpenDetails={setDetails}

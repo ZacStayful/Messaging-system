@@ -41,6 +41,11 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Sidebar row menus (right-click or the hover "⋯"): mark as read, star, mute, notification
   level, copy link, leave and archive (team), on every conversation list including the
   customer view.
+- People and presence: profile cards on any avatar or name (role, custom status, local time,
+  Message / Copy email), a People directory for the team (`/people`), profile editing (names,
+  photo to the public `avatars` bucket, time zone), custom status with an expiry, pause
+  notifications (DND), and away-after-10-minutes presence. Profile changes reach everyone live
+  through a `profile_changed` broadcast on the org topic (`0012_profile_presence.sql`).
 - Threads: "Reply in thread" on any message, a side panel (full screen on mobile) with its own
   composer, reply counts under the parent, a Threads view (team) listing every thread you
   follow with unread counts, and deep links (`?thread=<parent>` or `?m=<reply>`).
@@ -117,6 +122,9 @@ Migrations live in `supabase/migrations` and are applied in order:
 11. `0011_thread_fixes.sql` replies inherit an internal parent's visibility and cannot target
     messages the sender cannot read; messages update policy no longer self-references (soft
     delete works again), immutable columns guarded by trigger
+12. `0012_profile_presence.sql` `profile_changed` broadcast trigger on `profiles`
+13. `0013_profiles_update_policy.sql` profiles update policy without self-reference (status, name and
+    photo edits work again); role / account type / email changes guarded by trigger (admin only)
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

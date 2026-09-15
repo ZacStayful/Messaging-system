@@ -9,6 +9,7 @@ import { QUICK_REACTIONS } from "@/lib/emoji";
 import { MessageBody } from "./MessageBody";
 import { EmojiPicker } from "./EmojiPicker";
 import { AttachmentView, isPending, type AnyAttachment } from "./AttachmentView";
+import { useStore } from "@/components/shell/store";
 
 export type LocalMessage = Message & { _status?: "sending" | "failed" };
 
@@ -65,6 +66,7 @@ export function MessageItem({
   onOpenThread,
   inThread = false,
 }: MessageItemProps) {
+  const { openProfile } = useStore();
   const internal = message.visibility === "internal";
   const system = message.kind === "system";
   const name = message.sender_id ? (sender?.display_name ?? "Former member") : "Stayful";
@@ -120,7 +122,18 @@ export function MessageItem({
       aria-label={`${name} at ${timeLabel(message.created_at)}`}
     >
       <div className="mt-0.5 h-[38px] w-[38px] shrink-0">
-        <Avatar profile={message.sender_id ? sender : null} size={38} radius={8} />
+        {message.sender_id ? (
+          <button
+            type="button"
+            onClick={openProfile(message.sender_id)}
+            className="block border-0 bg-transparent p-0"
+            aria-label={`Profile: ${name}`}
+          >
+            <Avatar profile={sender} size={38} radius={8} />
+          </button>
+        ) : (
+          <Avatar profile={null} size={38} radius={8} />
+        )}
       </div>
       <div className="min-w-0 flex-1">
         {pinned && (
@@ -129,7 +142,17 @@ export function MessageItem({
           </div>
         )}
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-[16px] font-bold">{name}</span>
+          {message.sender_id ? (
+            <button
+              type="button"
+              onClick={openProfile(message.sender_id)}
+              className="border-0 bg-transparent p-0 text-[16px] font-bold text-ink hover:underline"
+            >
+              {name}
+            </button>
+          ) : (
+            <span className="text-[16px] font-bold">{name}</span>
+          )}
           <span className="text-[13px] text-muted">{timeLabel(message.created_at)}</span>
           {message.edited_at && <span className="text-[13px] text-muted">(edited)</span>}
           {message.sent_via === "email" && (

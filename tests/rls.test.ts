@@ -119,6 +119,26 @@ suite("RLS", () => {
     expect(ids.has(ZAC_ID)).toBe(false);
   });
 
+  it("people can set their own status but nobody else's", async () => {
+    const ok = await customer
+      .from("profiles")
+      .update({ status_text: "rls status", status_emoji: "🧪" })
+      .eq("id", CUSTOMER_ID)
+      .select("status_text")
+      .single();
+    expect(ok.error).toBeNull();
+    expect(ok.data?.status_text).toBe("rls status");
+    const { data: spoof } = await customer
+      .from("profiles")
+      .update({ status_text: "hacked" })
+      .eq("id", STAFF_ID)
+      .select("id");
+    expect(spoof).toEqual([]);
+    const { data: staffRow } = await staff.from("profiles").select("status_text").eq("id", STAFF_ID).single();
+    expect(staffRow?.status_text).not.toBe("hacked");
+    await customer.from("profiles").update({ status_text: null, status_emoji: null }).eq("id", CUSTOMER_ID);
+  });
+
   it("customer cannot promote themselves", async () => {
     const { error } = await customer
       .from("profiles")
