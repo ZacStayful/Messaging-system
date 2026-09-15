@@ -272,6 +272,71 @@ test("new message modal opens a DM and creates a group", async ({ page, context 
   await expect(page.getByText(`Test Staff created this group.`)).toBeVisible();
 });
 
+test("customers get the simplified shell and no team routes", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-customer@stayful.test");
+  await page.goto("/home");
+  await expect(page.getByText("Your groups")).toBeVisible();
+  await expect(page.getByRole("link", { name: /test-customer/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Activity" })).toHaveCount(0);
+  await expect(page.getByLabel("Search Stayful")).toHaveCount(0);
+  for (const path of ["/search", "/activity", "/files", "/later", "/team/new"]) {
+    const res = await page.goto(path);
+    expect(res?.status(), path).toBe(404);
+  }
+  await page.goto(`/home/${CUSTOMER_GROUP}`);
+  await expect(page.getByText("Hello from the team (public)")).toBeVisible();
+  // Customers can DM anyone in their group from the members list
+  await page.getByRole("button", { name: /\d+ members/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /Test Staff/ })
+    .click();
+  await expect(page).toHaveURL(/\/dms\/[0-9a-f-]{36}/);
+});
+
+test("header menu sets notification level and group settings rename + archive", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+  const name = `e2e-settings-${Date.now()}`;
+  await page.goto("/home");
+  await page.getByRole("button", { name: "New message" }).first().click();
+  await page.getByRole("tab", { name: "Create a group" }).click();
+  await page.getByLabel("Group name").fill(name);
+  await page.getByRole("button", { name: "Create group" }).click();
+  await expect(page).toHaveURL(/\/home\/[0-9a-f-]{36}/);
+
+  await page.getByRole("button", { name: "Notification preferences" }).click();
+  await page.getByRole("menuitem", { name: "Mentions only" }).click();
+  await expect(page.getByRole("button", { name: "Notification preferences" })).toHaveAttribute(
+    "title",
+    /Mentions only/,
+  );
+
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Group settings" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Group name").fill(`${name}-renamed`);
+  await dialog.getByRole("button", { name: "Rename" }).click();
+  await expect(page.getByText(`renamed the group from #${name} to #${name}-renamed`)).toBeVisible({ timeout: 10_000 });
+  await dialog.getByRole("button", { name: "Archive group" }).click();
+  await expect(page.getByText("This group is archived")).toBeVisible({ timeout: 10_000 });
+});
+
+test("history and help popovers open from the top bar", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "top bar is desktop-only");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+  await page.getByRole("button", { name: "History" }).click();
+  await expect(page.getByRole("dialog", { name: "Recent conversations" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Help" }).click();
+  await expect(page.getByRole("dialog", { name: "Help" })).toBeVisible();
+});
+
 test("API routes are never redirected to the login page", async ({ request }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "one run is enough");
   const cron = await request.get("/api/cron/notifications", { maxRedirects: 0 });

@@ -9,7 +9,7 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 
 - Sign in with email + password (customers get a generated password by email when the team
   creates their account), an email magic link, or Google (Supabase Auth). Sessions persist.
-- Desktop layout: top bar, icon rail (Home, DMs, Activity, Files, Later, Agents & tools),
+- Desktop layout: top bar, icon rail (Home, DMs, Activity, Files, Later),
   sidebar and conversation pane on the dark green frame (dark theme only).
 - Mobile layout: single pane with a bottom tab bar (Home, DMs, Activity, You).
 - Direct messages list with unread toggle, filter, presence dots, draft indicator.
@@ -32,7 +32,15 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   covering messages (Postgres full-text via `search_messages`, RLS-scoped), people and files;
   results deep-link to the message (`?m=<id>`). The magnifier in a conversation header opens
   in-conversation search with highlighted matches and next/previous.
-- Pins tab (jump to message, unpin), Files and links tab, details modal (About, Members).
+- Pins tab (jump to message, unpin), Files and links tab (newest/oldest), details modal with
+  editable topic and description, member add/remove/leave, rename and archive (team).
+- Header menus: notification level (all / mentions / nothing) per conversation, mute, star,
+  copy link, leave, archive; top-bar History (recent conversations) and Help sheet; collapsible
+  sidebar sections; archived groups hidden behind a toggle and read-only.
+- Activity filters: Mentions, Threads (replies), Reactions, plus mark-all-read.
+- Customers get a simplified shell: their groups and direct messages with people in those
+  groups, nothing else (team routes return 404 for customer accounts).
+- Admins add team members from the workspace menu (`/team/new`).
 - Account page: change password, email notification preference, sign out.
 - Team: "Invite a customer" creates the account, adds them to groups and emails the login details.
 - Email notifications (D8): every customer-visible message is queued in `notification_outbox`;
@@ -95,6 +103,11 @@ Migrations live in `supabase/migrations` and are applied in order:
 8. `0008_pgcrypto_search_path.sql` account RPCs find `crypt`/`gen_salt` in `extensions`
 9. `0009_slack_essentials.sql` full-text search column + `search_messages`, `attachments.meta`,
    `create_group_dm`, `create_channel`, realtime broadcasts for reactions/pins/attachments
+10. `0010_slack_parity.sql` threads (`reply_count`, `thread_follows`, `my_threads`, `mark_thread_read`),
+    `saved_items`, `scheduled_messages`, `link_previews`, channel RPCs (`rename_channel`,
+    `set_channel_details`, `archive_channel`, `add_members`, `remove_member`), `create_team_account`,
+    notify-level aware `my_conversations`/`my_activity`, `conversation_changed` realtime events,
+    profile status/DND columns, public `avatars` bucket
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { notFound, useSearchParams } from "next/navigation";
+import { notFound, useRouter, useSearchParams } from "next/navigation";
 import type { Attachment, Message, Pin, Reaction } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/client";
 import { MESSAGE_EVENT, useStore, type IncomingMessageEvent } from "@/components/shell/store";
@@ -36,13 +36,11 @@ interface ConversationViewProps {
   lastReadAt: string | null;
 }
 
-type Tab = "messages" | "canvas" | "files" | "pins" | "add";
-const TABS: { id: Tab; label: string; icon: IconName; filled?: boolean; enabled: boolean }[] = [
-  { id: "messages", label: "Messages", icon: "messages", filled: true, enabled: true },
-  { id: "canvas", label: "Add canvas", icon: "canvas", enabled: false },
-  { id: "files", label: "Files and links", icon: "file", enabled: true },
-  { id: "pins", label: "Pins", icon: "pin", enabled: true },
-  { id: "add", label: "", icon: "plus", enabled: false },
+type Tab = "messages" | "files" | "pins";
+const TABS: { id: Tab; label: string; icon: IconName; filled?: boolean }[] = [
+  { id: "messages", label: "Messages", icon: "messages", filled: true },
+  { id: "files", label: "Files and links", icon: "file" },
+  { id: "pins", label: "Pins", icon: "pin" },
 ];
 
 function sortByCreated(list: LocalMessage[]) {
@@ -72,6 +70,7 @@ export function ConversationView({
     me,
     profiles,
     nav,
+    isTeam,
     conversationById,
     conversationName,
     otherMember,
@@ -79,9 +78,12 @@ export function ConversationView({
     markRead,
     toggleStar,
     toggleMute,
+    setNotifyLevel,
+    refresh,
   } = store;
   const conversation = conversationById(conversationId);
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("m");
 
@@ -479,6 +481,8 @@ export function ConversationView({
           kind: "text",
           visibility,
           parent_id: null,
+          reply_count: 0,
+          last_reply_at: null,
           meta,
           sent_via: "app",
           external_ref: null,
@@ -506,6 +510,23 @@ export function ConversationView({
     upsert(data);
     delete outgoing.current[clientId];
     if (toSend.length) await uploadFiles(data.id, clientId, toSend);
+  };
+
+  const leaveConversation = async () => {
+    const { error } = await supabase.rpc("remove_member", { p_conversation_id: conversationId, p_user_id: me.id });
+    if (!error) {
+      refresh();
+      router.push(`/${nav === "dms" ? "dms" : "home"}`);
+    }
+  };
+
+  const toggleArchive = async () => {
+    if (!conversation) return;
+    const { error } = await supabase.rpc("archive_channel", {
+      p_conversation_id: conversationId,
+      p_archived: !conversation.archived_at,
+    });
+    if (!error) refresh();
   };
 
   const onDropFiles = (e: DragEvent) => {
@@ -552,9 +573,13 @@ export function ConversationView({
         other={other}
         otherOnline={!!other && isOnline(other.id)}
         backHref={`/${nav}`}
+        canManage={isTeam}
         onOpenDetails={setDetails}
         onToggleStar={() => void toggleStar(conversationId)}
         onToggleMute={() => void toggleMute(conversationId)}
+        onSetNotifyLevel={(level) => void setNotifyLevel(conversationId, level)}
+        onLeave={() => void leaveConversation()}
+        onArchive={() => void toggleArchive()}
         onToggleSearch={() => {
           setTab("messages");
           if (search.open) closeSearch();
@@ -576,10 +601,8 @@ export function ConversationView({
               type="button"
               role="tab"
               aria-selected={on}
-              disabled={!t.enabled}
-              onClick={() => t.enabled && setTab(t.id)}
-              title={t.enabled ? undefined : "Coming in a later release"}
-              className={`relative items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 text-[15px] whitespace-nowrap disabled:cursor-default md:text-[16px] ${t.enabled ? "flex" : "hidden md:flex"}`}
+              onClick={() => setTab(t.id)}
+              className="relative flex items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 text-[15px] whitespace-nowrap md:text-[16px]"
               style={{
                 borderBottomColor: on ? "var(--tab)" : "transparent",
                 color: on ? "var(--text)" : "var(--muted)",
@@ -589,7 +612,6 @@ export function ConversationView({
               <Icon name={t.icon} size={18} filled={!!t.filled && on} className="hidden md:block" />
               {t.label}
               {count > 0 && <span className="text-[13px] font-medium text-muted">{count}</span>}
-              {t.id === "add" && <span className="absolute top-2.5 right-0.5 h-2 w-2 rounded-full bg-[#2E6FD6]" />}
             </button>
           );
         })}
@@ -704,13 +726,29 @@ export function ConversationView({
               })}
             </div>
           </div>
-          <Composer
-            conversationId={conversationId}
-            placeholder={placeholder}
-            canPostInternal={me.account_type === "team" && !isDm}
-            members={memberProfiles.filter((p) => p.id !== me.id)}
-            onSend={(body, visibility, files) => void send(body, visibility, files)}
-          />
+          {conversation.archived_at ? (
+            <div className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-[10px] border border-line bg-soft px-4 py-3 text-[15px] text-muted md:mx-5 md:mb-[18px]">
+              <Icon name="files" size={18} />
+              <span className="flex-1">This group is archived. You can read it, but nobody can post here.</span>
+              {isTeam && (
+                <button
+                  type="button"
+                  onClick={() => void toggleArchive()}
+                  className="font-semibold text-link hover:underline"
+                >
+                  Un-archive
+                </button>
+              )}
+            </div>
+          ) : (
+            <Composer
+              conversationId={conversationId}
+              placeholder={placeholder}
+              canPostInternal={me.account_type === "team" && !isDm}
+              members={memberProfiles.filter((p) => p.id !== me.id)}
+              onSend={(body, visibility, files) => void send(body, visibility, files)}
+            />
+          )}
         </div>
       )}
 

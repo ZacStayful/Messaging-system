@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SearchResults, type FileHit } from "./SearchResults";
 
@@ -8,6 +9,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const { q = "" } = await searchParams;
   const query = q.trim();
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) notFound();
+  const { data: me } = await supabase.from("profiles").select("account_type").eq("id", user.id).maybeSingle();
+  if (me?.account_type !== "team") notFound();
 
   if (!query) return <SearchResults query="" messages={[]} people={[]} files={[]} />;
 

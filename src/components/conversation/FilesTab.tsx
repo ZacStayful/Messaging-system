@@ -37,6 +37,7 @@ interface FilesTabProps {
 export function FilesTab({ messages, attachments, profiles, urls, onJump }: FilesTabProps) {
   const [chip, setChip] = useState<Chip>("All");
   const [q, setQ] = useState("");
+  const [newest, setNewest] = useState(true);
 
   const media = useMemo(() => attachments.filter((a) => isImage(a) || isVideo(a)), [attachments]);
 
@@ -80,8 +81,8 @@ export function FilesTab({ messages, attachments, profiles, urls, onJump }: File
         });
       }
     }
-    return [...files, ...links].sort((a, b) => b.at.localeCompare(a.at));
-  }, [messages, attachments, profiles, urls]);
+    return [...files, ...links].sort((a, b) => (newest ? b.at.localeCompare(a.at) : a.at.localeCompare(b.at)));
+  }, [messages, attachments, profiles, urls, newest]);
 
   const query = q.trim().toLowerCase();
   const visible = rows.filter((r) => {
@@ -90,7 +91,9 @@ export function FilesTab({ messages, attachments, profiles, urls, onJump }: File
     if (chip === "Media") return false;
     return !query || `${r.name} ${r.meta}`.toLowerCase().includes(query);
   });
-  const visibleMedia = media.filter((m) => !query || m.file_name.toLowerCase().includes(query));
+  const visibleMedia = media
+    .filter((m) => !query || m.file_name.toLowerCase().includes(query))
+    .sort((a, b) => (newest ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at)));
   const showMedia = chip === "All" || chip === "Media";
 
   return (
@@ -123,9 +126,16 @@ export function FilesTab({ messages, attachments, profiles, urls, onJump }: File
           </button>
         ))}
         <div className="flex-1" />
-        <span className={`${chipCls} gap-1.5 border border-input-border font-semibold`}>
-          Newest <Icon name="chevronDown" size={14} strokeWidth={2} />
-        </span>
+        <button
+          type="button"
+          onClick={() => setNewest((v) => !v)}
+          className={`${chipCls} gap-1.5 border border-input-border font-semibold`}
+          aria-label={
+            newest ? "Sorted newest first. Switch to oldest first" : "Sorted oldest first. Switch to newest first"
+          }
+        >
+          {newest ? "Newest" : "Oldest"} <Icon name={newest ? "arrowDown" : "arrowUp"} size={14} strokeWidth={2} />
+        </button>
       </div>
 
       {showMedia && (

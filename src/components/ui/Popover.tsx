@@ -7,12 +7,14 @@ interface PopoverProps {
   children: ReactNode;
   /** Anchor side. Popovers open above their trigger by default (the composer sits at the bottom). */
   align?: "left" | "right";
+  /** Open below the trigger instead of above. */
+  below?: boolean;
   className?: string;
   label: string;
 }
 
 /** Small anchored panel that closes on Escape, outside click, or scroll of an ancestor list. */
-export function Popover({ onClose, children, align = "left", className = "", label }: PopoverProps) {
+export function Popover({ onClose, children, align = "left", below = false, className = "", label }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,7 +42,7 @@ export function Popover({ onClose, children, align = "left", className = "", lab
       ref={ref}
       role="dialog"
       aria-label={label}
-      className={`absolute bottom-full z-30 mb-2 rounded-xl border border-line bg-panel text-ink shadow-[0_12px_40px_rgba(0,0,0,.25)] ${align === "right" ? "right-0" : "left-0"} ${className}`}
+      className={`absolute z-30 rounded-xl border border-line bg-panel text-ink shadow-[0_12px_40px_rgba(0,0,0,.25)] ${below ? "top-full mt-2" : "bottom-full mb-2"} ${align === "right" ? "right-0" : "left-0"} ${className}`}
     >
       {children}
     </div>
