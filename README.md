@@ -46,6 +46,16 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   photo to the public `avatars` bucket, time zone), custom status with an expiry, pause
   notifications (DND), and away-after-10-minutes presence. Profile changes reach everyone live
   through a `profile_changed` broadcast on the org topic (`0012_profile_presence.sql`).
+- Manual **Away** (`0014_manual_away.sql`): set yourself away from the status sheet, the You
+  sidebar or `/away` (`/away 1h`, `/away off`). Everyone sees an Away badge — including while your
+  tab is closed, because it is stored on the profile rather than derived from the idle timer — and
+  every notification stops until you clear it: no notification emails (the SQL trigger and the
+  cron worker both check it) and no rail or tab-bar badges. Unread counts and the activity feed
+  keep accruing, so nothing is lost while you are away; you are simply not nagged about it. Away
+  implies DND, so pausing notifications stays available separately for silence without looking
+  away. Note that team accounts never receive notification emails in the first place
+  (`enqueue_message_notifications` is customer-only), so for a team member Away changes the
+  visible badge and the in-app badges only.
 - Later: save any message (bookmark action), In progress / Archived / Completed tabs, reminders
   (20 min to next week) that surface as a badge on the Later rail item when due.
 - Files: workspace-wide list of everything shared in your conversations with Media / Documents /
@@ -140,6 +150,9 @@ Migrations live in `supabase/migrations` and are applied in order:
 12. `0012_profile_presence.sql` `profile_changed` broadcast trigger on `profiles`
 13. `0013_profiles_update_policy.sql` profiles update policy without self-reference (status, name and
     photo edits work again); role / account type / email changes guarded by trigger (admin only)
+14. `0014_manual_away.sql` manual away (`presence_mode`, `away_since`, `away_until`); away implies
+    do-not-disturb inside `enqueue_message_notifications`; away travels on the `profile_changed`
+    broadcast so everyone sees the badge live
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

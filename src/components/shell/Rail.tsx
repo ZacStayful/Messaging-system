@@ -6,7 +6,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { Avatar } from "@/components/ui/Avatar";
 import { useStore, type Nav } from "./store";
 import { useNow } from "@/lib/useNow";
-import { dndActive, presenceLook } from "@/lib/presence";
+import { manualAway, notificationsSilenced, presenceLook } from "@/lib/presence";
 
 const TEAM_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
   { id: "home", label: "Home", icon: "home" },
@@ -20,8 +20,17 @@ const CUSTOMER_ITEMS: { id: Nav; label: string; icon: IconName }[] = [
   { id: "dms", label: "DMs", icon: "dms" },
 ];
 
+/**
+ * Every badge in the app comes from here (the rail on desktop, the tab bar on mobile), which is
+ * why silencing notifications is one change in one place.
+ *
+ * Away and do-not-disturb suppress *alerts*, never state: unread counts, the activity feed and
+ * the sidebar's per-conversation badges all keep accruing, so nothing is lost while you are
+ * away — you just are not nagged about it. `laterDue` stays live either way, because a reminder
+ * you set for yourself is not someone else's notification.
+ */
 export function useUnreadTotals() {
-  const { conversations, activity, activityRead, saved } = useStore();
+  const { conversations, activity, activityRead, saved, me } = useStore();
   const now = useNow();
   const live = conversations.filter((c) => !c.archived_at);
   const laterDue = saved.filter(
@@ -30,6 +39,7 @@ export function useUnreadTotals() {
   const dmUnread = live.filter((c) => c.type === "dm" || c.type === "group_dm").reduce((n, c) => n + c.unread_count, 0);
   const channelUnread = live.some((c) => c.type !== "dm" && c.type !== "group_dm" && c.unread_count > 0 && !c.muted);
   const activityUnread = activity.filter((a) => a.unread && !activityRead.has(a.message_id)).length;
+  if (notificationsSilenced(me)) return { dmUnread: 0, channelUnread: false, activityUnread: 0, laterDue };
   return { dmUnread, channelUnread, activityUnread, laterDue };
 }
 
@@ -99,12 +109,12 @@ export function Rail() {
         aria-label="Account"
       >
         <Avatar profile={me} size={38} radius={9} />
-        {dndActive(me) ? (
+        {notificationsSilenced(me) ? (
           <span
             className="absolute -right-[4px] -bottom-[4px] flex h-4 w-4 items-center justify-center rounded-full border-2 border-frame bg-[#3E5A3A] text-white"
-            title="Notifications paused"
+            title={manualAway(me) ? "Away — notifications off" : "Notifications paused"}
           >
-            <Icon name="bellOff" size={9} strokeWidth={2.6} />
+            <Icon name={manualAway(me) ? "moon" : "bellOff"} size={9} strokeWidth={2.6} />
           </span>
         ) : (
           <span

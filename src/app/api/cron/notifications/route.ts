@@ -5,6 +5,7 @@ import { messageEmail, welcomeEmail } from "@/lib/email/templates";
 import { unsubscribeUrl } from "@/lib/email/unsubscribe";
 import { newReplyToken, replyAddress, replyDomain } from "@/lib/email/inbound";
 import { siteUrl } from "@/lib/site";
+import { manualAway, notificationsSilenced } from "@/lib/presence";
 import type { NotificationOutbox } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
@@ -119,9 +120,14 @@ export async function GET(request: NextRequest) {
     else failed += batch.length;
   };
 
-  // Drop message notifications for recipients who turned email off since queuing
+  // Drop message notifications for recipients who turned email off, went away or paused
+  // notifications since queuing. The trigger checks this too, but a minute passes in between
+  // and going quiet the moment you set yourself away is the entire point of the feature.
   const recipientIds = Array.from(new Set(rows.map((r) => r.recipient_user_id).filter((x): x is string => !!x)));
-  const { data: prefs } = await admin.from("profiles").select("id, email_notifications, email").in("id", recipientIds);
+  const { data: prefs } = await admin
+    .from("profiles")
+    .select("id, email_notifications, email, presence_mode, away_until, dnd_until")
+    .in("id", recipientIds);
   const prefById = new Map((prefs ?? []).map((p) => [p.id, p]));
 
   // Group message rows per recipient + conversation within the window
@@ -130,10 +136,17 @@ export async function GET(request: NextRequest) {
     if (r.kind !== "message") continue;
     const p = r.payload as unknown as MessagePayload;
     const pref = r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined;
-    if (pref && pref.email_notifications === "off") {
+    if (pref && (pref.email_notifications === "off" || notificationsSilenced(pref))) {
       await admin
         .from("notification_outbox")
-        .update({ status: "skipped", last_error: "email notifications off" })
+        .update({
+          status: "skipped",
+          last_error: notificationsSilenced(pref)
+            ? manualAway(pref)
+              ? "recipient away"
+              : "notifications paused"
+            : "email notifications off",
+        })
         .eq("id", r.id);
       skipped++;
       continue;

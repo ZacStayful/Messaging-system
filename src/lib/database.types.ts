@@ -551,6 +551,9 @@ export type Database = {
           status_emoji: string | null;
           status_expires_at: string | null;
           dnd_until: string | null;
+          presence_mode: string;
+          away_since: string | null;
+          away_until: string | null;
           activity_seen_at: string | null;
           timezone: string;
           updated_at: string;
@@ -575,6 +578,9 @@ export type Database = {
           status_emoji?: string | null;
           status_expires_at?: string | null;
           dnd_until?: string | null;
+          presence_mode?: string;
+          away_since?: string | null;
+          away_until?: string | null;
           activity_seen_at?: string | null;
           timezone?: string;
           updated_at?: string;
@@ -599,6 +605,9 @@ export type Database = {
           status_emoji?: string | null;
           status_expires_at?: string | null;
           dnd_until?: string | null;
+          presence_mode?: string;
+          away_since?: string | null;
+          away_until?: string | null;
           activity_seen_at?: string | null;
           timezone?: string;
           updated_at?: string;

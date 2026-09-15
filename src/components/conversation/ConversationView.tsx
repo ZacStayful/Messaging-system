@@ -5,6 +5,7 @@ import { notFound, useSearchParams } from "next/navigation";
 import type { Attachment, Message, Pin, Reaction, ScheduledMessage } from "@/lib/database.types";
 import { useRouter } from "next/navigation";
 import { availableCommands } from "@/lib/slash";
+import { parseAwayArg } from "@/lib/presence";
 import { futureTime } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
 import { MESSAGE_EVENT, useStore, type IncomingMessageEvent } from "@/components/shell/store";
@@ -781,6 +782,9 @@ export function ConversationView({
         void updateMe({ dnd_until: until });
         return true;
       }
+      case "away":
+        void updateMe(parseAwayArg(args));
+        return true;
       case "mute":
         void toggleMute(conversationId);
         return true;

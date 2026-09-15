@@ -7,7 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { Popover } from "@/components/ui/Popover";
 import { PresenceDot } from "@/components/ui/PresenceDot";
-import { ROLE_LABEL, activeStatus, dndActive, localTime, presenceLook, presenceText } from "@/lib/presence";
+import { ROLE_LABEL, activeStatus, dndActive, localTime, manualAway, presenceLook, presenceText } from "@/lib/presence";
 
 /** Slack-style profile card, anchored where the avatar or name was clicked. Mounted once in the shell. */
 export function ProfileCardHost() {
@@ -18,6 +18,7 @@ export function ProfileCardHost() {
 
   const status = presenceOf(p.id);
   const custom = activeStatus(p);
+  const away = manualAway(p);
   const dnd = dndActive(p);
   const isMe = p.id === me.id;
   const time = localTime(p.timezone);
@@ -70,8 +71,19 @@ export function ProfileCardHost() {
               className="h-2.5 w-2.5 rounded-full"
               style={{ background: presenceLook(status).bg, boxShadow: presenceLook(status).ring }}
             />
-            {presenceText(status)}
-            {dnd && (
+            {presenceText(status, p)}
+            {away && (
+              <span className="flex items-center gap-1" title="Away — notifications off">
+                ·{" "}
+                {p.away_until
+                  ? `Away until ${new Date(p.away_until).toLocaleString("en-GB", { weekday: "short", hour: "numeric", minute: "2-digit" })}`
+                  : p.away_since
+                    ? `Away since ${new Date(p.away_since).toLocaleString("en-GB", { weekday: "short", hour: "numeric", minute: "2-digit" })}`
+                    : "Away"}
+              </span>
+            )}
+            {/* Away already implies do-not-disturb, so don't say it twice. */}
+            {dnd && !away && (
               <span className="flex items-center gap-1" title="Notifications paused">
                 · <Icon name="bellOff" size={14} /> Notifications paused
               </span>

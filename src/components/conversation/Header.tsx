@@ -58,7 +58,7 @@ export function Header({
 }: HeaderProps) {
   const isDm = conversation.type === "dm" || conversation.type === "group_dm";
   const look = presenceLook(otherStatus);
-  const sub = isDm ? presenceText(otherStatus) : conversation.topic || `${conversation.member_count} members`;
+  const sub = isDm ? presenceText(otherStatus, other) : conversation.topic || `${conversation.member_count} members`;
   const [menu, setMenu] = useState<"none" | "more" | "notify">("none");
   const level = (conversation.notify_level as NotifyLevel) || "all";
 

@@ -7,7 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { PresenceDot } from "@/components/ui/PresenceDot";
 import { StatusDialog } from "@/components/people/StatusDialog";
-import { ROLE_LABEL, activeStatus, dndActive, presenceLook, presenceText } from "@/lib/presence";
+import { ROLE_LABEL, activeStatus, dndActive, manualAway, presenceLook, presenceText } from "@/lib/presence";
 
 const row =
   "flex h-11 w-full items-center gap-3 rounded-lg border border-sb-border bg-sb-input px-3 text-left text-[15px] font-medium text-sb-text no-underline";
@@ -17,6 +17,7 @@ export function YouSidebar() {
   const [status, setStatus] = useState(false);
   const custom = activeStatus(me);
   const dnd = dndActive(me);
+  const away = manualAway(me);
   const look = presenceLook(presenceOf(me.id));
 
   return (
@@ -32,7 +33,7 @@ export function YouSidebar() {
             <div className="truncate text-[17px] font-bold">{me.full_name ?? me.display_name}</div>
             <div className="truncate text-[14px] text-sb-dim">{me.email}</div>
             <div className="text-[14px] text-sb-dim">
-              {ROLE_LABEL[me.role] ?? me.role} · {org.name} · {presenceText(presenceOf(me.id))}
+              {ROLE_LABEL[me.role] ?? me.role} · {org.name} · {presenceText(presenceOf(me.id), me)}
             </div>
           </div>
         </div>
@@ -49,6 +50,25 @@ export function YouSidebar() {
             className="-mt-2 self-start px-1 text-[14px] text-sb-dim hover:underline"
           >
             Clear status
+          </button>
+        )}
+        <button type="button" onClick={() => setStatus(true)} className={row}>
+          <Icon name="moon" />
+          <span className="min-w-0 flex-1 truncate">
+            {away
+              ? me.away_until
+                ? `Away until ${new Date(me.away_until).toLocaleString("en-GB", { weekday: "short", hour: "numeric", minute: "2-digit" })}`
+                : "You're away — notifications off"
+              : "Set yourself away"}
+          </span>
+        </button>
+        {away && (
+          <button
+            type="button"
+            onClick={() => void updateMe({ presence_mode: "auto", away_since: null, away_until: null })}
+            className="-mt-2 self-start px-1 text-[14px] text-sb-dim hover:underline"
+          >
+            Come back
           </button>
         )}
         <button type="button" onClick={() => setStatus(true)} className={row}>

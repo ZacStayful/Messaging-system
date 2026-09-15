@@ -4,26 +4,16 @@ import { useState } from "react";
 import { useStore } from "@/components/shell/store";
 import { Icon } from "@/components/ui/Icon";
 import { EmojiPicker } from "@/components/conversation/EmojiPicker";
-import { activeStatus, dndActive } from "@/lib/presence";
-
-const CLEAR_OPTIONS = [
-  { id: "never", label: "Don't clear" },
-  { id: "30m", label: "30 minutes" },
-  { id: "1h", label: "1 hour" },
-  { id: "4h", label: "4 hours" },
-  { id: "today", label: "Today" },
-  { id: "week", label: "This week" },
-] as const;
-const DND_OPTIONS = [
-  { id: "off", label: "Off" },
-  { id: "30m", label: "30 minutes" },
-  { id: "1h", label: "1 hour" },
-  { id: "2h", label: "2 hours" },
-  { id: "tomorrow", label: "Until tomorrow" },
-  { id: "week", label: "Until next week" },
-] as const;
-type ClearId = (typeof CLEAR_OPTIONS)[number]["id"];
-type DndId = (typeof DND_OPTIONS)[number]["id"];
+import {
+  CLEAR_OPTIONS,
+  DND_OPTIONS,
+  activeStatus,
+  dndActive,
+  manualAway,
+  untilFor,
+  type ClearId,
+  type DndId,
+} from "@/lib/presence";
 
 const SUGGESTIONS: { emoji: string; text: string; clear: ClearId }[] = [
   { emoji: "📅", text: "In a meeting", clear: "1h" },
@@ -33,35 +23,8 @@ const SUGGESTIONS: { emoji: string; text: string; clear: ClearId }[] = [
   { emoji: "🏠", text: "Working remotely", clear: "today" },
 ];
 
-export function untilFor(id: ClearId | DndId, now = new Date()): string | null {
-  const d = new Date(now);
-  switch (id) {
-    case "never":
-    case "off":
-      return null;
-    case "30m":
-      return new Date(d.getTime() + 30 * 60_000).toISOString();
-    case "1h":
-      return new Date(d.getTime() + 60 * 60_000).toISOString();
-    case "2h":
-      return new Date(d.getTime() + 120 * 60_000).toISOString();
-    case "4h":
-      return new Date(d.getTime() + 240 * 60_000).toISOString();
-    case "today":
-      d.setHours(23, 59, 59, 0);
-      return d.toISOString();
-    case "tomorrow":
-      d.setDate(d.getDate() + 1);
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    case "week": {
-      const day = d.getDay(); // 0 = Sunday
-      d.setDate(d.getDate() + ((8 - (day || 7)) % 7 || 7));
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    }
-  }
-}
+/** Sentinel for "leave the existing away expiry alone"; not one of the CLEAR_OPTIONS ids. */
+const KEEP = "__keep__";
 
 const input =
   "h-11 w-full rounded-lg border border-input-border bg-input px-3.5 text-[16px] text-ink outline-none focus:border-brand";
@@ -75,8 +38,16 @@ export function StatusDialog({ onClose }: { onClose: () => void }) {
   const [clear, setClear] = useState<ClearId>(current ? "never" : "1h");
   const [dnd, setDnd] = useState<DndId>(dndActive(me) ? "off" : "off");
   const [keepDnd, setKeepDnd] = useState(dndActive(me));
+  const [away, setAway] = useState(manualAway(me));
+  // null = the expiry select has not been touched. An existing away_until is a timestamp and
+  // cannot be mapped back onto one of these ids, so leaving it alone is the only way not to
+  // silently turn "away until 3pm" into "away indefinitely" when someone opens this sheet
+  // just to set a status.
+  const [awayClear, setAwayClear] = useState<ClearId | null>(null);
   const [picker, setPicker] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** True when there is an existing away expiry worth offering to keep as-is. */
+  const keepsAwayUntil = manualAway(me) && !!me.away_until;
 
   const save = async () => {
     setBusy(true);
@@ -86,6 +57,10 @@ export function StatusDialog({ onClose }: { onClose: () => void }) {
       status_emoji: has ? emoji || null : null,
       status_expires_at: has ? untilFor(clear) : null,
       dnd_until: keepDnd ? me.dnd_until : untilFor(dnd),
+      presence_mode: away ? "away" : "auto",
+      // Keep the original away_since when it was already set, so "Away since Tuesday" stays true.
+      away_since: away ? (manualAway(me) ? me.away_since : new Date().toISOString()) : null,
+      away_until: away ? (awayClear ? untilFor(awayClear) : manualAway(me) ? me.away_until : null) : null,
     });
     setBusy(false);
     onClose();
@@ -189,6 +164,50 @@ export function StatusDialog({ onClose }: { onClose: () => void }) {
             </select>
           </label>
         )}
+
+        <div className="mt-5 border-t border-line pt-4">
+          <label className="flex items-center gap-3 text-[15px] font-bold">
+            <Icon name="moon" size={16} />
+            <span className="flex-1">Set yourself away</span>
+            <input
+              type="checkbox"
+              checked={away}
+              onChange={(e) => setAway(e.target.checked)}
+              className="h-5 w-5 accent-[var(--brand)]"
+              aria-label="Set yourself away"
+            />
+          </label>
+          <p className="mt-1 text-[13px] text-muted">
+            People see an Away badge and every notification stops, email and in-app, until you turn this off.
+          </p>
+          {away && (
+            <label className="mt-2 flex items-center gap-3 text-[14px] font-semibold">
+              Clear after
+              <select
+                value={awayClear ?? (keepsAwayUntil ? KEEP : "never")}
+                onChange={(e) => setAwayClear(e.target.value === KEEP ? null : (e.target.value as ClearId))}
+                className="h-10 flex-1 rounded-lg border border-input-border bg-input px-3 text-[15px] font-normal text-ink"
+                aria-label="Clear away after"
+              >
+                {manualAway(me) && me.away_until && (
+                  <option value={KEEP}>
+                    Keep{" "}
+                    {new Date(me.away_until).toLocaleString("en-GB", {
+                      weekday: "short",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </option>
+                )}
+                {CLEAR_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
 
         <div className="mt-5 border-t border-line pt-4">
           <div className="mb-1 flex items-center gap-2 text-[15px] font-bold">

@@ -118,7 +118,7 @@ export function PeopleDirectory() {
                     </span>
                     <span className="block truncate text-[14px] text-muted">
                       {p.full_name && p.full_name !== p.display_name ? `${p.full_name} · ` : ""}
-                      {ROLE_LABEL[p.role] ?? p.role} · {presenceText(status)}
+                      {ROLE_LABEL[p.role] ?? p.role} · {presenceText(status, p)}
                       {custom?.text ? ` · ${custom.text}` : ""}
                     </span>
                   </span>
