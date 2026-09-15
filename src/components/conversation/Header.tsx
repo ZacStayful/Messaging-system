@@ -84,10 +84,10 @@ export function Header({
           {!isDm && <Icon name="lock" size={18} strokeWidth={2.2} className="hidden md:block" />}
           <span className="truncate">{title}</span>
         </span>
-        <span className="max-w-full truncate text-[12px] text-muted md:hidden">{sub}</span>
+        <span className="max-w-full truncate text-[13px] text-muted md:hidden">{sub}</span>
       </button>
       {!isDm && conversation.topic && (
-        <span className="hidden min-w-0 truncate text-[14px] text-muted md:ml-2 md:block">{conversation.topic}</span>
+        <span className="hidden min-w-0 truncate text-[15px] text-muted md:ml-2 md:block">{conversation.topic}</span>
       )}
 
       <div className="flex-1" />
@@ -96,7 +96,7 @@ export function Header({
         <button
           type="button"
           onClick={() => onOpenDetails("members")}
-          className="hidden h-[30px] items-center gap-1 rounded-md border-0 bg-transparent px-2 text-[14px] font-semibold text-ink hover:bg-hover md:flex"
+          className="hidden h-[30px] items-center gap-1 rounded-md border-0 bg-transparent px-2 text-[15px] font-semibold text-ink hover:bg-hover md:flex"
           aria-label={`${conversation.member_count} members`}
         >
           <Icon name="users" />

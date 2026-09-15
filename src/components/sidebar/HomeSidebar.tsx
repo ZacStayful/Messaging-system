@@ -50,7 +50,7 @@ export function HomeSidebar() {
       </SidebarHeader>
       <SidebarSearch value={filter} onChange={setFilter} placeholder="Find a conversation..." />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        <div className="flex items-center gap-2 px-2 py-1.5 text-[14px] font-medium text-sb-dim">
+        <div className="flex items-center gap-2 px-2 py-1.5 text-[15px] font-medium text-sb-dim">
           <Icon name="filter" size={16} />
           <span>Customers</span>
           <Icon name="chevronDown" size={14} strokeWidth={2} />
@@ -69,14 +69,14 @@ export function HomeSidebar() {
                 aria-current={active ? "page" : undefined}
               >
                 <Icon name="lock" size={15} strokeWidth={2} />
-                <span className="flex-1 truncate text-[15px]" style={{ fontWeight: unread ? 700 : 500 }}>
+                <span className="flex-1 truncate text-[16px]" style={{ fontWeight: unread ? 700 : 500 }}>
                   {c.name}
                 </span>
                 {!c.muted && <UnreadBadge count={c.unread_count} className="min-w-[22px]" />}
               </Link>
             );
           })}
-        <div className="flex items-center gap-2 px-2 pt-3.5 pb-1.5 text-[14px] font-medium text-sb-dim">
+        <div className="flex items-center gap-2 px-2 pt-3.5 pb-1.5 text-[15px] font-medium text-sb-dim">
           <span>Direct messages</span>
           <Icon name="chevronDown" size={14} strokeWidth={2} />
         </div>
@@ -98,7 +98,7 @@ export function HomeSidebar() {
                   <Avatar profile={other} size={20} radius={5} />
                   <PresenceDot look={look} size={9} border={active ? "var(--sb-sel)" : "var(--sb)"} />
                 </span>
-                <span className="flex-1 truncate text-[15px]" style={{ fontWeight: c.unread_count ? 700 : 500 }}>
+                <span className="flex-1 truncate text-[16px]" style={{ fontWeight: c.unread_count ? 700 : 500 }}>
                   {conversationName(c)}
                 </span>
                 <UnreadBadge count={c.unread_count} className="min-w-[22px]" />

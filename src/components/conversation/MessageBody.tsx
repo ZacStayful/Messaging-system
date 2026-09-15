@@ -40,7 +40,7 @@ function Inlines({ parts }: { parts: Inline[] }) {
 /** Renders a stored message body (plain text + markdown subset) as paragraphs, headings, lists. */
 export function MessageBody({ body, compact = false }: { body: string; compact?: boolean }) {
   const blocks = parseBlocks(body);
-  const size = compact ? "text-[14px]" : "text-[15px]";
+  const size = compact ? "text-[15px]" : "text-[16px]";
   return (
     <div className="min-w-0 overflow-hidden">
       {blocks.map((b, i) => {

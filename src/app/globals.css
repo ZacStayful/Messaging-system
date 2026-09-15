@@ -6,16 +6,16 @@
   --frame: #5d8156;
   --sb: #67895f;
   --sb-text: #ffffff;
-  --sb-dim: rgba(255, 255, 255, 0.8);
+  --sb-dim: rgba(255, 255, 255, 0.92);
   --sb-hover: rgba(255, 255, 255, 0.12);
   --sb-sel: #cfd5b9;
   --sb-sel-text: #1e2a1c;
-  --sb-border: rgba(255, 255, 255, 0.16);
-  --sb-input: rgba(255, 255, 255, 0.14);
+  --sb-border: rgba(255, 255, 255, 0.22);
+  --sb-input: rgba(255, 255, 255, 0.16);
   --panel: #ffffff;
-  --text: #1d1c1d;
-  --muted: #616061;
-  --ph: #7a7f76;
+  --text: #171a17;
+  --muted: #4b514b;
+  --ph: #667066;
   --border: #e2e6de;
   --hover: #f3f6f0;
   --link: #3e6e3a;
@@ -39,9 +39,9 @@
   --sb-sel: #b9d5c6;
   --sb-sel-text: #16201a;
   --panel: #191c19;
-  --text: #e6eae2;
-  --muted: #a3ab9f;
-  --ph: #8a928a;
+  --text: #f1f4ee;
+  --muted: #bcc4b8;
+  --ph: #98a196;
   --border: #2c312b;
   --hover: #232823;
   --link: #b9d5c6;
@@ -83,7 +83,8 @@
   --color-brand: var(--brand);
   --color-sage: var(--sage);
   --color-mint: var(--mint);
-  --font-sans: var(--font-poppins), system-ui, sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-poppins), var(--font-inter), system-ui, sans-serif;
 }
 
 html,
@@ -96,10 +97,11 @@ body {
 body {
   background: var(--frame);
   color: var(--text);
-  font-family: var(--font-poppins), system-ui, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 * {
@@ -120,6 +122,11 @@ textarea::placeholder {
 
 a {
   color: var(--link);
+}
+
+/* Brand face for headings, section titles and nav labels */
+.font-display {
+  font-family: var(--font-display);
 }
 
 /* Thin scrollbars inside panes */

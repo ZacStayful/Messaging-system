@@ -9,9 +9,9 @@ import { Icon } from "@/components/ui/Icon";
 import { useStore } from "@/components/shell/store";
 
 const input =
-  "h-11 w-full rounded-lg border border-input-border bg-input px-3.5 text-[15px] text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]";
+  "h-11 w-full rounded-lg border border-input-border bg-input px-3.5 text-[16px] text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]";
 const primary =
-  "h-11 rounded-lg bg-brand px-4 text-[14px] font-semibold text-white hover:opacity-90 disabled:opacity-60";
+  "h-11 rounded-lg bg-brand px-4 text-[15px] font-semibold text-white hover:opacity-90 disabled:opacity-60";
 const card = "rounded-xl border border-line bg-card p-5";
 
 export function AccountSettings({ profile, hasPassword }: { profile: Profile; hasPassword: boolean }) {
@@ -69,20 +69,20 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
           <Avatar profile={profile} size={56} radius={14} />
           <div className="min-w-0">
             <div className="truncate text-[17px] font-bold">{profile.full_name ?? profile.display_name}</div>
-            <div className="truncate text-[13px] text-muted">{profile.email}</div>
-            <div className="text-[13px] text-muted">Your login email is your username.</div>
+            <div className="truncate text-[14px] text-muted">{profile.email}</div>
+            <div className="text-[14px] text-muted">Your login email is your username.</div>
           </div>
         </section>
 
         <section className={card}>
-          <h2 className="mb-1 text-[15px] font-bold">{hasPassword ? "Change password" : "Set a password"}</h2>
-          <p className="mb-4 text-[13px] text-muted">
+          <h2 className="mb-1 text-[16px] font-bold">{hasPassword ? "Change password" : "Set a password"}</h2>
+          <p className="mb-4 text-[14px] text-muted">
             {hasPassword
               ? "Pick something only you know. Your browser can remember it for next time."
               : "You currently sign in with email links or Google. Set a password to sign in directly."}
           </p>
           <form onSubmit={changePassword} className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1.5 text-[13px] font-semibold">
+            <label className="flex flex-col gap-1.5 text-[14px] font-semibold">
               New password
               <span className="relative block">
                 <input
@@ -104,7 +104,7 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
                 </button>
               </span>
             </label>
-            <label className="flex flex-col gap-1.5 text-[13px] font-semibold">
+            <label className="flex flex-col gap-1.5 text-[14px] font-semibold">
               Confirm new password
               <input
                 type={show ? "text" : "password"}
@@ -117,12 +117,12 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
               />
             </label>
             {pwError && (
-              <p role="alert" className="rounded-lg bg-[#FBEDEA] px-3 py-2 text-[13px] text-[#8A2E22]">
+              <p role="alert" className="rounded-lg bg-[#FBEDEA] px-3 py-2 text-[14px] text-[#8A2E22]">
                 {pwError}
               </p>
             )}
             {pwStatus === "done" && (
-              <p className="rounded-lg bg-soft px-3 py-2 text-[13px] text-link">Password updated.</p>
+              <p className="rounded-lg bg-soft px-3 py-2 text-[14px] text-link">Password updated.</p>
             )}
             <div>
               <button type="submit" disabled={pwStatus === "busy"} className={primary}>
@@ -134,8 +134,8 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
 
         {profile.account_type === "customer" && (
           <section className={card}>
-            <h2 className="mb-1 text-[15px] font-bold">Email notifications</h2>
-            <p className="mb-4 text-[13px] text-muted">
+            <h2 className="mb-1 text-[16px] font-bold">Email notifications</h2>
+            <p className="mb-4 text-[14px] text-muted">
               We email you when the Stayful team sends you a message, so you never miss an update.
             </p>
             <div className="flex flex-col gap-2">
@@ -161,26 +161,26 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
                     className="mt-1 accent-[#5D8156]"
                   />
                   <span>
-                    <span className="block text-[14px] font-semibold">{o.label}</span>
-                    <span className="block text-[13px] text-muted">{o.hint}</span>
+                    <span className="block text-[15px] font-semibold">{o.label}</span>
+                    <span className="block text-[14px] text-muted">{o.hint}</span>
                   </span>
                 </label>
               ))}
-              {prefStatus === "done" && <p className="text-[13px] text-link">Saved.</p>}
-              {prefStatus === "error" && <p className="text-[13px] text-new">Couldn&apos;t save. Try again.</p>}
+              {prefStatus === "done" && <p className="text-[14px] text-link">Saved.</p>}
+              {prefStatus === "error" && <p className="text-[14px] text-new">Couldn&apos;t save. Try again.</p>}
             </div>
           </section>
         )}
 
         <section className={`${card} flex items-center justify-between gap-3`}>
           <div>
-            <h2 className="text-[15px] font-bold">Sign out</h2>
-            <p className="text-[13px] text-muted">You stay signed in on this device until you sign out.</p>
+            <h2 className="text-[16px] font-bold">Sign out</h2>
+            <p className="text-[14px] text-muted">You stay signed in on this device until you sign out.</p>
           </div>
           <form action="/auth/signout" method="post">
             <button
               type="submit"
-              className="h-11 rounded-lg border border-input-border px-4 text-[14px] font-semibold text-ink hover:bg-hover"
+              className="h-11 rounded-lg border border-input-border px-4 text-[15px] font-semibold text-ink hover:bg-hover"
             >
               Sign out
             </button>

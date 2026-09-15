@@ -44,7 +44,7 @@ export function ActivityList() {
               key={c}
               type="button"
               onClick={() => setChip(c)}
-              className="flex h-7 items-center rounded-[14px] px-3 text-[13px]"
+              className="flex h-7 items-center rounded-[14px] px-3 text-[14px]"
               style={
                 on
                   ? { background: "#FFFFFF", color: "#3E5A3A", fontWeight: 600 }
@@ -59,7 +59,7 @@ export function ActivityList() {
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 && (
-          <p className="px-4 py-6 text-[14px] text-sb-dim">
+          <p className="px-4 py-6 text-[15px] text-sb-dim">
             {chip === "Threads" || chip === "Reactions"
               ? `${chip} are coming in a later release.`
               : "Nothing here yet."}
@@ -90,13 +90,13 @@ export function ActivityList() {
             >
               <Avatar profile={person ?? null} size={36} radius={9} />
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2 text-[13px] opacity-90">
+                <div className="flex items-baseline gap-2 text-[14px] opacity-90">
                   <span className="font-semibold">{a.kind}</span>
                   <span className="truncate">{where}</span>
                   <div className="flex-1" />
                   <span className="whitespace-nowrap">{listTime(a.created_at)}</span>
                 </div>
-                <div className="mt-0.5 text-[14px]">
+                <div className="mt-0.5 text-[15px]">
                   <span className="font-bold">
                     {a.kind === "New member"
                       ? joinedName

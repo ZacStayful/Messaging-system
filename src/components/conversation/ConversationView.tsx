@@ -242,7 +242,7 @@ export function ConversationView({
               disabled={!t.enabled}
               onClick={() => t.enabled && setTab(t.id)}
               title={t.enabled ? undefined : "Coming in a later release"}
-              className={`relative items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 text-[14px] whitespace-nowrap disabled:cursor-default md:text-[15px] ${t.enabled ? "flex" : "hidden md:flex"}`}
+              className={`relative items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 text-[15px] whitespace-nowrap disabled:cursor-default md:text-[16px] ${t.enabled ? "flex" : "hidden md:flex"}`}
               style={{
                 borderBottomColor: on ? "var(--tab)" : "transparent",
                 color: on ? "var(--text)" : "var(--muted)",
@@ -266,7 +266,7 @@ export function ConversationView({
           >
             <div className="px-3.5 md:px-5">
               {messages.length === 0 && (
-                <p className="py-10 text-center text-[14px] text-muted">
+                <p className="py-10 text-center text-[15px] text-muted">
                   This is the very beginning of {isDm ? "your conversation" : `#${conversation.name}`}.
                 </p>
               )}
@@ -277,7 +277,7 @@ export function ConversationView({
                     {showDay && (
                       <div className="my-2.5 flex items-center md:mt-3.5">
                         <div className="h-px flex-1 bg-line" />
-                        <span className="flex items-center gap-1 rounded-2xl border border-line bg-panel px-3 py-1 text-[13px] font-semibold">
+                        <span className="flex items-center gap-1 rounded-2xl border border-line bg-panel px-3 py-1 text-[14px] font-semibold">
                           {dayLabel(m.created_at)}
                           <Icon name="chevronDown" size={12} strokeWidth={2.4} />
                         </span>
@@ -287,7 +287,7 @@ export function ConversationView({
                     {m.id === firstNewId && (
                       <div className="mt-1 mb-1.5 flex items-center gap-2">
                         <div className="h-px flex-1 bg-new" />
-                        <span className="text-[13px] font-semibold text-new">New</span>
+                        <span className="text-[14px] font-semibold text-new">New</span>
                       </div>
                     )}
                     <MessageItem
