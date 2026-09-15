@@ -2,12 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
+/** The origin the user is actually on (works for previews and production); NEXT_PUBLIC_SITE_URL is the fallback. */
 function siteOrigin(request: NextRequest) {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  if (forwardedHost) {
+    const proto = request.headers.get("x-forwarded-proto") ?? "https";
+    return `${proto}://${forwardedHost.split(",")[0].trim()}`;
+  }
   const configured = process.env.NEXT_PUBLIC_SITE_URL;
   if (configured && process.env.NODE_ENV === "production") return configured.replace(/\/$/, "");
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const proto = request.headers.get("x-forwarded-proto") ?? "https";
-  return forwardedHost ? `${proto}://${forwardedHost}` : new URL(request.url).origin;
+  return new URL(request.url).origin;
 }
 
 /** Completes a magic-link or OAuth sign-in and lands the user in the app. */
