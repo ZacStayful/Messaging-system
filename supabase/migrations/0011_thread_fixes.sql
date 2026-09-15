@@ -39,7 +39,7 @@ alter policy "messages: edit own (customers within 15 minutes)" on public.messag
   );
 
 create or replace function public.messages_guard_update()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public as $$
 begin
   if new.conversation_id <> old.conversation_id or new.org_id <> old.org_id
      or new.sender_id is distinct from old.sender_id or new.parent_id is distinct from old.parent_id
