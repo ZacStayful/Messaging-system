@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import type { Attachment, Message, Pin, Reaction } from "@/lib/database.types";
 
@@ -12,6 +13,13 @@ export interface Change<T> {
   old_record: T | null;
 }
 
+/** Client-to-client "someone is typing" event; never stored. */
+export interface TypingEvent {
+  user_id: string;
+  parent_id: string | null;
+  at: number;
+}
+
 interface Options {
   conversationId: string;
   onInsert: (row: Message) => void;
@@ -19,6 +27,7 @@ interface Options {
   onReaction?: (change: Change<Reaction>) => void;
   onPin?: (change: Change<Pin>) => void;
   onAttachment?: (change: Change<Attachment>) => void;
+  onTyping?: (evt: TypingEvent) => void;
   /** Called after a reconnect so the caller can back-fill anything missed. */
   onResubscribe: () => void;
 }
@@ -39,10 +48,14 @@ function asChange<T>(payload: unknown): Change<T> {
   };
 }
 
-/** Subscribes to the private `conversation:<id>` topic fed by the database broadcast triggers. */
+/**
+ * Subscribes to the private `conversation:<id>` topic fed by the database broadcast triggers.
+ * Returns `sendTyping` for the client-only typing indicator.
+ */
 export function useConversationChannel(opts: Options) {
   const { conversationId } = opts;
   const handlers = useRef(opts);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   useEffect(() => {
     handlers.current = opts;
   });
@@ -52,6 +65,7 @@ export function useConversationChannel(opts: Options) {
     let cancelled = false;
     let needsBackfill = false;
     const channel = supabase.channel(`conversation:${conversationId}`, { config: { private: true } });
+    channelRef.current = channel;
 
     channel
       .on("broadcast", { event: "INSERT" }, ({ payload }) => {
@@ -64,7 +78,8 @@ export function useConversationChannel(opts: Options) {
       })
       .on("broadcast", { event: "REACTION" }, ({ payload }) => handlers.current.onReaction?.(asChange(payload)))
       .on("broadcast", { event: "PIN" }, ({ payload }) => handlers.current.onPin?.(asChange(payload)))
-      .on("broadcast", { event: "ATTACHMENT" }, ({ payload }) => handlers.current.onAttachment?.(asChange(payload)));
+      .on("broadcast", { event: "ATTACHMENT" }, ({ payload }) => handlers.current.onAttachment?.(asChange(payload)))
+      .on("broadcast", { event: "typing" }, ({ payload }) => handlers.current.onTyping?.(payload as TypingEvent));
 
     supabase.realtime.setAuth().then(() => {
       if (cancelled) return;
@@ -82,7 +97,16 @@ export function useConversationChannel(opts: Options) {
 
     return () => {
       cancelled = true;
+      channelRef.current = null;
       supabase.removeChannel(channel);
     };
   }, [conversationId]);
+
+  const sendTyping = useCallback((evt: Omit<TypingEvent, "at">) => {
+    const ch = channelRef.current;
+    if (!ch || ch.state !== "joined") return;
+    void ch.send({ type: "broadcast", event: "typing", payload: { ...evt, at: Date.now() } });
+  }, []);
+
+  return { sendTyping };
 }

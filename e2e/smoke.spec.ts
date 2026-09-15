@@ -419,8 +419,16 @@ test("status, profile card and people directory", async ({ page, context }, test
   test.skip(testInfo.project.name !== "desktop", "one run is enough");
   await signIn(context, "test-staff@stayful.test");
 
-  // Set a status from the You panel.
+  // Set a status from the You panel (clearing any status a previous run left behind).
   await page.goto("/you");
+  if (await page.getByRole("button", { name: "Clear status" }).count()) {
+    const reset = page.waitForResponse(
+      (r) => r.url().includes("/rest/v1/profiles") && r.request().method() === "PATCH",
+    );
+    await page.getByRole("button", { name: "Clear status" }).click();
+    await reset;
+    await page.reload();
+  }
   await page.getByRole("button", { name: "Set a status" }).click();
   const dialog = page.getByRole("dialog", { name: "Set a status" });
   await dialog.getByLabel("Status text").fill("In a meeting");
@@ -446,7 +454,7 @@ test("status, profile card and people directory", async ({ page, context }, test
 
   // Clicking a sender's name in a conversation opens their card with a Message button.
   await page.goto(`/home/${CUSTOMER_GROUP}`);
-  await page.getByRole("button", { name: "Test Staff", exact: true }).first().click();
+  await page.getByRole("button", { name: "Test Staff", exact: true }).last().click();
   await expect(page.getByRole("dialog", { name: "Profile: Test Staff" })).toBeVisible();
   await page.keyboard.press("Escape");
 
@@ -529,6 +537,75 @@ test("consecutive messages from one sender group into a compact row", async ({ p
   await expect(second.getByRole("button", { name: "Test Staff", exact: true })).toHaveCount(0);
   await expect(second.getByText(/^\d{1,2}:\d{2}$/)).toHaveCount(1);
   expect(await page.getByRole("button", { name: "Test Staff", exact: true }).count()).toBeGreaterThan(0);
+});
+
+test("formatting toolbar, shortcuts and slash commands", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "keyboard-driven test");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+  const box = page.getByPlaceholder("Message #test-internal");
+
+  // Aa shows the toolbar; wrapping a selection produces markdown that renders as bold/italic/code.
+  await page.getByRole("button", { name: "Formatting" }).click();
+  await expect(page.getByRole("toolbar", { name: "Formatting" })).toBeVisible();
+  const stamp = Date.now();
+  await box.fill(`fmt${stamp} bold`);
+  await box.press("End");
+  await page.keyboard.press("Shift+Home");
+  await page.keyboard.press("Control+b");
+  await expect(box).toHaveValue(`**fmt${stamp} bold**`);
+  await box.press("End");
+  await box.type(" _it_ `code`");
+  await page.keyboard.press("Enter");
+  const row = page.locator("article", { hasText: `fmt${stamp}` });
+  await expect(row.locator("strong", { hasText: `fmt${stamp} bold` })).toBeVisible();
+  await expect(row.locator("em", { hasText: "it" })).toBeVisible();
+  await expect(row.locator("code", { hasText: "code" })).toBeVisible();
+  await page.getByRole("button", { name: "Formatting" }).click();
+
+  // Slash picker filters commands; /shrug posts with the shrug.
+  await box.fill("/sh");
+  await expect(page.getByRole("option", { name: /\/shrug/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await box.fill(`/shrug why not ${stamp}`);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("article", { hasText: `why not ${stamp} ¯\\_(ツ)_/¯` })).toBeVisible();
+
+  // ↑ in the empty composer edits the last own message (once it has actually been sent).
+  await expect(page.getByText("Sending…")).toHaveCount(0, { timeout: 10_000 });
+  await box.press("ArrowUp");
+  const edit = page.getByRole("textbox", { name: "Edit message" });
+  await expect(edit).toBeVisible();
+  await expect(edit).toHaveValue(new RegExp(`why not ${stamp}`));
+  await page.keyboard.press("Escape");
+
+  // Ctrl+K quick switcher jumps to a conversation.
+  await page.keyboard.press("Control+k");
+  const switcher = page.getByRole("dialog", { name: "Jump to" });
+  await expect(switcher).toBeVisible();
+  await switcher.getByLabel("Jump to").fill("test-cust");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`/home/${CUSTOMER_GROUP}`));
+});
+
+test("schedule a message for later, then cancel it", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+  const body = `scheduled ${Date.now()}`;
+  await page.getByPlaceholder("Message #test-internal").fill(body);
+  await page.getByRole("button", { name: "Schedule for later" }).click();
+  await page.getByRole("menuitem", { name: /Tomorrow at 9:00/ }).click();
+  await expect(page.getByPlaceholder("Message #test-internal")).toHaveValue("");
+  const bar = page.getByText(/Scheduled for/);
+  await expect(bar).toBeVisible();
+  await expect(page.getByText(body.slice(0, 40))).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByText(/Scheduled for/)).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText(/Scheduled for/)).toHaveCount(0);
 });
 
 test("history and help popovers open from the top bar", async ({ page, context }, testInfo) => {

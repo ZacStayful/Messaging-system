@@ -58,6 +58,27 @@ function Inlines({ parts, query }: { parts: Inline[]; query?: string }) {
                 <Highlight text={p.text} query={query} />
               </strong>
             );
+          case "italic":
+            return (
+              <em key={i}>
+                <Highlight text={p.text} query={query} />
+              </em>
+            );
+          case "strike":
+            return (
+              <s key={i} className="opacity-80">
+                <Highlight text={p.text} query={query} />
+              </s>
+            );
+          case "code":
+            return (
+              <code
+                key={i}
+                className="rounded border border-line bg-soft px-1 py-px font-mono text-[0.9em] text-[#E2A13A]"
+              >
+                <Highlight text={p.text} query={query} />
+              </code>
+            );
           default:
             return (
               <span key={i}>
@@ -84,15 +105,46 @@ export function MessageBody({ body, compact = false, query }: { body: string; co
             </p>
           );
         }
-        if (b.type === "ul") {
+        if (b.type === "ul" || b.type === "ol") {
+          const Tag = b.type === "ul" ? "ul" : "ol";
           return (
-            <ul key={i} className={`mb-2 list-disc pl-6 leading-[1.55] ${size}`}>
+            <Tag
+              key={i}
+              start={b.type === "ol" ? b.start : undefined}
+              className={`mb-2 pl-6 leading-[1.55] ${b.type === "ul" ? "list-disc" : "list-decimal"} ${size}`}
+            >
               {b.items.map((item, j) => (
                 <li key={j} className="my-0.5">
                   <Inlines parts={item} query={query} />
                 </li>
               ))}
-            </ul>
+            </Tag>
+          );
+        }
+        if (b.type === "quote") {
+          return (
+            <blockquote
+              key={i}
+              className={`mb-2 border-l-[3px] border-line pl-3 leading-[1.55] text-muted ${size}`}
+              style={{ overflowWrap: "anywhere" }}
+            >
+              {b.lines.map((line, j) => (
+                <span key={j}>
+                  {j > 0 && <br />}
+                  <Inlines parts={line} query={query} />
+                </span>
+              ))}
+            </blockquote>
+          );
+        }
+        if (b.type === "code") {
+          return (
+            <pre
+              key={i}
+              className="scroll-thin mb-2 overflow-x-auto rounded-lg border border-line bg-soft px-3 py-2 font-mono text-[14px] leading-[1.5]"
+            >
+              <Highlight text={b.text} query={query} />
+            </pre>
           );
         }
         return (
