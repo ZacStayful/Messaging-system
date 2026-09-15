@@ -138,6 +138,44 @@ suite("RLS", () => {
     expect(data).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it("search only returns what the caller may read", async () => {
+    const { data: c } = await customer.rpc("search_messages", { q: "team-only channel" });
+    expect(c).toEqual([]);
+    const { data: c2 } = await customer.rpc("search_messages", { q: "price sensitive" });
+    expect(c2).toEqual([]);
+    const { data: c3 } = await customer.rpc("search_messages", { q: "hello from the team" });
+    expect(c3?.map((m) => m.message_id)).toContain("d0000000-0000-4000-8000-000000000041");
+    const { data: s } = await staff.rpc("search_messages", { q: "price sensitive" });
+    expect(s?.map((m) => m.message_id)).toContain(INTERNAL_NOTE);
+  });
+
+  it("customer can react to visible messages only", async () => {
+    const ok = await customer
+      .from("reactions")
+      .insert({ org_id: ORG, message_id: "d0000000-0000-4000-8000-000000000041", user_id: CUSTOMER_ID, emoji: "👍" });
+    expect(ok.error).toBeNull();
+    await customer
+      .from("reactions")
+      .delete()
+      .eq("message_id", "d0000000-0000-4000-8000-000000000041")
+      .eq("user_id", CUSTOMER_ID);
+    const bad = await customer
+      .from("reactions")
+      .insert({ org_id: ORG, message_id: INTERNAL_NOTE, user_id: CUSTOMER_ID, emoji: "👍" });
+    expect(bad.error).not.toBeNull();
+    const spoof = await customer
+      .from("reactions")
+      .insert({ org_id: ORG, message_id: "d0000000-0000-4000-8000-000000000041", user_id: STAFF_ID, emoji: "👍" });
+    expect(spoof.error).not.toBeNull();
+  });
+
+  it("customer cannot start group messages or create groups", async () => {
+    const { error } = await customer.rpc("create_group_dm", { p_member_ids: [STAFF_ID, ZAC_ID] });
+    expect(error?.message).toMatch(/only Stayful team/);
+    const { error: e2 } = await customer.rpc("create_channel", { p_name: "sneaky", p_type: "owner" });
+    expect(e2?.message).toMatch(/only Stayful team/);
+  });
+
   it("nobody sees the audit log except admins", async () => {
     const { data: s } = await staff.from("audit_log").select("id").limit(1);
     const { data: c } = await customer.from("audit_log").select("id").limit(1);

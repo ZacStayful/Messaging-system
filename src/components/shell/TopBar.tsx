@@ -1,13 +1,25 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useState, type FormEvent } from "react";
 import { Icon } from "@/components/ui/Icon";
 
 const btn = "flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent text-sb-dim hover:bg-sb-hover";
 
 export function TopBar() {
   const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const initial = pathname === "/search" ? (params.get("q") ?? "") : "";
+  const [q, setQ] = useState(initial);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const query = q.trim();
+    if (query) router.push(`/search?q=${encodeURIComponent(query)}`);
+  };
+
   return (
     <header className="hidden h-11 shrink-0 items-center gap-2 pr-3 text-sb-text md:flex">
       <div className="w-[72px] shrink-0" />
@@ -21,10 +33,30 @@ export function TopBar() {
         <button type="button" className={`${btn} mr-2`} aria-label="History" title="History">
           <Icon name="clock" />
         </button>
-        <div className="flex h-[30px] min-w-0 flex-1 max-w-[720px] items-center gap-2 rounded-md border border-sb-border bg-sb-input px-2.5 text-sb-dim">
+        <form
+          onSubmit={submit}
+          role="search"
+          className="flex h-[30px] min-w-0 flex-1 max-w-[720px] items-center gap-2 rounded-md border border-sb-border bg-sb-input px-2.5 text-sb-dim focus-within:bg-white focus-within:text-[#1E2A1C]"
+        >
           <Icon name="search" size={16} strokeWidth={2} />
-          <span className="truncate text-[14px]">Search Stayful</span>
-        </div>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search Stayful"
+            aria-label="Search Stayful"
+            className="min-w-0 flex-1 border-0 bg-transparent text-[14px] text-inherit outline-none placeholder:text-current"
+          />
+          {q && (
+            <button
+              type="button"
+              onClick={() => setQ("")}
+              className="flex h-5 w-5 items-center justify-center rounded"
+              aria-label="Clear search"
+            >
+              <Icon name="close" size={12} strokeWidth={2.4} />
+            </button>
+          )}
+        </form>
         <Image
           src="/brand/stayful-logo.png"
           alt=""

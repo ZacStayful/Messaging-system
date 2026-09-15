@@ -32,6 +32,9 @@ export type { Nav } from "@/lib/nav";
 /** Window event fired for every `message_created` realtime event, so open views can back-fill. */
 export const MESSAGE_EVENT = "stayful:message";
 
+/** "people" starts a DM or group DM; "group" creates a named group (team only). */
+export type NewMessageMode = "people" | "group";
+
 interface StoreValue {
   me: Profile;
   org: Org;
@@ -42,6 +45,11 @@ interface StoreValue {
   activityRead: ReadonlySet<string>;
   nav: Nav;
   activeConversationId: string | null;
+  /** True on full-width pages that are not a conversation (search, settings, invite). */
+  isPage: boolean;
+  newMessage: NewMessageMode | null;
+  openNewMessage: (mode?: NewMessageMode) => void;
+  closeNewMessage: () => void;
   conversationById: (id: string) => ConversationSummary | undefined;
   /** Display name for a conversation: channel name, or the other person's name for a DM. */
   conversationName: (c: ConversationSummary) => string;
@@ -100,7 +108,11 @@ export function StoreProvider({
 
   const segments = pathname.split("/").filter(Boolean);
   const nav: Nav = isNav(segments[0]) ? segments[0] : "dms";
-  const activeConversationId = segments[1] ?? null;
+  const isPage = segments.length > 0 && !isNav(segments[0]);
+  const activeConversationId = isNav(segments[0]) ? (segments[1] ?? null) : null;
+  const [newMessage, setNewMessage] = useState<NewMessageMode | null>(null);
+  const openNewMessage = useCallback((mode: NewMessageMode = "people") => setNewMessage(mode), []);
+  const closeNewMessage = useCallback(() => setNewMessage(null), []);
   const activeRef = useRef(activeConversationId);
   useEffect(() => {
     activeRef.current = activeConversationId;
@@ -290,6 +302,10 @@ export function StoreProvider({
       activityRead,
       nav,
       activeConversationId,
+      isPage,
+      newMessage,
+      openNewMessage,
+      closeNewMessage,
       conversationById,
       conversationName,
       otherMember,
@@ -311,6 +327,10 @@ export function StoreProvider({
       activityRead,
       nav,
       activeConversationId,
+      isPage,
+      newMessage,
+      openNewMessage,
+      closeNewMessage,
       conversationById,
       conversationName,
       otherMember,

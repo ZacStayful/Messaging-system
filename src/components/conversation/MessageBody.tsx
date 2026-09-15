@@ -1,6 +1,30 @@
 import { parseBlocks, type Inline } from "@/lib/richtext";
 
-function Inlines({ parts }: { parts: Inline[] }) {
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Wraps case-insensitive matches of `query` in <mark>. */
+function Highlight({ text, query }: { text: string; query?: string }) {
+  const q = query?.trim();
+  if (!q) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "ig"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="rounded-sm bg-[#FBE7A1] px-px text-[#1E2A1C]">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+function Inlines({ parts, query }: { parts: Inline[]; query?: string }) {
   return (
     <>
       {parts.map((p, i) => {
@@ -14,7 +38,7 @@ function Inlines({ parts }: { parts: Inline[] }) {
                 rel="noopener noreferrer"
                 className="text-link underline break-all"
               >
-                {p.text}
+                <Highlight text={p.text} query={query} />
               </a>
             );
           case "mention":
@@ -23,14 +47,23 @@ function Inlines({ parts }: { parts: Inline[] }) {
                 key={i}
                 className="rounded px-[3px] font-medium text-link"
                 style={{ background: "rgba(93,129,86,.18)" }}
+                data-mention={p.name}
               >
-                {p.text}
+                @{p.name}
               </span>
             );
           case "bold":
-            return <strong key={i}>{p.text}</strong>;
+            return (
+              <strong key={i}>
+                <Highlight text={p.text} query={query} />
+              </strong>
+            );
           default:
-            return <span key={i}>{p.text}</span>;
+            return (
+              <span key={i}>
+                <Highlight text={p.text} query={query} />
+              </span>
+            );
         }
       })}
     </>
@@ -38,7 +71,7 @@ function Inlines({ parts }: { parts: Inline[] }) {
 }
 
 /** Renders a stored message body (plain text + markdown subset) as paragraphs, headings, lists. */
-export function MessageBody({ body, compact = false }: { body: string; compact?: boolean }) {
+export function MessageBody({ body, compact = false, query }: { body: string; compact?: boolean; query?: string }) {
   const blocks = parseBlocks(body);
   const size = compact ? "text-[15px]" : "text-[16px]";
   return (
@@ -47,7 +80,7 @@ export function MessageBody({ body, compact = false }: { body: string; compact?:
         if (b.type === "h") {
           return (
             <p key={i} className={`mt-3 mb-2 font-bold ${size}`}>
-              {b.text}
+              <Highlight text={b.text} query={query} />
             </p>
           );
         }
@@ -56,7 +89,7 @@ export function MessageBody({ body, compact = false }: { body: string; compact?:
             <ul key={i} className={`mb-2 list-disc pl-6 leading-[1.55] ${size}`}>
               {b.items.map((item, j) => (
                 <li key={j} className="my-0.5">
-                  <Inlines parts={item} />
+                  <Inlines parts={item} query={query} />
                 </li>
               ))}
             </ul>
@@ -67,7 +100,7 @@ export function MessageBody({ body, compact = false }: { body: string; compact?:
             {b.lines.map((line, j) => (
               <span key={j}>
                 {j > 0 && <br />}
-                <Inlines parts={line} />
+                <Inlines parts={line} query={query} />
               </span>
             ))}
           </p>

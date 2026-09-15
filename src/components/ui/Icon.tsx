@@ -55,6 +55,20 @@ export const ICON_PATHS = {
   key: "M15 7a4 4 0 1 1-2.6 7L11 15.4V18H8.6L8 19H5v-3l6-6A4 4 0 0 1 15 7zM15.5 8.5h.01",
   userPlus: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6",
   mail: "M4 5h16v14H4zM4 6l8 7 8-7",
+  camera: "M4 8h4l2-3h4l2 3h4v11H4zM12 16a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z",
+  trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
+  smilePlus: "M20.5 13A8.5 8.5 0 1 1 11 3.5M8.5 14s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M14 9.5h.01M18 2v6M15 5h6",
+  stop: "M6 6h12v12H6z",
+  play: "M8 5v14l11-7z",
+  pause: "M7 5h4v14H7zM13 5h4v14h-4z",
+  download: "M12 4v12M6 10l6 6 6-6M4 20h16",
+  arrowUp: "M12 19V5M5 12l7-7 7 7",
+  arrowDown: "M12 5v14M5 12l7 7 7-7",
+  at: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM16 12v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-3.5 7.1",
+  hash: "M5 9h14M5 15h14M10 4L8 20M16 4l-2 16",
+  upload: "M12 16V4M6 10l6-6 6 6M4 20h16",
+  people:
+    "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

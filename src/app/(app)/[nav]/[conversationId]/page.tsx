@@ -53,6 +53,11 @@ export default async function ConversationPage({
 
   if (!conversation) notFound();
 
+  const ids = (messages ?? []).map((m) => m.id);
+  const { data: reactions } = ids.length
+    ? await supabase.from("reactions").select("*").in("message_id", ids)
+    : { data: [] };
+
   return (
     <ConversationView
       key={conversationId}
@@ -62,6 +67,7 @@ export default async function ConversationPage({
       initialMessages={messages ?? []}
       pins={(pins ?? []).filter((p): p is PinWithMessage => p.message !== null) as PinWithMessage[]}
       attachments={attachments ?? []}
+      reactions={reactions ?? []}
       lastReadAt={membership?.last_read_at ?? null}
     />
   );

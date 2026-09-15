@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dayLabel, listTime, pinWhen, previewOf, timeLabel } from "@/lib/format";
-import { extractLinks, mentionedNames, parseBlocks, parseInline } from "@/lib/richtext";
+import { extractLinks, mentionToken, mentionedNames, parseBlocks, parseInline } from "@/lib/richtext";
 
 const now = new Date("2026-09-15T09:00:00+01:00");
 
@@ -38,7 +38,7 @@ describe("richtext", () => {
   it("parses links, mentions and bold", () => {
     expect(parseInline("Hi @Zac see [here](https://a.b/c) and https://d.e/f **now**")).toEqual([
       { type: "text", text: "Hi " },
-      { type: "mention", text: "@Zac" },
+      { type: "mention", text: "@Zac", name: "Zac" },
       { type: "text", text: " see " },
       { type: "link", text: "here", href: "https://a.b/c" },
       { type: "text", text: " and " },
@@ -71,5 +71,17 @@ describe("richtext", () => {
 
   it("finds mentioned names", () => {
     expect(mentionedNames("Hi @Zac and @Martyn, cc @Bien.")).toEqual(["Zac", "Martyn", "Bien"]);
+  });
+
+  it("supports display names with spaces", () => {
+    expect(mentionedNames("Morning @[Nigel Hyde], @Zac will call.")).toEqual(["Nigel Hyde", "Zac"]);
+    expect(parseInline("hi @[Nigel Hyde]!")).toEqual([
+      { type: "text", text: "hi " },
+      { type: "mention", text: "@Nigel Hyde", name: "Nigel Hyde" },
+      { type: "text", text: "!" },
+    ]);
+    expect(mentionToken("Zac")).toBe("@Zac");
+    expect(mentionToken("Nigel Hyde")).toBe("@[Nigel Hyde]");
+    expect(previewOf("cc @[Nigel Hyde] please")).toBe("cc @Nigel Hyde please");
   });
 });

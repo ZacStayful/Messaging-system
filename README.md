@@ -18,7 +18,21 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Conversation pane: day dividers, red "New" marker, rich text (headings, bullet lists,
   links, @mention chips), composer with drafts, optimistic send with retry, internal notes
   for team accounts, live updates over Supabase Realtime, read state.
-- Pins tab, Files and links tab, details modal (About, Members).
+- Message actions (hover, or focus on mobile): emoji reactions with counts, pin/unpin, edit
+  and delete your own messages (customers within 15 minutes, team any time), all live over
+  Realtime.
+- Attachments: photos, PDFs, Office files, audio and video up to 50 MB via the `+` menu,
+  drag-and-drop or paste; camera capture on phones; inline photo previews, file cards,
+  signed download links. Voice notes recorded in the browser with an inline player.
+- Composer helpers: `@` mention picker (display names with spaces are stored as
+  `@[Nigel Hyde]`), emoji picker, formatting hint.
+- New message flow: pick one person for a DM, several for a group DM, or (team) create a
+  named customer group or internal channel.
+- Search: the top-bar "Search Stayful" box (and a search icon on mobile) opens `/search`,
+  covering messages (Postgres full-text via `search_messages`, RLS-scoped), people and files;
+  results deep-link to the message (`?m=<id>`). The magnifier in a conversation header opens
+  in-conversation search with highlighted matches and next/previous.
+- Pins tab (jump to message, unpin), Files and links tab, details modal (About, Members).
 - Account page: change password, email notification preference, sign out.
 - Team: "Invite a customer" creates the account, adds them to groups and emails the login details.
 - Email notifications (D8): every customer-visible message is queued in `notification_outbox`;
@@ -33,9 +47,9 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Tests: unit (formatting, rich text), RLS suite against the live project, Playwright smoke
   tests on desktop and mobile including two-user realtime delivery.
 
-Out of scope for this pass (next passes): staff inbox with SLA, attachment uploads (including
-email attachments), reactions, threads, digest emails, Monday and Uplisting sync, public API,
-webhooks, MCP server, Slack import.
+Out of scope for this pass (next passes): staff inbox with SLA, email attachments, threads,
+huddles/calls, canvases, digest emails, Monday and Uplisting sync, public API, webhooks, MCP
+server, Slack import.
 
 ## Stack
 
@@ -52,18 +66,18 @@ pnpm dev                     # http://localhost:3000
 
 Environment variables (`.env.local`, also set in Vercel):
 
-| Variable | Purpose |
-| --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (anon) key |
-| `NEXT_PUBLIC_SITE_URL` | Public URL of the deployment, used for auth redirects |
-| `SEED_TEST_PASSWORD` | Only for the test-suites; the password given to the two seeded test accounts |
-| `RESEND_API_KEY` | Resend API key; without it accounts are still created and the password is shown to the team member instead of emailed |
-| `EMAIL_FROM` | Sender, e.g. `Stayful <noreply@stayful.co.uk>` (domain verified in Resend) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only. Used by the cron worker, unsubscribe links and the inbound email webhook |
-| `CRON_SECRET` | Random string. Vercel sends it to the cron route; it also signs unsubscribe links |
-| `EMAIL_REPLY_DOMAIN` | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk` |
-| `RESEND_WEBHOOK_SECRET` | Optional. `whsec_…` secret of the Resend webhook for `email.received` |
+| Variable                               | Purpose                                                                                                               |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | Supabase project URL                                                                                                  |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (anon) key                                                                                       |
+| `NEXT_PUBLIC_SITE_URL`                 | Public URL of the deployment, used for auth redirects                                                                 |
+| `SEED_TEST_PASSWORD`                   | Only for the test-suites; the password given to the two seeded test accounts                                          |
+| `RESEND_API_KEY`                       | Resend API key; without it accounts are still created and the password is shown to the team member instead of emailed |
+| `EMAIL_FROM`                           | Sender, e.g. `Stayful <noreply@stayful.co.uk>` (domain verified in Resend)                                            |
+| `SUPABASE_SERVICE_ROLE_KEY`            | Server only. Used by the cron worker, unsubscribe links and the inbound email webhook                                 |
+| `CRON_SECRET`                          | Random string. Vercel sends it to the cron route; it also signs unsubscribe links                                     |
+| `EMAIL_REPLY_DOMAIN`                   | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk`                                      |
+| `RESEND_WEBHOOK_SECRET`                | Optional. `whsec_…` secret of the Resend webhook for `email.received`                                                 |
 
 ## Database
 
@@ -78,6 +92,9 @@ Migrations live in `supabase/migrations` and are applied in order:
 6. `0006_customer_accounts_notifications.sql` `create_customer_account`, `reset_customer_password`,
    `notification_outbox` + trigger, welcome-email helpers
 7. `0007_reply_by_email.sql` `email_reply_threads`, unique inbound email ref
+8. `0008_pgcrypto_search_path.sql` account RPCs find `crypt`/`gen_salt` in `extensions`
+9. `0009_slack_essentials.sql` full-text search column + `search_messages`, `attachments.meta`,
+   `create_group_dm`, `create_channel`, realtime broadcasts for reactions/pins/attachments
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -109,8 +126,18 @@ Locally: `supabase start && supabase db reset` (runs migrations and the seed).
 ## Realtime
 
 A trigger on `messages` broadcasts the full row to the private topic
-`conversation:<id>` and a light `message_created` event to every member's `user:<id>`
-topic. Presence runs on `org:<id>`. Clients back-fill from Postgres after any reconnect.
+`conversation:<id>` (events `INSERT`/`UPDATE`) and a light `message_created` event to every
+member's `user:<id>` topic. Reactions, pins and attachments broadcast `REACTION`, `PIN` and
+`ATTACHMENT` events on the same conversation topic. Presence runs on `org:<id>`. Clients
+back-fill from Postgres after any reconnect.
+
+## Attachments
+
+Files live in the private `attachments` bucket at
+`<org_id>/<conversation_id>/<message_id>/<random>-<file name>`; storage policies check
+conversation membership from the path. The browser inserts the message first, uploads each file,
+then inserts an `attachments` row (`meta` holds image dimensions or `duration_ms`/`voice` for
+voice notes). Downloads use one-hour signed URLs.
 
 ## Auth configuration (Supabase dashboard)
 
@@ -127,6 +154,9 @@ topic. Presence runs on `org:<id>`. Clients back-fill from Postgres after any re
 
 1. Create a Resend account, add and verify `stayful.co.uk` (Domains), create an API key and set
    `RESEND_API_KEY` and `EMAIL_FROM` in Vercel.
+   Also point Supabase Auth at Resend so magic links and password resets are not limited to the
+   built-in 2-per-hour quota: Authentication > SMTP settings, host `smtp.resend.com`, port `465`,
+   user `resend`, password = the API key, sender `Stayful <noreply@stayful.co.uk>`.
 2. Set `SUPABASE_SERVICE_ROLE_KEY` and a random `CRON_SECRET` in Vercel. `vercel.json` schedules
    `/api/cron/notifications` every minute; Vercel adds the `Authorization: Bearer <CRON_SECRET>`
    header automatically when `CRON_SECRET` is set.
@@ -138,12 +168,12 @@ topic. Presence runs on `org:<id>`. Clients back-fill from Postgres after any re
 
 ## Scripts
 
-| Command | What it does |
-| --- | --- |
-| `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint, TypeScript, Prettier |
-| `pnpm test` | Vitest: unit tests; the RLS suite runs only when `SEED_TEST_PASSWORD` is set |
-| `pnpm test:e2e` | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
+| Command                                        | What it does                                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pnpm dev` / `pnpm build` / `pnpm start`       | Next.js                                                                                                      |
+| `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint, TypeScript, Prettier                                                                                 |
+| `pnpm test`                                    | Vitest: unit tests; the RLS suite runs only when `SEED_TEST_PASSWORD` is set                                 |
+| `pnpm test:e2e`                                | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
 
 The RLS and sign-in tests expect the fixtures from `supabase/seed.sql` (test accounts and groups).
 Run them against a local stack (`supabase start && supabase db reset`) or a staging project, never

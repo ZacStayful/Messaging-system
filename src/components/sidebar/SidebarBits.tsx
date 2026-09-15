@@ -1,6 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
+
+/** Mobile entry point to the search page (desktop has the top-bar search). */
+export function SearchLink() {
+  return (
+    <Link href="/search" className={`${iconBtn} no-underline md:hidden`} aria-label="Search" title="Search">
+      <Icon name="search" />
+    </Link>
+  );
+}
 
 export function SidebarHeader({
   title,

@@ -16,6 +16,7 @@ export type Database = {
           file_name: string;
           id: string;
           message_id: string;
+          meta: Json;
           mime: string;
           org_id: string;
           size_bytes: number;
@@ -28,6 +29,7 @@ export type Database = {
           file_name: string;
           id?: string;
           message_id: string;
+          meta?: Json;
           mime: string;
           org_id: string;
           size_bytes?: number;
@@ -40,6 +42,7 @@ export type Database = {
           file_name?: string;
           id?: string;
           message_id?: string;
+          meta?: Json;
           mime?: string;
           org_id?: string;
           size_bytes?: number;
@@ -304,6 +307,7 @@ export type Database = {
         Row: {
           body: string;
           body_json: Json | null;
+          body_tsv: unknown | null;
           conversation_id: string;
           created_at: string;
           deleted_at: string | null;
@@ -640,6 +644,31 @@ export type Database = {
     };
     Functions: {
       auth_org_id: { Args: never; Returns: string };
+      create_channel: {
+        Args: {
+          p_name: string;
+          p_type: Database["public"]["Enums"]["conversation_type"];
+          p_member_ids?: string[];
+          p_topic?: string | null;
+        };
+        Returns: string;
+      };
+      create_group_dm: { Args: { p_member_ids: string[] }; Returns: string };
+      search_messages: {
+        Args: { q: string; max_rows?: number };
+        Returns: {
+          message_id: string;
+          conversation_id: string;
+          conversation_type: Database["public"]["Enums"]["conversation_type"];
+          conversation_name: string | null;
+          sender_id: string | null;
+          sender_name: string | null;
+          body: string;
+          visibility: Database["public"]["Enums"]["message_visibility"];
+          created_at: string;
+          rank: number;
+        }[];
+      };
       create_customer_account: {
         Args: {
           p_email: string;
@@ -724,6 +753,8 @@ export type Conversation = Tables<"conversations">;
 export type Message = Tables<"messages">;
 export type Pin = Tables<"pins">;
 export type Attachment = Tables<"attachments">;
+export type Reaction = Tables<"reactions">;
+export type SearchHit = Database["public"]["Functions"]["search_messages"]["Returns"][number];
 export type NotificationOutbox = Tables<"notification_outbox">;
 export type ConversationSummary = Database["public"]["Functions"]["my_conversations"]["Returns"][number];
 export type ActivityItem = Database["public"]["Functions"]["my_activity"]["Returns"][number];
