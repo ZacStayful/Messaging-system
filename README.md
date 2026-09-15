@@ -99,9 +99,14 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Tests: unit (formatting, rich text), RLS suite against the live project, Playwright smoke
   tests on desktop and mobile including two-user realtime delivery.
 
+- Public REST API at `/api/v1` with scoped API keys managed at `/settings/api`, and a remote
+  MCP server at `/api/mcp` so Claude, n8n or Zapier can read conversations, create groups,
+  invite people, post messages and manage bookmarks. Both act as a real team member, so nothing
+  an integration does escapes that person's own access. See "Public API" below.
+
 Out of scope for this pass (next passes): staff inbox with SLA, email attachments,
-huddles/calls, canvases, digest emails, Monday and Uplisting sync, public API, webhooks, MCP
-server, Slack import.
+huddles/calls, canvases, digest emails, Monday and Uplisting sync, outgoing webhooks, Slack
+import.
 
 ## Stack
 
@@ -130,6 +135,7 @@ Environment variables (`.env.local`, also set in Vercel):
 | `CRON_SECRET`                          | Random string. Vercel sends it to the cron route; it also signs unsubscribe links                                     |
 | `EMAIL_REPLY_DOMAIN`                   | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk`                                      |
 | `RESEND_WEBHOOK_SECRET`                | Optional. `whsec_…` secret of the Resend webhook for `email.received`                                                 |
+| `SUPABASE_JWT_SECRET`                  | Server only. Required by the REST API and MCP server: each request is signed as the key's user (see below)            |
 
 ## Database
 
@@ -163,6 +169,9 @@ Migrations live in `supabase/migrations` and are applied in order:
     broadcast so everyone sees the badge live
 15. `0015_conversation_bookmarks.sql` `conversation_bookmarks` with pins-mirrored RLS,
     `add_bookmark` / `move_bookmark`, and a `BOOKMARK` realtime broadcast
+16. `0016_api_keys.sql` `api_keys` (sha256 hashes, scopes, revoke), `api_rate_limits` +
+    `api_rate_hit`, `api_touch_key`, and a partial unique index on `meta->>'client_id'` for
+    idempotent posting
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -233,6 +242,60 @@ voice notes). Downloads use one-hour signed URLs.
    `https://chat.stayful.co.uk/api/email/inbound`. Set `EMAIL_REPLY_DOMAIN` and
    `RESEND_WEBHOOK_SECRET`. Replies are stripped of quoted history, matched to the customer by
    the token in the To address, and rejected if the From address differs from the account email.
+
+## Public API
+
+`/api/v1/*`, authenticated with an API key an admin creates at `/settings/api`. The plaintext
+is shown once; only a sha256 hash is stored.
+
+**A key acts as a real person.** It is bound to one active team member, and every request runs
+with a 120-second token minted for them (`src/lib/api/jwt.ts`), so every RLS policy and every
+`auth.uid()`-based RPC applies exactly as it does in the browser — there is no second copy of
+the authorisation rules to drift. A key can therefore never see more than the person it acts
+as. Messages it posts carry `sent_via = 'api'` and show a "via API" chip beside the timestamp,
+so a conversation always shows who said what. Every write is recorded in `audit_log`.
+
+This is why `SUPABASE_JWT_SECRET` is required (Supabase dashboard → Project Settings → API →
+Legacy JWT Secret). Without it the API answers `503 not_configured` rather than failing
+obscurely. **If that secret is ever rotated or revoked, the REST API and the MCP server both
+stop working at once, with 401s and no other symptom** — worth knowing before it happens.
+
+Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
+`members:write`, `bookmarks:read|write`, `users:read|invite`, `status:write`.
+
+| Method           | Path                                          | Scope                                        |
+| ---------------- | --------------------------------------------- | -------------------------------------------- |
+| `GET`            | `/api/v1/me`                                  | —                                            |
+| `PATCH`          | `/api/v1/me/status`                           | `status:write`                               |
+| `GET` `POST`     | `/api/v1/conversations`                       | `conversations:read` / `conversations:write` |
+| `GET` `PATCH`    | `/api/v1/conversations/{id}`                  | `conversations:read` / `conversations:write` |
+| `GET` `POST`     | `/api/v1/conversations/{id}/messages`         | `messages:read` / `messages:write`           |
+| `GET` `POST`     | `/api/v1/conversations/{id}/members`          | `conversations:read` / `members:write`       |
+| `DELETE`         | `/api/v1/conversations/{id}/members/{userId}` | `members:write`                              |
+| `GET` `POST`     | `/api/v1/conversations/{id}/bookmarks`        | `bookmarks:read` / `bookmarks:write`         |
+| `PATCH` `DELETE` | `/api/v1/bookmarks/{id}`                      | `bookmarks:write`                            |
+| `GET`            | `/api/v1/messages/{id}/replies`               | `messages:read`                              |
+| `GET`            | `/api/v1/search?q=`                           | `messages:read`                              |
+| `GET` `POST`     | `/api/v1/users`                               | `users:read` / `users:invite`                |
+
+Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
+`forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,
+`not_configured` and `internal`. 600 requests per key per minute, counted in Postgres (a fixed
+window — coarse, but the only stateful option without adding Redis; a token bucket is a
+follow-up). Posting a message with the same `client_id` twice returns the original rather than
+a duplicate, enforced by a unique index.
+
+Not covered in this pass: attachments and uploads, reactions, pins, editing and deleting
+messages, scheduled messages, saved items, outgoing webhooks, pagination beyond
+`before` + `limit`, and an OpenAPI document.
+
+```bash
+K=sk_live_...
+curl -sS -H "Authorization: Bearer $K" https://chat.stayful.co.uk/api/v1/me
+curl -sS -X POST -H "Authorization: Bearer $K" -H 'content-type: application/json' \
+  -d '{"body":"Posted over the API","client_id":"demo-1"}' \
+  "https://chat.stayful.co.uk/api/v1/conversations/$CID/messages"
+```
 
 ## Scripts
 

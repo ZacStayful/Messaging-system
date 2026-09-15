@@ -463,3 +463,51 @@ suite("conversation bookmarks", () => {
     expect(error?.message).toMatch(/http/i);
   });
 });
+
+suite("api keys", () => {
+  let staff: SupabaseClient<Database>;
+  let customer: SupabaseClient<Database>;
+
+  beforeAll(async () => {
+    staff = await signIn("test-staff@stayful.test");
+    customer = await signIn("test-customer@stayful.test");
+  });
+
+  it("a customer cannot read api keys at all", async () => {
+    const { data } = await customer.from("api_keys").select("id, key_prefix").limit(5);
+    expect(data ?? []).toEqual([]);
+  });
+
+  it("a non-admin team member cannot read api keys either", async () => {
+    // The seeded test-staff account is `staff`, not `admin`.
+    const { data } = await staff.from("api_keys").select("id").limit(5);
+    expect(data ?? []).toEqual([]);
+  });
+
+  it("a non-admin cannot create one", async () => {
+    const { error } = await staff.from("api_keys").insert({
+      org_id: ORG,
+      user_id: STAFF_ID,
+      name: "Should not exist",
+      key_hash: "0".repeat(64),
+      key_prefix: "sk_live_000000",
+      scopes: ["messages:read"],
+      created_by: STAFF_ID,
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("nobody can read the rate-limit table", async () => {
+    const { data } = await staff.from("api_rate_limits").select("key_id").limit(1);
+    expect(data ?? []).toEqual([]);
+  });
+
+  it("the rate-limit and touch helpers are not callable by a signed-in user", async () => {
+    const { error } = await staff.rpc("api_rate_hit", {
+      p_key_id: "00000000-0000-4000-8000-000000000000",
+      p_limit: 1,
+      p_window_seconds: 60,
+    });
+    expect(error).not.toBeNull();
+  });
+});

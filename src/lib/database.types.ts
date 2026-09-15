@@ -8,6 +8,87 @@ export type Database = {
   };
   public: {
     Tables: {
+      api_keys: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          expires_at: string | null;
+          id: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          name: string;
+          org_id: string;
+          revoked_at: string | null;
+          scopes: string[];
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string | null;
+          id?: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          name: string;
+          org_id: string;
+          revoked_at?: string | null;
+          scopes?: string[];
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string | null;
+          id?: string;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          name?: string;
+          org_id?: string;
+          revoked_at?: string | null;
+          scopes?: string[];
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "api_keys_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "api_keys_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      api_rate_limits: {
+        Row: { count: number; key_id: string; window_start: string };
+        Insert: { count?: number; key_id: string; window_start: string };
+        Update: { count?: number; key_id?: string; window_start?: string };
+        Relationships: [
+          {
+            foreignKeyName: "api_rate_limits_key_id_fkey";
+            columns: ["key_id"];
+            isOneToOne: false;
+            referencedRelation: "api_keys";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       attachments: {
         Row: {
           category: string | null;
@@ -901,6 +982,11 @@ export type Database = {
         Returns: Database["public"]["Tables"]["conversation_bookmarks"]["Row"];
       };
       move_bookmark: { Args: { p_id: string; p_delta: number }; Returns: undefined };
+      api_rate_hit: {
+        Args: { p_key_id: string; p_limit: number; p_window_seconds: number };
+        Returns: boolean;
+      };
+      api_touch_key: { Args: { p_key_id: string }; Returns: undefined };
       remove_member: { Args: { p_conversation_id: string; p_user_id: string }; Returns: undefined };
       rename_channel: { Args: { p_conversation_id: string; p_name: string }; Returns: undefined };
       set_channel_details: {
@@ -1049,6 +1135,7 @@ export type Attachment = Tables<"attachments">;
 export type Reaction = Tables<"reactions">;
 export type SavedItem = Tables<"saved_items">;
 export type ConversationBookmark = Tables<"conversation_bookmarks">;
+export type ApiKey = Tables<"api_keys">;
 export type ScheduledMessage = Tables<"scheduled_messages">;
 export type LinkPreview = Tables<"link_previews">;
 export type ThreadSummary = Database["public"]["Functions"]["my_threads"]["Returns"][number];
