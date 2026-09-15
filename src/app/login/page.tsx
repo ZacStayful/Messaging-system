@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { LoginForm } from "./LoginForm";
+import { HashError } from "./HashError";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -25,6 +26,7 @@ export default async function LoginPage({
           <h1 className="text-[28px] leading-[1.2] font-bold text-[#1E2A1C]">Sign in to Stayful</h1>
           <div className="mt-1.5 text-[#3E5A3A]">chat.stayful.co.uk</div>
         </div>
+        <HashError />
         <LoginForm next={next} initialError={error} />
         <p className="text-center text-[13px] text-[#3E5A3A]">
           New to Stayful? Your onboarding contact will send you an invite link.
