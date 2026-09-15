@@ -32,6 +32,8 @@ interface ThreadPanelProps {
   onDelete: (message: LocalMessage) => void;
   savedIds?: ReadonlySet<string>;
   onToggleSave?: (message: LocalMessage) => void;
+  onTyping?: () => void;
+  onSchedule?: (body: string, visibility: "public" | "internal", sendAt: Date) => void;
 }
 
 function clientIdOf(m: LocalMessage): string {
@@ -65,6 +67,8 @@ export function ThreadPanel({
   onDelete,
   savedIds,
   onToggleSave,
+  onTyping,
+  onSchedule,
 }: ThreadPanelProps) {
   const item = (m: LocalMessage) => (
     <MessageItem
@@ -138,6 +142,8 @@ export function ThreadPanel({
           canPostInternal={canPostInternal}
           members={members}
           onSend={onSend}
+          onTyping={onTyping}
+          onSchedule={onSchedule}
         />
       )}
     </section>

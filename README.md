@@ -52,6 +52,15 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   Voice notes chips and search; each row opens the file in its chat.
 - Timeline polish: consecutive messages from one sender within 5 minutes collapse Slack-style
   (time on hover), and a "N new messages" pill appears when messages arrive while scrolled up.
+- Composer: formatting toolbar (Aa) and shortcuts for bold, italic, strikethrough, inline code,
+  code blocks, quotes, bulleted and numbered lists and links; slash commands (`/status`, `/dnd`,
+  `/shrug`, `/mute`, `/dm`, `/search`, `/topic`, `/invite`, `/leave`, `/collapse`); schedule a
+  message for tomorrow, Monday or a custom time (posted by the minute cron); typing indicator;
+  ↑ edits your last message.
+- Link previews: the first external link in a message unfurls to an Open Graph card via
+  `/api/unfurl` (signed-in only, no private hosts, cached a week in `link_previews`).
+- Keyboard: Ctrl/⌘+K quick switcher for conversations and people, Alt+↑/↓ previous/next
+  conversation, Shift+Esc mark everything read. The Help popover lists them all.
 - Threads: "Reply in thread" on any message, a side panel (full screen on mobile) with its own
   composer, reply counts under the parent, a Threads view (team) listing every thread you
   follow with unread counts, and deep links (`?thread=<parent>` or `?m=<reply>`).

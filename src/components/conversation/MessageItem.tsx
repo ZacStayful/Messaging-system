@@ -7,6 +7,8 @@ import { Icon } from "@/components/ui/Icon";
 import { listTime, timeLabel } from "@/lib/format";
 import { QUICK_REACTIONS } from "@/lib/emoji";
 import { MessageBody } from "./MessageBody";
+import { LinkPreview } from "./LinkPreview";
+import { previewableLink } from "@/lib/richtext";
 import { EmojiPicker } from "./EmojiPicker";
 import { AttachmentView, isPending, type AnyAttachment } from "./AttachmentView";
 import { useStore } from "@/components/shell/store";
@@ -47,6 +49,9 @@ interface MessageItemProps {
   onToggleSave?: () => void;
   /** Same sender within a few minutes of the previous message: no avatar or name, time on hover. */
   compact?: boolean;
+  /** Controlled edit mode (the conversation opens the last own message on ↑). */
+  editing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
 }
 
 const actionBtn =
@@ -73,14 +78,27 @@ export function MessageItem({
   saved,
   onToggleSave,
   compact = false,
+  editing: editingProp,
+  onEditingChange,
 }: MessageItemProps) {
   const { openProfile } = useStore();
   const internal = message.visibility === "internal";
   const system = message.kind === "system";
   const name = message.sender_id ? (sender?.display_name ?? "Former member") : "Stayful";
   const [menu, setMenu] = useState<"none" | "emoji" | "confirmDelete">("none");
-  const [editing, setEditing] = useState(false);
+  const [editingState, setEditingState] = useState(false);
+  const editing = editingProp ?? editingState;
+  const setEditing = (v: boolean) => {
+    if (onEditingChange) onEditingChange(v);
+    if (editingProp === undefined) setEditingState(v);
+  };
   const [draft, setDraft] = useState(message.body);
+  // When edit mode is switched on from outside, start from the current body.
+  const [seenEditing, setSeenEditing] = useState(editing);
+  if (seenEditing !== editing) {
+    setSeenEditing(editing);
+    if (editing) setDraft(message.body);
+  }
   const editRef = useRef<HTMLTextAreaElement>(null);
   const modifiable = canModify(message, me) && !message._status;
 
@@ -225,6 +243,9 @@ export function MessageItem({
         ) : (
           <div style={{ opacity: message._status === "sending" ? 0.6 : 1 }}>
             {message.body && <MessageBody body={message.body} query={query} />}
+            {message.body && !message._status && previewableLink(message.body) && (
+              <LinkPreview url={previewableLink(message.body)!} />
+            )}
             {attachments.length > 0 && (
               <div className="mt-1 mb-2 flex flex-wrap gap-2">
                 {attachments.map((a) => (

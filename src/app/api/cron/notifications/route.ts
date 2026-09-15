@@ -26,6 +26,42 @@ interface MessagePayload {
   created_at: string;
 }
 
+/**
+ * Posts scheduled messages whose time has come, as their sender. Rows are claimed by setting
+ * sent_message_id in one update after the insert; a failure leaves the row for the next minute.
+ */
+async function postScheduledMessages(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<number> {
+  const { data: due } = await admin
+    .from("scheduled_messages")
+    .select("*")
+    .is("sent_message_id", null)
+    .is("cancelled_at", null)
+    .lte("send_at", new Date().toISOString())
+    .order("send_at", { ascending: true })
+    .limit(50);
+  let posted = 0;
+  for (const row of due ?? []) {
+    const { data: msg, error } = await admin
+      .from("messages")
+      .insert({
+        org_id: row.org_id,
+        conversation_id: row.conversation_id,
+        sender_id: row.sender_id,
+        parent_id: row.parent_id,
+        body: row.body,
+        visibility: row.visibility,
+        sent_via: "app",
+        meta: { scheduled_id: row.id },
+      })
+      .select("id")
+      .single();
+    if (error || !msg) continue;
+    await admin.from("scheduled_messages").update({ sent_message_id: msg.id }).eq("id", row.id);
+    posted++;
+  }
+  return posted;
+}
+
 function authorised(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
@@ -41,7 +77,8 @@ export async function GET(request: NextRequest) {
   if (!authorised(request)) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   const admin = createAdminClient();
   if (!admin) return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not set" }, { status: 503 });
-  if (!emailConfigured()) return NextResponse.json({ error: "RESEND_API_KEY is not set" }, { status: 503 });
+  const posted = await postScheduledMessages(admin);
+  if (!emailConfigured()) return NextResponse.json({ posted, error: "RESEND_API_KEY is not set" }, { status: 503 });
 
   // Only send message notifications that have had a moment to batch up
   const cutoff = new Date(Date.now() - 20_000).toISOString();
@@ -187,5 +224,5 @@ export async function GET(request: NextRequest) {
     await finish([r], res.ok, res.id, res.error);
   }
 
-  return NextResponse.json({ sent, failed, skipped });
+  return NextResponse.json({ sent, failed, skipped, posted });
 }

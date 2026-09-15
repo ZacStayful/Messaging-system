@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { notFound, useSearchParams } from "next/navigation";
-import type { Attachment, Message, Pin, Reaction } from "@/lib/database.types";
+import type { Attachment, Message, Pin, Reaction, ScheduledMessage } from "@/lib/database.types";
+import { useRouter } from "next/navigation";
+import { availableCommands } from "@/lib/slash";
+import { listTime } from "@/lib/format";
 import { createClient } from "@/lib/supabase/client";
 import { MESSAGE_EVENT, useStore, type IncomingMessageEvent } from "@/components/shell/store";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { dayKey, dayLabel } from "@/lib/format";
 import { mentionedNames } from "@/lib/richtext";
-import { useConversationChannel, type Change } from "@/lib/realtime/useConversationChannel";
+import { useConversationChannel, type Change, type TypingEvent } from "@/lib/realtime/useConversationChannel";
 import { BUCKET, categoryFor, imageDimensions, storagePath, toJson } from "@/lib/storage/attachments";
 import { useSignedUrls } from "@/lib/storage/useSignedUrls";
 import { Header } from "./Header";
@@ -43,6 +46,14 @@ const TABS: { id: Tab; label: string; icon: IconName; filled?: boolean }[] = [
   { id: "files", label: "Files and links", icon: "file" },
   { id: "pins", label: "Pins", icon: "pin" },
 ];
+
+/** "/dnd 30m", "/dnd 2h", "/dnd off" (default one hour) → pause-until timestamp. */
+function dndUntilFrom(args: string): string | null {
+  if (/^off$/i.test(args)) return null;
+  const m = /^(\d+)\s*(m|h)$/i.exec(args);
+  const ms = m ? Number(m[1]) * (m[2].toLowerCase() === "h" ? 3_600_000 : 60_000) : 3_600_000;
+  return new Date(Date.now() + ms).toISOString();
+}
 
 /** Consecutive messages from one sender inside this window collapse into a group (Slack style). */
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -90,7 +101,10 @@ export function ConversationView({
     savedByMessage,
     saveMessage,
     unsaveMessage,
+    updateMe,
+    openDm,
   } = store;
+  const router = useRouter();
   const conversation = conversationById(conversationId);
   const supabase = useMemo(() => createClient(), []);
   const searchParams = useSearchParams();
@@ -117,6 +131,10 @@ export function ConversationView({
   const stickToBottom = useRef(true);
   // Messages from others that arrived while scrolled up (the "N new messages" pill).
   const [newBelow, setNewBelow] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [scheduled, setScheduled] = useState<ScheduledMessage[]>([]);
+  // user id -> "typing until" timestamp, per thread (null = main timeline)
+  const [typing, setTyping] = useState<Record<string, { until: number; parent_id: string | null }>>({});
   const outgoing = useRef<Record<string, OutgoingFile[]>>({});
   const urls = useSignedUrls(attachments.map((a) => a.storage_path));
 
@@ -301,10 +319,36 @@ export function ConversationView({
     }
   }, []);
 
-  useConversationChannel({
+  const onTypingEvent = useCallback(
+    (evt: TypingEvent) => {
+      if (evt.user_id === me.id) return;
+      setTyping((prev) => ({ ...prev, [evt.user_id]: { until: Date.now() + 4000, parent_id: evt.parent_id } }));
+      window.setTimeout(() => {
+        setTyping((prev) => {
+          const cur = prev[evt.user_id];
+          if (!cur || cur.until > Date.now()) return prev;
+          const next = { ...prev };
+          delete next[evt.user_id];
+          return next;
+        });
+      }, 4100);
+    },
+    [me.id],
+  );
+
+  const { sendTyping } = useConversationChannel({
     conversationId,
+    onTyping: onTypingEvent,
     onInsert: (row) => {
       upsert(row);
+      const typer = row.sender_id;
+      if (typer)
+        setTyping((prev) => {
+          if (!prev[typer]) return prev;
+          const next = { ...prev };
+          delete next[typer];
+          return next;
+        });
       if (row.sender_id !== me.id && !row.parent_id && !stickToBottom.current) setNewBelow((n) => n + 1);
       if (row.sender_id === me.id || document.visibilityState !== "visible") return;
       if (!row.parent_id) void markRead(conversationId);
@@ -666,21 +710,121 @@ export function ConversationView({
     await setArchived(conversationId, !conversation.archived_at);
   };
 
+  // Scheduled messages for this conversation (mine only, by RLS).
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("scheduled_messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .is("sent_message_id", null)
+      .is("cancelled_at", null)
+      .order("send_at", { ascending: true })
+      .then(({ data }) => {
+        if (!cancelled && data) setScheduled(data);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, conversationId]);
+
+  const scheduleMessage = async (
+    body: string,
+    visibility: "public" | "internal",
+    sendAt: Date,
+    parentId: string | null,
+  ) => {
+    const { data } = await supabase
+      .from("scheduled_messages")
+      .insert({
+        org_id: me.org_id,
+        conversation_id: conversationId,
+        sender_id: me.id,
+        parent_id: parentId,
+        body,
+        visibility,
+        send_at: sendAt.toISOString(),
+      })
+      .select()
+      .single();
+    if (data) setScheduled((prev) => [...prev, data].sort((a, b) => a.send_at.localeCompare(b.send_at)));
+  };
+
+  const cancelScheduled = async (id: string) => {
+    setScheduled((prev) => prev.filter((s) => s.id !== id));
+    await supabase.from("scheduled_messages").update({ cancelled_at: new Date().toISOString() }).eq("id", id);
+  };
+
+  const sendScheduledNow = async (s: ScheduledMessage) => {
+    await cancelScheduled(s.id);
+    await send(s.body, s.visibility, [], undefined, s.parent_id);
+  };
+
+  const editLast = () => {
+    const last = [...messages].reverse().find((m) => m.sender_id === me.id && m.kind !== "system" && !m._status);
+    if (last) {
+      setEditingId(last.id);
+      requestAnimationFrame(() => document.getElementById(`m-${last.id}`)?.scrollIntoView({ block: "nearest" }));
+    }
+  };
+
+  const runCommand = (name: string, args: string, visibility: "public" | "internal"): boolean => {
+    switch (name) {
+      case "shrug":
+        void send(`${args} ¯\\_(ツ)_/¯`.trim(), visibility);
+        return true;
+      case "status":
+        void updateMe({ status_text: args || null, status_emoji: null, status_expires_at: null });
+        return true;
+      case "dnd": {
+        const until = dndUntilFrom(args);
+        void updateMe({ dnd_until: until });
+        return true;
+      }
+      case "mute":
+        void toggleMute(conversationId);
+        return true;
+      case "leave":
+        void leaveConversation(conversationId);
+        return true;
+      case "invite":
+        setDetails("members");
+        return true;
+      case "topic":
+        void supabase
+          .rpc("set_channel_details", {
+            p_conversation_id: conversationId,
+            p_topic: args || null,
+            p_description: description,
+          })
+          .then(() => store.refresh());
+        return true;
+      case "search":
+        router.push(args ? `/search?q=${encodeURIComponent(args)}` : "/search");
+        return true;
+      case "collapse":
+        closeThread();
+        return true;
+      case "dm": {
+        const m = /^@?\[?([^\]]+?)\]?(?:\s+([\s\S]*))?$/.exec(args);
+        const target = m
+          ? Object.values(profiles).find((p) => p.display_name.toLowerCase() === m[1].trim().toLowerCase())
+          : undefined;
+        if (!target) return false;
+        void openDm(target.id).then((id) => id && router.push(`/dms/${id}`));
+        return true;
+      }
+      default:
+        return false;
+    }
+  };
+
   const onDropFiles = (e: DragEvent) => {
     if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
     if (files.length) window.dispatchEvent(new CustomEvent(ATTACH_EVENT, { detail: files }));
   };
-
-  if (!conversation) notFound();
-
-  const title = conversationName(conversation);
-  const other = otherMember(conversation);
-  const isDm = conversation.type === "dm" || conversation.type === "group_dm";
-  const placeholder = isDm
-    ? `Message ${other?.id === me.id ? "yourself" : conversation.type === "group_dm" ? title : (other?.display_name ?? "")}`
-    : `Message #${conversation.name}`;
 
   // First unread message (for the red "New" divider), fixed at open time.
   const firstNewId = useMemo(
@@ -701,8 +845,22 @@ export function ConversationView({
     return map;
   }, [attachments]);
   const pinnedIds = useMemo(() => new Set(pins.map((p) => p.message.id)), [pins]);
+
+  if (!conversation) return <ConversationPending onRefresh={store.refresh} />;
+
+  const title = conversationName(conversation);
+  const other = otherMember(conversation);
+  const isDm = conversation.type === "dm" || conversation.type === "group_dm";
+  const placeholder = isDm
+    ? `Message ${other?.id === me.id ? "yourself" : conversation.type === "group_dm" ? title : (other?.display_name ?? "")}`
+    : `Message #${conversation.name}`;
+
   const openParent = thread ? (messages.find((m) => m.id === thread) ?? threadParent) : null;
   const canPostInternal = me.account_type === "team" && !isDm;
+  const commands = availableCommands({ isTeam, isDm });
+  const typingNames = Object.entries(typing)
+    .filter(([, t]) => t.parent_id === null)
+    .map(([id]) => profiles[id]?.display_name ?? "Someone");
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -879,6 +1037,8 @@ export function ConversationView({
                         saved={isTeam ? savedByMessage.has(m.id) : undefined}
                         onToggleSave={isTeam ? () => toggleSave(m) : undefined}
                         compact={compact}
+                        editing={editingId === m.id}
+                        onEditingChange={(v) => setEditingId(v ? m.id : null)}
                       />
                     </div>
                   );
@@ -896,6 +1056,45 @@ export function ConversationView({
                   {newBelow} new {newBelow === 1 ? "message" : "messages"}{" "}
                   <Icon name="arrowDown" size={14} strokeWidth={2.4} />
                 </button>
+              </div>
+            )}
+            {(typingNames.length > 0 || scheduled.length > 0) && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-1 text-[13px] text-muted md:px-6">
+                {typingNames.length > 0 && (
+                  <span className="flex items-center gap-1.5" aria-live="polite">
+                    <span className="typing-dots" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    {typingNames.length === 1
+                      ? `${typingNames[0]} is typing…`
+                      : typingNames.length === 2
+                        ? `${typingNames[0]} and ${typingNames[1]} are typing…`
+                        : "Several people are typing…"}
+                  </span>
+                )}
+                {scheduled.map((s) => (
+                  <span key={s.id} className="flex items-center gap-2">
+                    <Icon name="clock" size={13} />
+                    Scheduled for {listTime(s.send_at)}:{" "}
+                    <span className="truncate text-ink">{s.body.slice(0, 40)}</span>
+                    <button
+                      type="button"
+                      onClick={() => void sendScheduledNow(s)}
+                      className="font-semibold text-link hover:underline"
+                    >
+                      Send now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void cancelScheduled(s.id)}
+                      className="font-semibold hover:underline"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ))}
               </div>
             )}
             {conversation.archived_at ? (
@@ -919,6 +1118,11 @@ export function ConversationView({
                 canPostInternal={canPostInternal}
                 members={memberProfiles.filter((p) => p.id !== me.id)}
                 onSend={(body, visibility, files) => void send(body, visibility, files)}
+                commands={commands}
+                onCommand={runCommand}
+                onSchedule={(body, visibility, at) => void scheduleMessage(body, visibility, at, null)}
+                onTyping={() => sendTyping({ user_id: me.id, parent_id: null })}
+                onEditLast={editLast}
               />
             )}
           </div>
@@ -982,6 +1186,8 @@ export function ConversationView({
           archived={!!conversation.archived_at}
           onClose={closeThread}
           onSend={(body, visibility, files) => void send(body, visibility, files, undefined, openParent.id)}
+          onTyping={() => sendTyping({ user_id: me.id, parent_id: openParent.id })}
+          onSchedule={(body, visibility, at) => void scheduleMessage(body, visibility, at, openParent.id)}
           onRetry={(msg) => void send(msg.body, msg.visibility, [], msg)}
           onReact={(m, emoji) => void toggleReaction(m.id, emoji)}
           onTogglePin={(m) => void togglePin(m)}
@@ -991,6 +1197,25 @@ export function ConversationView({
           onToggleSave={isTeam ? toggleSave : undefined}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * A conversation the server rendered but the client list does not know yet (just created, or a
+ * brand-new DM): pull fresh data once, then give up with a 404 if it is still missing.
+ */
+function ConversationPending({ onRefresh }: { onRefresh: () => void }) {
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    onRefresh();
+    const id = window.setTimeout(() => setGaveUp(true), 6000);
+    return () => window.clearTimeout(id);
+  }, [onRefresh]);
+  if (gaveUp) notFound();
+  return (
+    <div className="flex flex-1 items-center justify-center text-[15px] text-muted" aria-busy="true">
+      Loading conversation…
     </div>
   );
 }

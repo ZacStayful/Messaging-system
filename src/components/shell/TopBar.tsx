@@ -15,9 +15,15 @@ const btn = "flex h-8 w-8 items-center justify-center rounded-md border-0 bg-tra
 const SHORTCUTS: [string, string][] = [
   ["Enter", "Send message"],
   ["Shift + Enter", "New line"],
+  ["Ctrl/⌘ + K", "Jump to a conversation or person"],
+  ["Alt + ↑ / ↓", "Previous / next conversation"],
+  ["↑", "Edit your last message (empty composer)"],
+  ["Ctrl/⌘ + B / I", "Bold / italic"],
+  ["Ctrl/⌘ + Shift + X", "Strikethrough"],
   ["@", "Mention someone"],
+  ["/", "Slash commands (/status, /dnd, /shrug…)"],
+  ["Shift + Esc", "Mark everything as read"],
   ["Esc", "Close a panel or search"],
-  ["/", "Focus search (top bar)"],
 ];
 
 export function TopBar() {
