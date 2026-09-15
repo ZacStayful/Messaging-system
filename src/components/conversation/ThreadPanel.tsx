@@ -30,6 +30,8 @@ interface ThreadPanelProps {
   onTogglePin: (message: LocalMessage) => void;
   onEdit: (message: LocalMessage, body: string) => void;
   onDelete: (message: LocalMessage) => void;
+  savedIds?: ReadonlySet<string>;
+  onToggleSave?: (message: LocalMessage) => void;
 }
 
 function clientIdOf(m: LocalMessage): string {
@@ -61,6 +63,8 @@ export function ThreadPanel({
   onTogglePin,
   onEdit,
   onDelete,
+  savedIds,
+  onToggleSave,
 }: ThreadPanelProps) {
   const item = (m: LocalMessage) => (
     <MessageItem
@@ -80,6 +84,8 @@ export function ThreadPanel({
       onTogglePin={() => onTogglePin(m)}
       onEdit={(body) => onEdit(m, body)}
       onDelete={() => onDelete(m)}
+      saved={onToggleSave ? (savedIds?.has(m.id) ?? false) : undefined}
+      onToggleSave={onToggleSave ? () => onToggleSave(m) : undefined}
     />
   );
 

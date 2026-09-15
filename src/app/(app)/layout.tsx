@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { StoreProvider, type Org } from "@/components/shell/store";
+import { StoreProvider, type Org, type SavedRow } from "@/components/shell/store";
 import { AppShell } from "@/components/shell/AppShell";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -27,14 +27,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const [{ data: org }, { data: conversations }, { data: profiles }, { data: activity }, { data: threads }] =
-    await Promise.all([
-      supabase.from("organisations").select("id, name, slug, settings").eq("id", me.org_id).single(),
-      supabase.rpc("my_conversations"),
-      supabase.from("profiles").select("*").eq("org_id", me.org_id).is("deactivated_at", null).order("display_name"),
-      supabase.rpc("my_activity"),
-      me.account_type === "team" ? supabase.rpc("my_threads", { max_rows: 100 }) : Promise.resolve({ data: [] }),
-    ]);
+  const isTeam = me.account_type === "team";
+  const [
+    { data: org },
+    { data: conversations },
+    { data: profiles },
+    { data: activity },
+    { data: threads },
+    { data: saved },
+  ] = await Promise.all([
+    supabase.from("organisations").select("id, name, slug, settings").eq("id", me.org_id).single(),
+    supabase.rpc("my_conversations"),
+    supabase.from("profiles").select("*").eq("org_id", me.org_id).is("deactivated_at", null).order("display_name"),
+    supabase.rpc("my_activity"),
+    isTeam ? supabase.rpc("my_threads", { max_rows: 100 }) : Promise.resolve({ data: [] }),
+    isTeam
+      ? supabase.from("saved_items").select("*, message:messages(*)").order("saved_at", { ascending: false }).limit(200)
+      : Promise.resolve({ data: [] as SavedRow[] }),
+  ]);
 
   return (
     <StoreProvider
@@ -44,6 +54,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       conversations={conversations ?? []}
       activity={activity ?? []}
       threads={threads ?? []}
+      saved={(saved ?? []) as SavedRow[]}
     >
       <AppShell>{children}</AppShell>
     </StoreProvider>

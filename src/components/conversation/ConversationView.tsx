@@ -44,6 +44,9 @@ const TABS: { id: Tab; label: string; icon: IconName; filled?: boolean }[] = [
   { id: "pins", label: "Pins", icon: "pin" },
 ];
 
+/** Consecutive messages from one sender inside this window collapse into a group (Slack style). */
+const GROUP_WINDOW_MS = 5 * 60_000;
+
 function sortByCreated(list: LocalMessage[]) {
   return [...list].sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
@@ -84,6 +87,9 @@ export function ConversationView({
     markThreadRead,
     leaveConversation,
     setArchived,
+    savedByMessage,
+    saveMessage,
+    unsaveMessage,
   } = store;
   const conversation = conversationById(conversationId);
   const supabase = useMemo(() => createClient(), []);
@@ -109,6 +115,8 @@ export function ConversationView({
   const threadRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  // Messages from others that arrived while scrolled up (the "N new messages" pill).
+  const [newBelow, setNewBelow] = useState(0);
   const outgoing = useRef<Record<string, OutgoingFile[]>>({});
   const urls = useSignedUrls(attachments.map((a) => a.storage_path));
 
@@ -297,6 +305,7 @@ export function ConversationView({
     conversationId,
     onInsert: (row) => {
       upsert(row);
+      if (row.sender_id !== me.id && !row.parent_id && !stickToBottom.current) setNewBelow((n) => n + 1);
       if (row.sender_id === me.id || document.visibilityState !== "visible") return;
       if (!row.parent_id) void markRead(conversationId);
       else if (row.parent_id === threadRef.current) void markThreadRead(row.parent_id);
@@ -318,6 +327,20 @@ export function ConversationView({
     const el = scrollRef.current;
     if (!el) return;
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (stickToBottom.current && newBelow) setNewBelow(0);
+  };
+
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    stickToBottom.current = true;
+    setNewBelow(0);
+  };
+
+  const toggleSave = (m: LocalMessage) => {
+    if (m._status) return;
+    if (savedByMessage.has(m.id)) void unsaveMessage(m.id);
+    else void saveMessage(m);
   };
 
   const jumpTo = useCallback((messageId: string) => {
@@ -803,7 +826,18 @@ export function ConversationView({
                   </p>
                 )}
                 {messages.map((m, i) => {
-                  const showDay = i === 0 || dayKey(messages[i - 1].created_at) !== dayKey(m.created_at);
+                  const prev = i > 0 ? messages[i - 1] : undefined;
+                  const showDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at);
+                  const compact =
+                    !!prev &&
+                    !showDay &&
+                    m.id !== firstNewId &&
+                    !!m.sender_id &&
+                    prev.sender_id === m.sender_id &&
+                    m.kind !== "system" &&
+                    prev.kind !== "system" &&
+                    prev.visibility === m.visibility &&
+                    new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() < GROUP_WINDOW_MS;
                   const clientId = clientIdOf(m) ?? m.id;
                   const own = attachmentsByMessage.get(m.id) ?? [];
                   const inflight = pending[clientId] ?? [];
@@ -842,12 +876,28 @@ export function ConversationView({
                         onEdit={(body) => void editMessage(m, body)}
                         onDelete={() => void deleteMessage(m)}
                         onOpenThread={m._status ? undefined : () => void openThread(m.id)}
+                        saved={isTeam ? savedByMessage.has(m.id) : undefined}
+                        onToggleSave={isTeam ? () => toggleSave(m) : undefined}
+                        compact={compact}
                       />
                     </div>
                   );
                 })}
               </div>
             </div>
+            {newBelow > 0 && (
+              <div className="pointer-events-none relative h-0">
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="pointer-events-auto absolute bottom-3 left-1/2 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full px-4 text-[14px] font-semibold text-white shadow-[0_6px_20px_rgba(0,0,0,.3)]"
+                  style={{ background: "var(--brand)" }}
+                >
+                  {newBelow} new {newBelow === 1 ? "message" : "messages"}{" "}
+                  <Icon name="arrowDown" size={14} strokeWidth={2.4} />
+                </button>
+              </div>
+            )}
             {conversation.archived_at ? (
               <div className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-[10px] border border-line bg-soft px-4 py-3 text-[15px] text-muted md:mx-5 md:mb-[18px]">
                 <Icon name="files" size={18} />
@@ -937,6 +987,8 @@ export function ConversationView({
           onTogglePin={(m) => void togglePin(m)}
           onEdit={(m, body) => void editMessage(m, body)}
           onDelete={(m) => void deleteMessage(m)}
+          savedIds={isTeam ? new Set(savedByMessage.keys()) : undefined}
+          onToggleSave={isTeam ? toggleSave : undefined}
         />
       )}
     </div>

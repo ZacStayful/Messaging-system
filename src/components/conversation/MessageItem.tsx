@@ -42,6 +42,11 @@ interface MessageItemProps {
   onOpenThread?: () => void;
   /** Rendered inside the thread panel: no reply summary, no "reply in thread" action. */
   inThread?: boolean;
+  /** Saved for later (team). Absent hides the action. */
+  saved?: boolean;
+  onToggleSave?: () => void;
+  /** Same sender within a few minutes of the previous message: no avatar or name, time on hover. */
+  compact?: boolean;
 }
 
 const actionBtn =
@@ -65,6 +70,9 @@ export function MessageItem({
   onDelete,
   onOpenThread,
   inThread = false,
+  saved,
+  onToggleSave,
+  compact = false,
 }: MessageItemProps) {
   const { openProfile } = useStore();
   const internal = message.visibility === "internal";
@@ -121,49 +129,67 @@ export function MessageItem({
       style={bg}
       aria-label={`${name} at ${timeLabel(message.created_at)}`}
     >
-      <div className="mt-0.5 h-[38px] w-[38px] shrink-0">
-        {message.sender_id ? (
-          <button
-            type="button"
-            onClick={openProfile(message.sender_id)}
-            className="block border-0 bg-transparent p-0"
-            aria-label={`Profile: ${name}`}
-          >
-            <Avatar profile={sender} size={38} radius={8} />
-          </button>
-        ) : (
-          <Avatar profile={null} size={38} radius={8} />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        {pinned && (
-          <div className="flex items-center gap-1 text-[12px] font-semibold text-[#B4661F]">
-            <Icon name="pin" size={12} strokeWidth={2.4} /> Pinned
-          </div>
-        )}
-        <div className="flex flex-wrap items-baseline gap-x-2">
+      {compact ? (
+        <div className="w-[38px] shrink-0 pt-[3px] text-right text-[11px] leading-[20px] text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+          {timeLabel(message.created_at).replace(/\s?[AP]M$/i, "")}
+        </div>
+      ) : (
+        <div className="mt-0.5 h-[38px] w-[38px] shrink-0">
           {message.sender_id ? (
             <button
               type="button"
               onClick={openProfile(message.sender_id)}
-              className="border-0 bg-transparent p-0 text-[16px] font-bold text-ink hover:underline"
+              className="block border-0 bg-transparent p-0"
+              aria-label={`Profile: ${name}`}
             >
-              {name}
+              <Avatar profile={sender} size={38} radius={8} />
             </button>
           ) : (
-            <span className="text-[16px] font-bold">{name}</span>
-          )}
-          <span className="text-[13px] text-muted">{timeLabel(message.created_at)}</span>
-          {message.edited_at && <span className="text-[13px] text-muted">(edited)</span>}
-          {message.sent_via === "email" && (
-            <span className="flex items-center gap-1 text-[13px] text-muted" title="Sent by replying to an email">
-              <Icon name="mail" size={13} /> via email
-            </span>
-          )}
-          {internal && (
-            <span className="text-[13px] font-semibold text-[#B4661F]">Internal note · not visible to owners</span>
+            <Avatar profile={null} size={38} radius={8} />
           )}
         </div>
+      )}
+      <div className="min-w-0 flex-1">
+        {(pinned || saved) && (
+          <div className="flex items-center gap-3 text-[12px] font-semibold">
+            {pinned && (
+              <span className="flex items-center gap-1 text-[#B4661F]">
+                <Icon name="pin" size={12} strokeWidth={2.4} /> Pinned
+              </span>
+            )}
+            {saved && (
+              <span className="flex items-center gap-1 text-link">
+                <Icon name="later" size={12} strokeWidth={2.4} /> Saved for later
+              </span>
+            )}
+          </div>
+        )}
+        {!compact && (
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            {message.sender_id ? (
+              <button
+                type="button"
+                onClick={openProfile(message.sender_id)}
+                className="border-0 bg-transparent p-0 text-[16px] font-bold text-ink hover:underline"
+              >
+                {name}
+              </button>
+            ) : (
+              <span className="text-[16px] font-bold">{name}</span>
+            )}
+            <span className="text-[13px] text-muted">{timeLabel(message.created_at)}</span>
+            {message.edited_at && <span className="text-[13px] text-muted">(edited)</span>}
+            {message.sent_via === "email" && (
+              <span className="flex items-center gap-1 text-[13px] text-muted" title="Sent by replying to an email">
+                <Icon name="mail" size={13} /> via email
+              </span>
+            )}
+            {internal && (
+              <span className="text-[13px] font-semibold text-[#B4661F]">Internal note · not visible to owners</span>
+            )}
+          </div>
+        )}
+        {compact && message.edited_at && <span className="sr-only">(edited)</span>}
 
         {editing ? (
           <div className="mt-1 rounded-[10px] border border-input-border bg-input p-2">
@@ -330,6 +356,18 @@ export function MessageItem({
               title="Reply in thread"
             >
               <Icon name="messages" size={18} />
+            </button>
+          )}
+          {onToggleSave && (
+            <button
+              type="button"
+              onClick={onToggleSave}
+              className={actionBtn}
+              aria-label={saved ? "Remove from saved" : "Save for later"}
+              title={saved ? "Remove from saved" : "Save for later"}
+              aria-pressed={saved}
+            >
+              <Icon name="later" size={18} filled={saved} style={saved ? { color: "var(--link)" } : undefined} />
             </button>
           )}
           <button

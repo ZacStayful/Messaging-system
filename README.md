@@ -46,6 +46,12 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   photo to the public `avatars` bucket, time zone), custom status with an expiry, pause
   notifications (DND), and away-after-10-minutes presence. Profile changes reach everyone live
   through a `profile_changed` broadcast on the org topic (`0012_profile_presence.sql`).
+- Later: save any message (bookmark action), In progress / Archived / Completed tabs, reminders
+  (20 min to next week) that surface as a badge on the Later rail item when due.
+- Files: workspace-wide list of everything shared in your conversations with Media / Documents /
+  Voice notes chips and search; each row opens the file in its chat.
+- Timeline polish: consecutive messages from one sender within 5 minutes collapse Slack-style
+  (time on hover), and a "N new messages" pill appears when messages arrive while scrolled up.
 - Threads: "Reply in thread" on any message, a side panel (full screen on mobile) with its own
   composer, reply counts under the parent, a Threads view (team) listing every thread you
   follow with unread counts, and deep links (`?thread=<parent>` or `?m=<reply>`).
