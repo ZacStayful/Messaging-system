@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import type { Profile } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/client";
-import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { useStore } from "@/components/shell/store";
+import { ProfileSection } from "./ProfileSection";
 
 const input =
   "h-11 w-full rounded-lg border border-input-border bg-input px-3.5 text-[16px] text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]";
@@ -65,11 +65,11 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
         <h1 className="text-[18px] font-bold">Account</h1>
       </div>
       <div className="mx-auto flex max-w-[640px] flex-col gap-4 p-4 md:p-6">
+        <ProfileSection />
         <section className={`${card} flex items-center gap-4`}>
-          <Avatar profile={profile} size={56} radius={14} />
+          <Icon name="mail" size={22} className="text-muted" />
           <div className="min-w-0">
-            <div className="truncate text-[17px] font-bold">{profile.full_name ?? profile.display_name}</div>
-            <div className="truncate text-[14px] text-muted">{profile.email}</div>
+            <div className="truncate text-[15px] font-semibold">{profile.email}</div>
             <div className="text-[14px] text-muted">Your login email is your username.</div>
           </div>
         </section>

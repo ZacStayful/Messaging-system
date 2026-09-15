@@ -52,6 +52,11 @@ export function SidebarHeader({
               <Icon name="settings" size={18} /> Account and preferences
             </Link>
             {isTeam && (
+              <Link href="/people" onClick={() => setOpen(false)} className={item}>
+                <Icon name="users" size={18} /> People directory
+              </Link>
+            )}
+            {isTeam && (
               <Link href="/customers/new" onClick={() => setOpen(false)} className={item}>
                 <Icon name="userPlus" size={18} /> Invite a customer
               </Link>

@@ -17,7 +17,7 @@ import { ConversationMenu, RowMenuButton, useConversationMenu } from "./Conversa
  * messages with people from those groups. Nothing else.
  */
 export function CustomerSidebar() {
-  const { conversations, org, me, otherMember, conversationName, isOnline, activeConversationId, openNewMessage } =
+  const { conversations, org, me, otherMember, conversationName, presenceOf, activeConversationId, openNewMessage } =
     useStore();
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
@@ -82,7 +82,7 @@ export function CustomerSidebar() {
           .filter((c) => !q || conversationName(c).toLowerCase().includes(q))
           .map((c) => {
             const other = otherMember(c);
-            const look = presenceLook(other, !!other && isOnline(other.id));
+            const look = presenceLook(other ? presenceOf(other.id) : "offline");
             const preview = lastMessagePreview(c, me.id);
             return (
               <Link

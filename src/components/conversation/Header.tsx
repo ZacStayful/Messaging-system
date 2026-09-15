@@ -10,12 +10,14 @@ import { Menu, type MenuItem } from "@/components/ui/Menu";
 import { presenceLook, presenceText } from "@/lib/presence";
 import type { NotifyLevel } from "@/components/shell/store";
 import type { DetailTab } from "./DetailsModal";
+import type { PresenceStatus } from "@/lib/presence";
 
 interface HeaderProps {
   conversation: ConversationSummary;
   title: string;
   other: Profile | undefined;
-  otherOnline: boolean;
+  otherStatus: PresenceStatus;
+  onOpenProfile?: (e: React.MouseEvent<HTMLElement>) => void;
   backHref: string;
   canManage: boolean;
   onOpenDetails: (tab: DetailTab) => void;
@@ -41,7 +43,8 @@ export function Header({
   conversation,
   title,
   other,
-  otherOnline,
+  otherStatus,
+  onOpenProfile,
   backHref,
   canManage,
   onOpenDetails,
@@ -54,8 +57,8 @@ export function Header({
   onArchive,
 }: HeaderProps) {
   const isDm = conversation.type === "dm" || conversation.type === "group_dm";
-  const look = presenceLook(other, otherOnline);
-  const sub = isDm ? presenceText(other, otherOnline) : conversation.topic || `${conversation.member_count} members`;
+  const look = presenceLook(otherStatus);
+  const sub = isDm ? presenceText(otherStatus) : conversation.topic || `${conversation.member_count} members`;
   const [menu, setMenu] = useState<"none" | "more" | "notify">("none");
   const level = (conversation.notify_level as NotifyLevel) || "all";
 
@@ -141,10 +144,16 @@ export function Header({
               style={conversation.starred ? { color: "#E2A13A" } : undefined}
             />
           </button>
-          <span className="relative ml-0.5 h-[26px] w-[26px] shrink-0 md:h-[26px] md:w-[26px]">
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            disabled={!onOpenProfile}
+            className="relative ml-0.5 h-[26px] w-[26px] shrink-0 border-0 bg-transparent p-0 disabled:cursor-default"
+            aria-label={other ? `Profile: ${other.display_name}` : undefined}
+          >
             <Avatar profile={other} size={26} radius={6} />
             {conversation.type === "dm" && <PresenceDot look={look} size={10} border="var(--panel)" />}
-          </span>
+          </button>
         </>
       ) : (
         <>

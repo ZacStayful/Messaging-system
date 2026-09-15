@@ -12,6 +12,7 @@ import { presenceLook } from "@/lib/presence";
 import { useBoolPref } from "@/lib/prefs";
 import { SearchLink, SectionHeader, SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
 import { ThreadsRow } from "./ThreadsRow";
+import { PeopleRow } from "./PeopleRow";
 import { ConversationMenu, RowMenuButton, useConversationMenu } from "./ConversationMenu";
 
 function byUnreadThenName(a: ConversationSummary, b: ConversationSummary) {
@@ -21,7 +22,7 @@ function byUnreadThenName(a: ConversationSummary, b: ConversationSummary) {
 }
 
 export function HomeSidebar() {
-  const { conversations, org, me, otherMember, conversationName, isOnline, activeConversationId, openNewMessage } =
+  const { conversations, org, me, otherMember, conversationName, presenceOf, activeConversationId, openNewMessage } =
     useStore();
   const [filter, setFilter] = useState("");
   const [showArchived, setShowArchived] = useBoolPref("home.showArchived", false);
@@ -78,7 +79,7 @@ export function HomeSidebar() {
   const dmRow = (c: ConversationSummary) => {
     const other = otherMember(c);
     const active = activeConversationId === c.id;
-    const look = presenceLook(other, !!other && isOnline(other.id));
+    const look = presenceLook(other ? presenceOf(other.id) : "offline");
     return (
       <Link
         key={c.id}
@@ -143,6 +144,7 @@ export function HomeSidebar() {
         {!q && (
           <div className="pt-1 pb-2">
             <ThreadsRow compact />
+            <PeopleRow />
           </div>
         )}
         {starred.length > 0 && (

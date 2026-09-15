@@ -12,6 +12,7 @@ import { ActivityList } from "@/components/sidebar/ActivityList";
 import { PlaceholderSidebar } from "@/components/sidebar/PlaceholderSidebar";
 import { YouSidebar } from "@/components/sidebar/YouSidebar";
 import { CustomerSidebar } from "@/components/sidebar/CustomerSidebar";
+import { ProfileCardHost } from "@/components/people/ProfileCard";
 
 /**
  * Desktop: 44px top bar, 72px rail, sidebar + conversation pane on the green frame.
@@ -61,6 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       {!showMain && <MobileTabBar />}
       {newMessage && <NewMessageModal mode={newMessage} onClose={closeNewMessage} />}
+      <ProfileCardHost />
     </div>
   );
 }

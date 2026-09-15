@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { ActivityItem, ConversationSummary, Json, Profile, ThreadSummary } from "@/lib/database.types";
 import { previewOf } from "@/lib/format";
 import { isNav, type Nav } from "@/lib/nav";
+import { AWAY_AFTER_MS, type PresenceStatus } from "@/lib/presence";
 
 export type { Nav } from "@/lib/nav";
 
@@ -31,6 +32,29 @@ export interface IncomingMessageEvent {
 }
 
 /** Payload of `conversation_changed` (rename, topic, archive, membership). */
+/** Payload of `profile_changed` on the org topic (name, photo, status, DND). */
+export type ProfileChangedEvent = Pick<
+  Profile,
+  | "id"
+  | "display_name"
+  | "full_name"
+  | "avatar_url"
+  | "avatar_color"
+  | "status_text"
+  | "status_emoji"
+  | "status_expires_at"
+  | "dnd_until"
+  | "timezone"
+  | "presence"
+  | "deactivated_at"
+>;
+
+export interface ProfileCardState {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface ConversationChangedEvent {
   conversation_id: string;
   event: string;
@@ -72,6 +96,22 @@ interface StoreValue {
   conversationName: (c: ConversationSummary) => string;
   otherMember: (c: ConversationSummary) => Profile | undefined;
   isOnline: (userId: string) => boolean;
+  /** online (active in the last 10 minutes), away (open but idle) or offline. */
+  presenceOf: (userId: string) => PresenceStatus;
+  /** Update my own profile (name, photo, status, DND); optimistic, then persisted. */
+  updateMe: (patch: Partial<Profile>) => Promise<boolean>;
+  profileCard: ProfileCardState | null;
+  /** Returns a click handler that opens the profile card for a user at the pointer. */
+  openProfile: (
+    userId: string,
+  ) => (e: {
+    clientX: number;
+    clientY: number;
+    preventDefault: () => void;
+    stopPropagation: () => void;
+    currentTarget: EventTarget;
+  }) => void;
+  closeProfile: () => void;
   markRead: (conversationId: string) => Promise<void>;
   markActivityRead: (messageId: string) => void;
   markAllActivityRead: () => Promise<void>;
@@ -115,7 +155,15 @@ export function StoreProvider({
   const [conversations, setConversations] = useState(initialConversations);
   const [activity, setActivity] = useState(initialActivity);
   const [threads, setThreads] = useState(initialThreads);
-  const [online, setOnline] = useState<ReadonlySet<string>>(() => new Set());
+  // user id -> away? for everyone tracked on the org presence channel
+  const [presence, setPresence] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const [profileCard, setProfileCard] = useState<ProfileCardState | null>(null);
+  const [meState, setMeState] = useState(me);
+  const [seenMe, setSeenMe] = useState(me);
+  if (seenMe !== me) {
+    setSeenMe(me);
+    setMeState(me);
+  }
   const [activityRead, setActivityRead] = useState<ReadonlySet<string>>(() => new Set());
 
   // Server data wins whenever the layout re-renders with fresh props (router.refresh()).
@@ -135,7 +183,17 @@ export function StoreProvider({
     setThreads(initialThreads);
   }
 
-  const profiles = useMemo(() => Object.fromEntries(profileList.map((p) => [p.id, p])), [profileList]);
+  const [profiles, setProfiles] = useState<Record<string, Profile>>(() =>
+    Object.fromEntries(profileList.map((p) => [p.id, p])),
+  );
+  const [seenProfiles, setSeenProfiles] = useState(profileList);
+  if (seenProfiles !== profileList) {
+    setSeenProfiles(profileList);
+    setProfiles(Object.fromEntries(profileList.map((p) => [p.id, p])));
+  }
+  const patchProfile = useCallback((id: string, patch: Partial<Profile>) => {
+    setProfiles((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], ...patch } } : prev));
+  }, []);
   const isTeam = me.account_type === "team";
   const isAdmin = isTeam && me.role === "admin";
   const isCustomer = !isTeam;
@@ -182,7 +240,41 @@ export function StoreProvider({
     [otherMember, profiles, me.id],
   );
 
-  const isOnline = useCallback((userId: string) => online.has(userId), [online]);
+  const presenceOf = useCallback(
+    (userId: string): PresenceStatus => (presence.has(userId) ? (presence.get(userId) ? "away" : "online") : "offline"),
+    [presence],
+  );
+  const isOnline = useCallback((userId: string) => presenceOf(userId) === "online", [presenceOf]);
+  const online = useMemo(() => new Set(presence.keys()) as ReadonlySet<string>, [presence]);
+
+  const updateMe = useCallback(
+    async (patch: Partial<Profile>) => {
+      setMeState((prev) => ({ ...prev, ...patch }));
+      patchProfile(me.id, patch);
+      const { error } = await supabase.from("profiles").update(patch).eq("id", me.id);
+      return !error;
+    },
+    [supabase, me.id, patchProfile],
+  );
+
+  const openProfile = useCallback(
+    (userId: string) =>
+      (e: {
+        clientX: number;
+        clientY: number;
+        preventDefault: () => void;
+        stopPropagation: () => void;
+        currentTarget: EventTarget;
+      }) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const el = e.currentTarget as HTMLElement | null;
+        const r = el?.getBoundingClientRect?.();
+        setProfileCard({ id: userId, x: r ? r.left : e.clientX, y: r ? r.bottom + 4 : e.clientY });
+      },
+    [],
+  );
+  const closeProfile = useCallback(() => setProfileCard(null), []);
 
   const markRead = useCallback(
     async (conversationId: string) => {
@@ -411,28 +503,72 @@ export function StoreProvider({
     };
   }, [supabase, me.id, me.display_name, refresh, refreshThreads, router]);
 
-  // ---- Realtime: org presence ----------------------------------------------
+  // ---- Realtime: org presence (with idle → away) and live profile changes ----
   useEffect(() => {
     let cancelled = false;
+    let away = false;
+    let timer: number | undefined;
     const channel = supabase.channel(`org:${org.id}`, { config: { private: true, presence: { key: me.id } } });
-    channel.on("presence", { event: "sync" }, () => {
-      setOnline(new Set(Object.keys(channel.presenceState())));
+    const sync = () => {
+      const state = channel.presenceState<{ user_id: string; away?: boolean }>();
+      const next = new Map<string, boolean>();
+      for (const [key, metas] of Object.entries(state))
+        next.set(
+          key,
+          metas.every((m) => !!m.away),
+        );
+      setPresence(next);
+    };
+    channel.on("presence", { event: "sync" }, sync);
+    channel.on("broadcast", { event: "profile_changed" }, ({ payload }) => {
+      const evt = payload as ProfileChangedEvent;
+      const { id, ...patch } = evt;
+      patchProfile(id, patch);
+      if (id === me.id) setMeState((prev) => ({ ...prev, ...patch }));
     });
+    const track = () => channel.track({ user_id: me.id, at: Date.now(), away });
+    const goAway = () => {
+      if (away || cancelled) return;
+      away = true;
+      void track();
+    };
+    const arm = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(goAway, AWAY_AFTER_MS);
+    };
+    const onActivity = () => {
+      if (cancelled) return;
+      arm();
+      if (away) {
+        away = false;
+        void track();
+      }
+    };
+    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "pointerdown", "touchstart", "focus"];
+    for (const ev of events) window.addEventListener(ev, onActivity, { passive: true });
+    const onVisible = () => document.visibilityState === "visible" && onActivity();
+    document.addEventListener("visibilitychange", onVisible);
     supabase.realtime.setAuth().then(() => {
       if (cancelled) return;
       channel.subscribe(async (status) => {
-        if (status === "SUBSCRIBED") await channel.track({ user_id: me.id, at: Date.now() });
+        if (status === "SUBSCRIBED") {
+          await track();
+          arm();
+        }
       });
     });
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      for (const ev of events) window.removeEventListener(ev, onActivity);
+      document.removeEventListener("visibilitychange", onVisible);
       supabase.removeChannel(channel);
     };
-  }, [supabase, org.id, me.id]);
+  }, [supabase, org.id, me.id, patchProfile]);
 
   const value = useMemo<StoreValue>(
     () => ({
-      me,
+      me: meState,
       org,
       isTeam,
       isAdmin,
@@ -454,6 +590,11 @@ export function StoreProvider({
       conversationName,
       otherMember,
       isOnline,
+      presenceOf,
+      updateMe,
+      profileCard,
+      openProfile,
+      closeProfile,
       markRead,
       markActivityRead,
       markAllActivityRead,
@@ -468,7 +609,7 @@ export function StoreProvider({
       refresh,
     }),
     [
-      me,
+      meState,
       org,
       isTeam,
       isAdmin,
@@ -489,6 +630,11 @@ export function StoreProvider({
       conversationName,
       otherMember,
       isOnline,
+      presenceOf,
+      updateMe,
+      profileCard,
+      openProfile,
+      closeProfile,
       markRead,
       markActivityRead,
       markAllActivityRead,

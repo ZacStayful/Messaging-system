@@ -31,8 +31,20 @@ const secondary =
   "h-10 rounded-lg border border-input-border px-3.5 text-[15px] font-semibold text-ink hover:bg-hover disabled:opacity-50";
 
 export function DetailsModal({ conversation, title, createdAt, description, initialTab, onClose }: DetailsModalProps) {
-  const { me, org, profiles, isOnline, isTeam, isAdmin, openDm, refresh, setNotifyLevel, toggleMute, toggleStar } =
-    useStore();
+  const {
+    me,
+    org,
+    profiles,
+    presenceOf,
+    openProfile,
+    isTeam,
+    isAdmin,
+    openDm,
+    refresh,
+    setNotifyLevel,
+    toggleMute,
+    toggleStar,
+  } = useStore();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const isChannel = conversation.type !== "dm" && conversation.type !== "group_dm";
@@ -348,14 +360,14 @@ export function DetailsModal({ conversation, title, createdAt, description, init
             )}
             <div className="scroll-thin min-h-0 max-h-[52vh] overflow-y-auto pb-2">
               {filtered.map((p) => {
-                const look = presenceLook(p, isOnline(p.id));
+                const look = presenceLook(presenceOf(p.id));
                 return (
                   <div key={p.id} className="flex items-center gap-3.5 px-5 py-2 hover:bg-hover md:px-6">
                     <button
                       type="button"
-                      onClick={() => void goDm(p)}
-                      disabled={!canDm(p)}
-                      className="flex min-w-0 flex-1 items-center gap-3.5 border-0 bg-transparent text-left text-ink disabled:cursor-default"
+                      onClick={openProfile(p.id)}
+                      className="flex min-w-0 flex-1 items-center gap-3.5 border-0 bg-transparent text-left text-ink"
+                      aria-label={`Profile: ${p.display_name}`}
                     >
                       <Avatar profile={p} size={40} radius={8} />
                       <span className="text-[16px] font-bold">{p.display_name}</span>
@@ -366,6 +378,17 @@ export function DetailsModal({ conversation, title, createdAt, description, init
                       <span className="truncate text-[16px] text-muted">{p.full_name}</span>
                       {p.id === me.id && <span className="text-[14px] text-muted">(you)</span>}
                     </button>
+                    {canDm(p) && (
+                      <button
+                        type="button"
+                        onClick={() => void goDm(p)}
+                        className="flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent text-muted hover:bg-hover hover:text-ink"
+                        aria-label={`Message ${p.display_name}`}
+                        title="Message"
+                      >
+                        <Icon name="dms" size={18} />
+                      </button>
+                    )}
                     {p.account_type === "team" ? (
                       <span className="rounded bg-soft px-1.5 py-0.5 text-[12px] font-semibold text-link">Stayful</span>
                     ) : (

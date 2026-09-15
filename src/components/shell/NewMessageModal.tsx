@@ -14,7 +14,7 @@ import { useStore, type NewMessageMode } from "./store";
  * (team only) switch to "New group" to create a named customer group or internal channel.
  */
 export function NewMessageModal({ mode, onClose }: { mode: NewMessageMode; onClose: () => void }) {
-  const { me, profiles, conversations, isOnline, openDm, refresh } = useStore();
+  const { me, profiles, conversations, presenceOf, openDm, refresh } = useStore();
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const isTeam = me.account_type === "team";
@@ -283,7 +283,7 @@ export function NewMessageModal({ mode, onClose }: { mode: NewMessageMode; onClo
             </p>
           )}
           {results.map((p) => {
-            const look = presenceLook(p, isOnline(p.id));
+            const look = presenceLook(presenceOf(p.id));
             return (
               <button
                 key={p.id}
