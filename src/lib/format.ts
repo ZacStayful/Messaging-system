@@ -60,6 +60,22 @@ export function pinWhen(value: string | Date): string {
   return `${dayMonthYearFmt.format(d)} at ${timeLabel(d)}`;
 }
 
+/** "0:07" or "12:34" for audio durations. */
+export function durationLabel(ms: number | null | undefined): string {
+  if (!ms || !Number.isFinite(ms) || ms < 0) return "0:00";
+  const total = Math.round(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** "1.2 MB", "340 KB" */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
 /** "2 September 2026" */
 export function longDate(value: string | Date): string {
   return longDateFmt.format(toDate(value));
@@ -71,6 +87,7 @@ export function previewOf(body: string | null | undefined, max = 160): string {
   const flat = body
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/@\[([^\]\n]+)\]/g, "@$1")
     .replace(/^- /gm, "")
     .replace(/\s+/g, " ")
     .trim();

@@ -8,10 +8,11 @@ import { PresenceDot } from "@/components/ui/PresenceDot";
 import { UnreadBadge } from "@/components/ui/UnreadBadge";
 import { Icon } from "@/components/ui/Icon";
 import { presenceLook } from "@/lib/presence";
-import { SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
+import { SearchLink, SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
 
 export function HomeSidebar() {
-  const { conversations, org, me, otherMember, conversationName, isOnline, activeConversationId } = useStore();
+  const { conversations, org, me, otherMember, conversationName, isOnline, activeConversationId, openNewMessage } =
+    useStore();
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
 
@@ -34,19 +35,37 @@ export function HomeSidebar() {
   return (
     <>
       <SidebarHeader title={org.name}>
-        <button type="button" className={iconBtn} aria-label="Workspace settings" title="Workspace settings">
-          <Icon name="settings" />
-        </button>
+        <SearchLink />
         {me.account_type === "team" && (
-          <Link
-            href="/customers/new"
-            className={`${iconBtn} no-underline`}
-            aria-label="Invite a customer"
-            title="Invite a customer"
-          >
-            <Icon name="userPlus" />
-          </Link>
+          <>
+            <button
+              type="button"
+              onClick={() => openNewMessage("group")}
+              className={iconBtn}
+              aria-label="New group"
+              title="New group"
+            >
+              <Icon name="plus" strokeWidth={2} />
+            </button>
+            <Link
+              href="/customers/new"
+              className={`${iconBtn} no-underline`}
+              aria-label="Invite a customer"
+              title="Invite a customer"
+            >
+              <Icon name="userPlus" />
+            </Link>
+          </>
         )}
+        <button
+          type="button"
+          onClick={() => openNewMessage("people")}
+          className={iconBtn}
+          aria-label="New message"
+          title="New message"
+        >
+          <Icon name="pencil" />
+        </button>
       </SidebarHeader>
       <SidebarSearch value={filter} onChange={setFilter} placeholder="Find a conversation..." />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -55,6 +74,13 @@ export function HomeSidebar() {
           <span>Customers</span>
           <Icon name="chevronDown" size={14} strokeWidth={2} />
         </div>
+        {channels.length === 0 && (
+          <p className="px-3 py-2 text-[14px] text-sb-dim">
+            {me.account_type === "team"
+              ? "No groups yet. Use + to create one, or invite a customer."
+              : "You haven't been added to a group yet."}
+          </p>
+        )}
         {channels
           .filter((c) => !q || (c.name ?? "").includes(q))
           .map((c) => {

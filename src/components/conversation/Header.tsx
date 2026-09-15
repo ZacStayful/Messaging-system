@@ -17,6 +17,8 @@ interface HeaderProps {
   onOpenDetails: (tab: DetailTab) => void;
   onToggleStar: () => void;
   onToggleMute: () => void;
+  onToggleSearch: () => void;
+  searchOpen: boolean;
 }
 
 const btn =
@@ -31,6 +33,8 @@ export function Header({
   onOpenDetails,
   onToggleStar,
   onToggleMute,
+  onToggleSearch,
+  searchOpen,
 }: HeaderProps) {
   const isDm = conversation.type === "dm" || conversation.type === "group_dm";
   const look = presenceLook(other, otherOnline);
@@ -123,9 +127,12 @@ export function Header({
       </button>
       <button
         type="button"
-        className={`${btn} hidden md:flex`}
+        onClick={onToggleSearch}
+        className={btn}
         aria-label="Search in conversation"
         title="Search in conversation"
+        aria-pressed={searchOpen}
+        style={searchOpen ? { background: "var(--soft)" } : undefined}
       >
         <Icon name="search" />
       </button>

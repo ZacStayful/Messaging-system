@@ -10,10 +10,11 @@ import { Icon } from "@/components/ui/Icon";
 import { listTime } from "@/lib/format";
 import { presenceLook } from "@/lib/presence";
 import { useDraftIds } from "@/lib/drafts";
-import { SidebarHeader, SidebarSearch, UnreadToggle, iconBtn } from "./SidebarBits";
+import { SearchLink, SidebarHeader, SidebarSearch, UnreadToggle, iconBtn } from "./SidebarBits";
 
 export function DmList() {
-  const { conversations, me, otherMember, conversationName, isOnline, activeConversationId, nav } = useStore();
+  const { conversations, me, otherMember, conversationName, isOnline, activeConversationId, nav, openNewMessage } =
+    useStore();
   const [filter, setFilter] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
 
@@ -33,16 +34,38 @@ export function DmList() {
     <>
       <SidebarHeader title="Direct messages">
         <UnreadToggle on={unreadOnly} onToggle={() => setUnreadOnly((v) => !v)} />
-        <button type="button" className={iconBtn} aria-label="New message" title="New message">
+        <SearchLink />
+        <button
+          type="button"
+          onClick={() => openNewMessage("people")}
+          className={iconBtn}
+          aria-label="New message"
+          title="New message"
+        >
           <Icon name="pencil" />
         </button>
       </SidebarHeader>
       <SidebarSearch value={filter} onChange={setFilter} placeholder="Find a DM..." />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 && (
-          <p className="px-4 py-6 text-[15px] text-sb-dim">
-            {unreadOnly ? "You're all caught up." : "No direct messages match."}
-          </p>
+          <div className="px-4 py-6 text-[15px] text-sb-dim">
+            <p>
+              {unreadOnly
+                ? "You're all caught up."
+                : dms.length === 0
+                  ? "No direct messages yet."
+                  : "No direct messages match."}
+            </p>
+            {dms.length === 0 && !unreadOnly && (
+              <button
+                type="button"
+                onClick={() => openNewMessage("people")}
+                className="mt-3 flex h-10 items-center gap-2 rounded-lg border border-sb-border bg-sb-input px-3 text-[15px] font-semibold text-sb-text"
+              >
+                <Icon name="pencil" size={18} /> New message
+              </button>
+            )}
+          </div>
         )}
         {rows.map((c) => {
           const other = otherMember(c);

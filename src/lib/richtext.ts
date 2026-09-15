@@ -4,24 +4,25 @@
  *   - item           bullet list
  *   [text](url)      link with label
  *   https://…        bare links are auto-linked
- *   @Name            mention chip
+ *   @Name            mention chip (single-word display name)
+ *   @[Nigel Hyde]    mention chip for a display name with spaces
  *   **bold**         inline bold
  */
 export type Inline =
   | { type: "text"; text: string }
   | { type: "bold"; text: string }
   | { type: "link"; text: string; href: string }
-  | { type: "mention"; text: string };
+  | { type: "mention"; text: string; name: string };
 
 export type Block = { type: "p"; lines: Inline[][] } | { type: "h"; text: string } | { type: "ul"; items: Inline[][] };
 
 const URL_RE = /https?:\/\/[^\s<>()\]]+[^\s<>()\].,;:!?'"]/g;
-const MENTION = String.raw`@[A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)*`;
+const MENTION = String.raw`@\[([^\]\n]{1,80})\]|@([A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)*)`;
 const INLINE_RE = new RegExp(
-  String.raw`\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(\*\*[^*]+\*\*)|(${MENTION})|(https?:\/\/[^\s<>()\]]+[^\s<>()\].,;:!?'"])`,
+  String.raw`\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(\*\*[^*]+\*\*)|(?:${MENTION})|(https?:\/\/[^\s<>()\]]+[^\s<>()\].,;:!?'"])`,
   "g",
 );
-const MENTION_RE = new RegExp(String.raw`@([A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)*)`, "g");
+const MENTION_RE = new RegExp(MENTION, "g");
 
 export function parseInline(text: string): Inline[] {
   const out: Inline[] = [];
@@ -31,8 +32,9 @@ export function parseInline(text: string): Inline[] {
     if (idx > last) out.push({ type: "text", text: text.slice(last, idx) });
     if (m[1] && m[2]) out.push({ type: "link", text: m[1], href: m[2] });
     else if (m[3]) out.push({ type: "bold", text: m[3].slice(2, -2) });
-    else if (m[4]) out.push({ type: "mention", text: m[4] });
-    else if (m[5]) out.push({ type: "link", text: m[5], href: m[5] });
+    else if (m[4]) out.push({ type: "mention", text: `@${m[4]}`, name: m[4] });
+    else if (m[5]) out.push({ type: "mention", text: `@${m[5]}`, name: m[5] });
+    else if (m[6]) out.push({ type: "link", text: m[6], href: m[6] });
     last = idx + m[0].length;
   }
   if (last < text.length) out.push({ type: "text", text: text.slice(last) });
@@ -108,5 +110,11 @@ export function extractLinks(body: string): ExtractedLink[] {
 
 /** Display names found as @mentions in a body. */
 export function mentionedNames(body: string): string[] {
-  return Array.from(body.matchAll(MENTION_RE), (m) => m[1]);
+  return Array.from(body.matchAll(MENTION_RE), (m) => m[1] ?? m[2]);
+}
+
+/** The text the composer inserts for a mention of `displayName`. */
+export function mentionToken(displayName: string): string {
+  const name = displayName.trim();
+  return /^[A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)*$/.test(name) ? `@${name}` : `@[${name}]`;
 }

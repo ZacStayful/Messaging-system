@@ -139,6 +139,142 @@ test("customers cannot open the invite page", async ({ page, context }, testInfo
   expect(res?.status()).toBe(404);
 });
 
+test("react, pin, edit and delete a message", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "hover actions are desktop-only in this test");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+
+  const body = `actions ${Date.now()}`;
+  await page.getByPlaceholder("Message #test-internal").fill(body);
+  await page.keyboard.press("Enter");
+  const row = page.locator("article", { hasText: body });
+  await expect(row).toBeVisible();
+  await expect(page.getByText("Sending…")).toHaveCount(0, { timeout: 10_000 });
+
+  // React
+  await row.hover();
+  await row.getByRole("button", { name: "React with 👍" }).first().click();
+  const chip = row.getByRole("button", { name: "👍 1", exact: true });
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveAttribute("aria-pressed", "true");
+  await chip.click();
+  await expect(chip).toHaveCount(0);
+
+  // Pin
+  await row.hover();
+  await row.getByRole("button", { name: "Pin message" }).click();
+  await expect(row.getByText("Pinned")).toBeVisible();
+  await page.getByRole("tab", { name: /Pins/ }).click();
+  await expect(page.getByText(body)).toBeVisible();
+  await page.getByRole("tab", { name: /Messages/ }).click();
+  await row.hover();
+  await row.getByRole("button", { name: "Unpin message" }).click();
+  await expect(row.getByText("Pinned")).toHaveCount(0);
+
+  // Edit
+  await row.hover();
+  await row.getByRole("button", { name: "Edit message" }).click();
+  await row.getByLabel("Edit message").fill(`${body} edited`);
+  await page.keyboard.press("Enter");
+  await expect(row.getByText(`${body} edited`)).toBeVisible();
+  await expect(row.getByText("(edited)")).toBeVisible({ timeout: 10_000 });
+
+  // Delete
+  await row.hover();
+  await row.getByRole("button", { name: "Delete message" }).click();
+  await page.getByRole("dialog", { name: "Delete this message?" }).getByRole("button", { name: "Delete" }).click();
+  await expect(page.locator("article", { hasText: body })).toHaveCount(0);
+});
+
+test("attach a photo and a file to a message", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+
+  // 1x1 PNG
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const stamp = Date.now();
+  await page.getByLabel("Choose files").setInputFiles([
+    { name: `photo-${stamp}.png`, mimeType: "image/png", buffer: png },
+    { name: `notes-${stamp}.txt`, mimeType: "text/plain", buffer: Buffer.from("hello from playwright") },
+  ]);
+  await expect(page.getByRole("button", { name: `Remove photo-${stamp}.png` })).toBeVisible();
+  await page.getByPlaceholder("Message #test-internal").fill(`files ${stamp}`);
+  await page.keyboard.press("Enter");
+
+  const row = page.locator("article", { hasText: `files ${stamp}` });
+  await expect(row.getByRole("button", { name: `Open photo-${stamp}.png` })).toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText(`notes-${stamp}.txt`)).toBeVisible();
+  await expect(row.getByText("Uploading…")).toHaveCount(0, { timeout: 20_000 });
+  await expect(row.getByText("Upload failed")).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Files and links/ }).click();
+  await expect(page.getByText(`notes-${stamp}.txt`)).toBeVisible();
+  await expect(page.getByRole("link", { name: `photo-${stamp}.png` })).toBeVisible();
+});
+
+test("mention picker inserts a display name", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${CUSTOMER_GROUP}`);
+  const box = page.getByPlaceholder("Message #test-customer");
+  await box.fill("hi @Test C");
+  await expect(page.getByRole("option", { name: /Test Customer/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(box).toHaveValue("hi @[Test Customer] ");
+  await box.fill("");
+});
+
+test("search across conversations and inside one", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto("/dms");
+  await page.getByLabel("Search Stayful").fill("Team-only channel");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/search\?q=/);
+  const hit = page.getByRole("link", { name: /Team-only channel message/ });
+  await expect(hit).toBeVisible();
+  await hit.click();
+  await expect(page).toHaveURL(new RegExp(`/home/${TEAM_ONLY}\\?m=`));
+  await expect(page.getByText("Team-only channel message")).toBeVisible();
+
+  await page.getByRole("button", { name: "Search in conversation" }).click();
+  await page.getByRole("textbox", { name: "Search in conversation" }).fill("team-only");
+  await expect(page.getByText(/1 of \d+/)).toBeVisible();
+  await expect(page.locator("mark").first()).toBeVisible();
+  await page.getByRole("button", { name: "Close search" }).click();
+  await expect(page.locator("mark")).toHaveCount(0);
+});
+
+test("new message modal opens a DM and creates a group", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto("/dms");
+  await page.getByRole("button", { name: "New message" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "New message" });
+  await dialog.getByLabel("Find people").fill("Test Cust");
+  await dialog.getByRole("button", { name: /Test Customer/ }).click();
+  await dialog.getByRole("button", { name: /Start conversation|Open conversation/ }).click();
+  await expect(page).toHaveURL(/\/dms\/[0-9a-f-]{36}/);
+  await expect(page.getByPlaceholder("Message Test Customer")).toBeVisible();
+
+  const name = `e2e-group-${Date.now()}`;
+  await page.getByRole("button", { name: "New message" }).first().click();
+  await page.getByRole("tab", { name: "Create a group" }).click();
+  await page.getByLabel("Group name").fill(name);
+  await page.getByRole("button", { name: "Create group" }).click();
+  await expect(page).toHaveURL(/\/home\/[0-9a-f-]{36}/);
+  await expect(page.getByText(`Test Staff created this group.`)).toBeVisible();
+});
+
 test("API routes are never redirected to the login page", async ({ request }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "one run is enough");
   const cron = await request.get("/api/cron/notifications", { maxRedirects: 0 });

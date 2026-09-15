@@ -1,12 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Attachment, Profile } from "@/lib/database.types";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { extractLinks } from "@/lib/richtext";
-import { listTime } from "@/lib/format";
-import { createClient } from "@/lib/supabase/client";
+import { fileSize, listTime } from "@/lib/format";
+import { isImage, isVideo } from "@/lib/storage/attachments";
+import { fileIcon } from "./AttachmentView";
 import type { LocalMessage } from "./MessageItem";
 
 type Chip = "All" | "Files" | "Media" | "Links";
@@ -17,73 +18,43 @@ interface Row {
   name: string;
   meta: string;
   href?: string;
+  messageId: string;
   icon: IconName | "stayful";
   iconBg: string;
   at: string;
 }
 
-function iconFor(mime: string): { icon: IconName; bg: string } {
-  if (mime.startsWith("audio/")) return { icon: "audio", bg: "#1E9BD7" };
-  if (mime.startsWith("image/")) return { icon: "image", bg: "#5D8156" };
-  if (mime.startsWith("video/")) return { icon: "video", bg: "#7F4FA8" };
-  if (mime === "application/pdf") return { icon: "file", bg: "#E2394A" };
-  if (mime.includes("html") || mime.includes("json") || mime.includes("javascript"))
-    return { icon: "code", bg: "#E0603A" };
-  return { icon: "file", bg: "#7A8C99" };
-}
-
 const chipCls = "flex h-[34px] items-center rounded-lg px-3.5 text-[15px]";
 
-export function FilesTab({
-  messages,
-  attachments,
-  profiles,
-}: {
+interface FilesTabProps {
   messages: LocalMessage[];
   attachments: Attachment[];
   profiles: Record<string, Profile>;
-}) {
+  urls: Record<string, string>;
+  onJump: (messageId: string) => void;
+}
+
+export function FilesTab({ messages, attachments, profiles, urls, onJump }: FilesTabProps) {
   const [chip, setChip] = useState<Chip>("All");
   const [q, setQ] = useState("");
-  const [signed, setSigned] = useState<Record<string, string>>({});
 
-  const media = useMemo(
-    () => attachments.filter((a) => a.mime.startsWith("image/") || a.mime.startsWith("video/")),
-    [attachments],
-  );
-
-  useEffect(() => {
-    if (media.length === 0) return;
-    const supabase = createClient();
-    supabase.storage
-      .from("attachments")
-      .createSignedUrls(
-        media.map((m) => m.storage_path),
-        3600,
-      )
-      .then(({ data }) => {
-        if (!data) return;
-        setSigned(
-          Object.fromEntries(
-            data.filter((d) => d.signedUrl && d.path).map((d) => [d.path as string, d.signedUrl as string]),
-          ),
-        );
-      });
-  }, [media]);
+  const media = useMemo(() => attachments.filter((a) => isImage(a) || isVideo(a)), [attachments]);
 
   const rows = useMemo<Row[]>(() => {
     const byMessage = new Map(messages.map((m) => [m.id, m]));
     const files: Row[] = attachments
-      .filter((a) => !a.mime.startsWith("image/") && !a.mime.startsWith("video/"))
+      .filter((a) => !isImage(a) && !isVideo(a))
       .map((a) => {
         const m = byMessage.get(a.message_id);
         const who = m?.sender_id ? (profiles[m.sender_id]?.display_name ?? "Someone") : "Stayful";
-        const { icon, bg } = iconFor(a.mime);
+        const { icon, bg, label } = fileIcon(a.mime);
         return {
           key: `a:${a.id}`,
           kind: "file",
           name: a.file_name,
-          meta: `Shared by ${who} ${listTime(a.created_at).toLowerCase()}`,
+          meta: `${label} · ${fileSize(a.size_bytes)} · shared by ${who} ${listTime(a.created_at).toLowerCase()}`,
+          href: urls[a.storage_path],
+          messageId: a.message_id,
           icon,
           iconBg: bg,
           at: a.created_at,
@@ -102,6 +73,7 @@ export function FilesTab({
           name: isStayful ? "Stayful" : l.host,
           meta: isStayful ? l.host : l.path.length > 1 ? l.path : l.host,
           href: l.href,
+          messageId: m.id,
           icon: isDrive ? "drive" : isStayful ? "stayful" : "link",
           iconBg: isDrive ? "#5D8156" : isStayful ? "transparent" : "#7A8C99",
           at: m.created_at,
@@ -109,7 +81,7 @@ export function FilesTab({
       }
     }
     return [...files, ...links].sort((a, b) => b.at.localeCompare(a.at));
-  }, [messages, attachments, profiles]);
+  }, [messages, attachments, profiles, urls]);
 
   const query = q.trim().toLowerCase();
   const visible = rows.filter((r) => {
@@ -118,6 +90,7 @@ export function FilesTab({
     if (chip === "Media") return false;
     return !query || `${r.name} ${r.meta}`.toLowerCase().includes(query);
   });
+  const visibleMedia = media.filter((m) => !query || m.file_name.toLowerCase().includes(query));
   const showMedia = chip === "All" || chip === "Media";
 
   return (
@@ -127,7 +100,7 @@ export function FilesTab({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search"
+          placeholder="Search files and links"
           aria-label="Search files and links"
           className="flex-1 border-0 bg-transparent text-[16px] text-ink outline-none"
         />
@@ -159,24 +132,27 @@ export function FilesTab({
         <>
           <div className="mb-3 flex items-baseline justify-between">
             <span className="text-[16px] font-semibold">Photos and videos</span>
-            {media.length > 0 && <span className="text-[15px] text-link">{media.length}</span>}
+            {visibleMedia.length > 0 && <span className="text-[15px] text-link">{visibleMedia.length}</span>}
           </div>
-          {media.length === 0 ? (
-            <p className="mb-5 text-[15px] text-muted">No photos or videos in this conversation yet.</p>
+          {visibleMedia.length === 0 ? (
+            <p className="mb-5 text-[15px] text-muted">
+              No photos or videos in this conversation yet. Use the + button in the composer to add some.
+            </p>
           ) : (
             <div className="mb-5 grid grid-cols-3 gap-2 md:grid-cols-[repeat(auto-fill,minmax(150px,1fr))] md:gap-3">
-              {media.map((m) => (
+              {visibleMedia.map((m) => (
                 <a
                   key={m.id}
-                  href={signed[m.storage_path]}
+                  href={urls[m.storage_path]}
                   target="_blank"
                   rel="noopener noreferrer"
+                  title={m.file_name}
                   className="relative flex aspect-square items-center justify-center overflow-hidden rounded-lg border border-line"
                   style={{ background: "var(--thumb)" }}
                 >
-                  {m.mime.startsWith("image/") && signed[m.storage_path] && (
+                  {isImage(m) && urls[m.storage_path] && (
                     <Image
-                      src={signed[m.storage_path]}
+                      src={urls[m.storage_path]}
                       alt={m.file_name}
                       fill
                       unoptimized
@@ -184,7 +160,7 @@ export function FilesTab({
                       sizes="200px"
                     />
                   )}
-                  {m.mime.startsWith("video/") && (
+                  {isVideo(m) && (
                     <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(30,42,28,.55)]">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
                         <path d="M8 5v14l11-7z" />
@@ -202,28 +178,39 @@ export function FilesTab({
         <div className="overflow-hidden rounded-xl border border-line bg-card">
           {visible.length === 0 && <p className="px-4 py-4 text-[15px] text-muted">Nothing to show.</p>}
           {visible.map((r) => (
-            <a
+            <div
               key={r.key}
-              href={r.href}
-              target={r.href ? "_blank" : undefined}
-              rel="noopener noreferrer"
               className="flex items-center gap-3.5 border-t border-line px-4 py-3 first:border-t-0 hover:bg-hover"
             >
-              <div
-                className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[10px] text-white"
-                style={{ background: r.iconBg }}
+              <a
+                href={r.href}
+                target={r.href ? "_blank" : undefined}
+                rel="noopener noreferrer"
+                className="flex min-w-0 flex-1 items-center gap-3.5 text-ink no-underline"
               >
-                {r.icon === "stayful" ? (
-                  <Image src="/brand/stayful-logo.png" alt="" width={48} height={48} className="h-12 w-12" />
-                ) : (
-                  <Icon name={r.icon} size={r.icon === "drive" ? 24 : 22} strokeWidth={2} />
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-[16px] font-semibold">{r.name}</div>
-                <div className="truncate text-[14px] text-muted">{r.meta}</div>
-              </div>
-            </a>
+                <div
+                  className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[10px] text-white"
+                  style={{ background: r.iconBg }}
+                >
+                  {r.icon === "stayful" ? (
+                    <Image src="/brand/stayful-logo.png" alt="" width={48} height={48} className="h-12 w-12" />
+                  ) : (
+                    <Icon name={r.icon} size={r.icon === "drive" ? 24 : 22} strokeWidth={2} />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-[16px] font-semibold">{r.name}</div>
+                  <div className="truncate text-[14px] text-muted">{r.meta}</div>
+                </div>
+              </a>
+              <button
+                type="button"
+                onClick={() => onJump(r.messageId)}
+                className="shrink-0 text-[13px] font-semibold text-link hover:underline"
+              >
+                View in chat
+              </button>
+            </div>
           ))}
         </div>
       )}
