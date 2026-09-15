@@ -141,3 +141,14 @@ test("API routes are never redirected to the login page", async ({ request }, te
   const unsub = await request.get("/api/email/unsubscribe?u=x&t=y", { maxRedirects: 0 });
   expect(unsub.status()).toBe(400);
 });
+
+test("auth codes that land on the site root are routed to the callback", async ({ request }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "one run is enough");
+  const res = await request.get("/?code=not-a-real-code", { maxRedirects: 0 });
+  expect(res.status()).toBe(307);
+  expect(res.headers()["location"]).toMatch(/\/auth\/callback\?code=not-a-real-code$/);
+  // The callback rejects the bogus code and sends the user to login with an error flag
+  const cb = await request.get("/auth/callback?code=not-a-real-code", { maxRedirects: 0 });
+  expect(cb.status()).toBe(307);
+  expect(cb.headers()["location"]).toMatch(/\/login\?error=auth$/);
+});

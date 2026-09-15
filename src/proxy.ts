@@ -8,6 +8,16 @@ const PUBLIC_PATHS = ["/login", "/auth"];
  * unauthenticated users go to /login, signed-in users never see /login.
  */
 export async function proxy(request: NextRequest) {
+  // Supabase may send auth codes to the Site URL (usually "/") instead of our callback,
+  // for example when the requested redirect is not on its allow-list. Route them to the
+  // callback so the one-time code is exchanged rather than dropped.
+  const params = request.nextUrl.searchParams;
+  if (!request.nextUrl.pathname.startsWith("/auth/") && (params.has("code") || params.has("token_hash"))) {
+    const url = new URL("/auth/callback", request.url);
+    url.search = request.nextUrl.search;
+    return NextResponse.redirect(url);
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
