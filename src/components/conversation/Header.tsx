@@ -70,6 +70,7 @@ export function Header({
       label: "Notification preferences",
       icon: "bell",
       hint: NOTIFY_LABELS[level],
+      keepOpen: true,
       onSelect: () => setMenu("notify"),
     },
     {

@@ -38,6 +38,9 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   copy link, leave, archive; top-bar History (recent conversations) and Help sheet; collapsible
   sidebar sections; archived groups hidden behind a toggle and read-only.
 - Activity filters: Mentions, Threads (replies), Reactions, plus mark-all-read.
+- Sidebar row menus (right-click or the hover "⋯"): mark as read, star, mute, notification
+  level, copy link, leave and archive (team), on every conversation list including the
+  customer view.
 - Threads: "Reply in thread" on any message, a side panel (full screen on mobile) with its own
   composer, reply counts under the parent, a Threads view (team) listing every thread you
   follow with unread counts, and deep links (`?thread=<parent>` or `?m=<reply>`).

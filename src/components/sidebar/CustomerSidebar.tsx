@@ -10,6 +10,7 @@ import { Icon } from "@/components/ui/Icon";
 import { listTime } from "@/lib/format";
 import { presenceLook } from "@/lib/presence";
 import { SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
+import { ConversationMenu, RowMenuButton, useConversationMenu } from "./ConversationMenu";
 
 /**
  * The simplified customer view: the groups they have been invited to and their direct
@@ -20,6 +21,7 @@ export function CustomerSidebar() {
     useStore();
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
+  const rowMenu = useConversationMenu();
   const live = liveConversations(conversations);
   const groups = live.filter((c) => c.type !== "dm" && c.type !== "group_dm");
   const dms = live.filter((c) => c.type === "dm" || c.type === "group_dm");
@@ -55,15 +57,17 @@ export function CustomerSidebar() {
               <Link
                 key={c.id}
                 href={`/home/${c.id}`}
-                className="sb-row text-sb-text no-underline flex h-9 items-center gap-2 rounded-md pr-2 pl-3"
+                className="sb-row group text-sb-text no-underline flex h-9 items-center gap-2 rounded-md pr-1 pl-3"
                 style={{ ...sel(c.id), opacity: c.muted ? 0.6 : 1 }}
                 aria-current={activeConversationId === c.id ? "page" : undefined}
+                onContextMenu={rowMenu.openAt(c.id)}
               >
                 <Icon name="lock" size={15} strokeWidth={2} />
                 <span className="flex-1 truncate text-[16px]" style={{ fontWeight: unread ? 700 : 500 }}>
                   {c.name}
                 </span>
                 {!c.muted && <UnreadBadge count={c.unread_count} className="min-w-[22px]" />}
+                <RowMenuButton onOpen={rowMenu.openFrom(c.id)} name={c.name ?? "group"} />
               </Link>
             );
           })}
@@ -84,9 +88,10 @@ export function CustomerSidebar() {
               <Link
                 key={c.id}
                 href={`/dms/${c.id}`}
-                className="sb-row text-sb-text no-underline flex items-center gap-2.5 rounded-md px-2 py-2"
+                className="sb-row group text-sb-text no-underline flex items-center gap-2.5 rounded-md px-2 py-2"
                 style={sel(c.id)}
                 aria-current={activeConversationId === c.id ? "page" : undefined}
+                onContextMenu={rowMenu.openAt(c.id)}
               >
                 <span className="relative h-9 w-9 shrink-0">
                   <Avatar profile={other} size={36} radius={8} />
@@ -108,10 +113,12 @@ export function CustomerSidebar() {
                   <span className="block truncate text-[14px] opacity-90">{preview}</span>
                 </span>
                 <UnreadBadge count={c.unread_count} className="min-w-[22px]" />
+                <RowMenuButton onOpen={rowMenu.openFrom(c.id)} name={conversationName(c)} />
               </Link>
             );
           })}
       </div>
+      <ConversationMenu menu={rowMenu.menu} onClose={rowMenu.close} />
     </>
   );
 }

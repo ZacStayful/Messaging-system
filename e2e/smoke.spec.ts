@@ -382,6 +382,41 @@ test("header menu sets notification level and group settings rename + archive", 
   await expect(page.getByText("This group is archived")).toBeVisible({ timeout: 10_000 });
 });
 
+test("sidebar row context menu: star, mute and notification level", async ({ page, context }, testInfo) => {
+  needsFixtures();
+  test.skip(testInfo.project.name !== "desktop", "context menus are desktop-only in this test");
+  await signIn(context, "test-staff@stayful.test");
+  await page.goto(`/home/${TEAM_ONLY}`);
+  const row = page.getByRole("link", { name: /test-internal/ }).first();
+  await expect(row).toBeVisible();
+
+  // Right-click opens the menu; Star moves the row into the Starred section.
+  await row.click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: /Options for test-internal/ });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: "Star", exact: true }).click();
+  await expect(page.getByText("Starred", { exact: true })).toBeVisible();
+
+  // The hover "⋯" button opens the same menu; switch notification level via the sub-view.
+  await row.hover();
+  await row.getByRole("button", { name: /Options for test-internal/ }).click();
+  await menu.getByRole("menuitem", { name: /Notification preferences/ }).click();
+  await menu.getByRole("menuitem", { name: "Mentions only" }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Notification preferences" })).toHaveAttribute(
+    "title",
+    "Notifications: Mentions only",
+  );
+
+  // Undo: unstar and reset the level so the fixture stays neutral.
+  await row.click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Remove from starred" }).click();
+  await expect(page.getByText("Starred", { exact: true })).toHaveCount(0);
+  await row.click({ button: "right" });
+  await menu.getByRole("menuitem", { name: /Notification preferences/ }).click();
+  await menu.getByRole("menuitem", { name: "All new messages" }).click();
+});
+
 test("history and help popovers open from the top bar", async ({ page, context }, testInfo) => {
   needsFixtures();
   test.skip(testInfo.project.name !== "desktop", "top bar is desktop-only");

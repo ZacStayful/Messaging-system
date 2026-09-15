@@ -12,6 +12,7 @@ import { presenceLook } from "@/lib/presence";
 import { useBoolPref } from "@/lib/prefs";
 import { SearchLink, SectionHeader, SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
 import { ThreadsRow } from "./ThreadsRow";
+import { ConversationMenu, RowMenuButton, useConversationMenu } from "./ConversationMenu";
 
 function byUnreadThenName(a: ConversationSummary, b: ConversationSummary) {
   const au = a.unread_count > 0 && !a.muted ? 0 : 1;
@@ -28,6 +29,7 @@ export function HomeSidebar() {
   const [channelsCollapsed, setChannelsCollapsed] = useBoolPref("home.channels.collapsed", false);
   const [dmsCollapsed, setDmsCollapsed] = useBoolPref("home.dms.collapsed", false);
   const [starredCollapsed, setStarredCollapsed] = useBoolPref("home.starred.collapsed", false);
+  const rowMenu = useConversationMenu();
   const q = filter.trim().toLowerCase();
 
   const live = useMemo(() => liveConversations(conversations, showArchived), [conversations, showArchived]);
@@ -57,9 +59,10 @@ export function HomeSidebar() {
       <Link
         key={c.id}
         href={`/home/${c.id}`}
-        className="sb-row text-sb-text no-underline flex h-8 items-center gap-2 rounded-md pr-2 pl-3 md:h-8"
+        className="sb-row group text-sb-text no-underline flex h-8 items-center gap-2 rounded-md pr-1 pl-3 md:h-8"
         style={{ ...sel(c.id), opacity: c.muted || c.archived_at ? 0.6 : unread || active ? 1 : 0.88 }}
         aria-current={active ? "page" : undefined}
+        onContextMenu={rowMenu.openAt(c.id)}
       >
         <Icon name={c.archived_at ? "files" : "lock"} size={15} strokeWidth={2} />
         <span className="flex-1 truncate text-[16px]" style={{ fontWeight: unread ? 700 : 500 }}>
@@ -67,6 +70,7 @@ export function HomeSidebar() {
         </span>
         {c.mention_count > 0 && !c.muted ? <span className="text-[12px] font-bold">@</span> : null}
         {!c.muted && <UnreadBadge count={c.unread_count} className="min-w-[22px]" />}
+        <RowMenuButton onOpen={rowMenu.openFrom(c.id)} name={c.name ?? "group"} />
       </Link>
     );
   };
@@ -79,9 +83,10 @@ export function HomeSidebar() {
       <Link
         key={c.id}
         href={`/home/${c.id}`}
-        className="sb-row text-sb-text no-underline flex h-[34px] items-center gap-2.5 rounded-md pr-2 pl-3"
+        className="sb-row group text-sb-text no-underline flex h-[34px] items-center gap-2.5 rounded-md pr-1 pl-3"
         style={sel(c.id)}
         aria-current={active ? "page" : undefined}
+        onContextMenu={rowMenu.openAt(c.id)}
       >
         <span className="relative h-5 w-5 shrink-0">
           <Avatar profile={other} size={20} radius={5} />
@@ -91,6 +96,7 @@ export function HomeSidebar() {
           {conversationName(c)}
         </span>
         <UnreadBadge count={c.unread_count} className="min-w-[22px]" />
+        <RowMenuButton onOpen={rowMenu.openFrom(c.id)} name={conversationName(c)} />
       </Link>
     );
   };
@@ -214,6 +220,7 @@ export function HomeSidebar() {
           </button>
         )}
       </div>
+      <ConversationMenu menu={rowMenu.menu} onClose={rowMenu.close} />
     </>
   );
 }

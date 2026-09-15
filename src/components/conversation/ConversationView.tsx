@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { notFound, useRouter, useSearchParams } from "next/navigation";
+import { notFound, useSearchParams } from "next/navigation";
 import type { Attachment, Message, Pin, Reaction } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/client";
 import { MESSAGE_EVENT, useStore, type IncomingMessageEvent } from "@/components/shell/store";
@@ -81,11 +81,11 @@ export function ConversationView({
     toggleMute,
     setNotifyLevel,
     markThreadRead,
-    refresh,
+    leaveConversation,
+    setArchived,
   } = store;
   const conversation = conversationById(conversationId);
   const supabase = useMemo(() => createClient(), []);
-  const router = useRouter();
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("m");
   const deepLinkThread = searchParams.get("thread");
@@ -633,21 +633,9 @@ export function ConversationView({
     if (toSend.length) await uploadFiles(data.id, clientId, toSend);
   };
 
-  const leaveConversation = async () => {
-    const { error } = await supabase.rpc("remove_member", { p_conversation_id: conversationId, p_user_id: me.id });
-    if (!error) {
-      refresh();
-      router.push(`/${nav === "dms" ? "dms" : "home"}`);
-    }
-  };
-
   const toggleArchive = async () => {
     if (!conversation) return;
-    const { error } = await supabase.rpc("archive_channel", {
-      p_conversation_id: conversationId,
-      p_archived: !conversation.archived_at,
-    });
-    if (!error) refresh();
+    await setArchived(conversationId, !conversation.archived_at);
   };
 
   const onDropFiles = (e: DragEvent) => {
@@ -702,7 +690,7 @@ export function ConversationView({
           onToggleStar={() => void toggleStar(conversationId)}
           onToggleMute={() => void toggleMute(conversationId)}
           onSetNotifyLevel={(level) => void setNotifyLevel(conversationId, level)}
-          onLeave={() => void leaveConversation()}
+          onLeave={() => void leaveConversation(conversationId)}
           onArchive={() => void toggleArchive()}
           onToggleSearch={() => {
             setTab("messages");
