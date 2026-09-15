@@ -117,7 +117,7 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
               />
             </label>
             {pwError && (
-              <p role="alert" className="rounded-lg bg-[#FBEDEA] px-3 py-2 text-[14px] text-[#8A2E22]">
+              <p role="alert" className="alert-error">
                 {pwError}
               </p>
             )}

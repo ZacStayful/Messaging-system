@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useStore } from "@/components/shell/store";
-import { useTheme } from "@/lib/theme-client";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 
@@ -17,7 +16,6 @@ const ROLE_LABEL: Record<string, string> = {
 
 export function YouSidebar() {
   const { me, org } = useStore();
-  const [theme, toggleTheme] = useTheme();
   return (
     <>
       <div className="font-display flex h-[50px] shrink-0 items-center px-4 text-[18px] font-bold">You</div>
@@ -48,14 +46,6 @@ export function YouSidebar() {
             Invite a customer
           </Link>
         )}
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="flex h-11 items-center gap-3 rounded-lg border border-sb-border bg-sb-input px-3 text-[15px] font-medium text-sb-text"
-        >
-          <Icon name={theme === "dark" ? "sun" : "moon"} />
-          {theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-        </button>
         <form action="/auth/signout" method="post">
           <button
             type="submit"

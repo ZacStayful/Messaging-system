@@ -10,7 +10,7 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Sign in with email + password (customers get a generated password by email when the team
   creates their account), an email magic link, or Google (Supabase Auth). Sessions persist.
 - Desktop layout: top bar, icon rail (Home, DMs, Activity, Files, Later, Agents & tools),
-  sidebar and conversation pane on the green frame, light and dark themes.
+  sidebar and conversation pane on the dark green frame (dark theme only).
 - Mobile layout: single pane with a bottom tab bar (Home, DMs, Activity, You).
 - Direct messages list with unread toggle, filter, presence dots, draft indicator.
 - Home sidebar with the "Customers" groups and recent DMs.

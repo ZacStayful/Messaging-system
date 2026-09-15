@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Avatar } from "@/components/ui/Avatar";
-import { useTheme } from "@/lib/theme-client";
 import { useStore, type Nav } from "./store";
 
 const ITEMS: { id: Nav; label: string; icon: IconName }[] = [
@@ -31,7 +30,6 @@ export function useUnreadTotals() {
 export function Rail() {
   const { nav, me, isOnline } = useStore();
   const { dmUnread, channelUnread, activityUnread } = useUnreadTotals();
-  const [theme, toggleTheme] = useTheme();
 
   return (
     <nav
@@ -85,15 +83,6 @@ export function Rail() {
         </Link>
       )}
       <div className="flex-1" />
-      <button
-        type="button"
-        onClick={toggleTheme}
-        className="flex h-[38px] w-[38px] items-center justify-center rounded-full border-0 bg-white/[.18] text-sb-text hover:bg-white/30"
-        aria-label="Toggle dark mode"
-        title="Toggle dark mode"
-      >
-        <Icon name={theme === "dark" ? "sun" : "moon"} />
-      </button>
       <Link
         href="/settings/account"
         className="relative mt-2.5 block h-[38px] w-[38px] rounded-[9px]"

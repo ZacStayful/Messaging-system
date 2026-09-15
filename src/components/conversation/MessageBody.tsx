@@ -13,7 +13,7 @@ function Highlight({ text, query }: { text: string; query?: string }) {
     <>
       {parts.map((part, i) =>
         i % 2 === 1 ? (
-          <mark key={i} className="rounded-sm bg-[#FBE7A1] px-px text-[#1E2A1C]">
+          <mark key={i} className="rounded-sm bg-[#E2A13A] px-px text-[#1E2A1C]">
             {part}
           </mark>
         ) : (

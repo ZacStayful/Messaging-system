@@ -5,8 +5,8 @@ import { verifyUnsubscribeToken } from "@/lib/email/unsubscribe";
 function page(title: string, body: string, status = 200) {
   return new NextResponse(
     `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title></head>
-<body style="margin:0;background:#CFD5B9;font-family:Poppins,Segoe UI,Helvetica,Arial,sans-serif;color:#1E2A1C;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px">
-<div style="background:#fff;border-radius:14px;padding:28px;max-width:420px;box-shadow:0 12px 40px rgba(30,42,28,.12)"><h1 style="font-size:20px;margin:0 0 8px">${title}</h1><p style="margin:0;color:#3E5A3A;font-size:14px;line-height:1.5">${body}</p></div>
+<body style="margin:0;background:#1E2B1C;font-family:Poppins,Segoe UI,Helvetica,Arial,sans-serif;color:#F1F4EE;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px">
+<div style="background:#191C19;border:1px solid #2C312B;border-radius:14px;padding:28px;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.35)"><h1 style="font-size:20px;margin:0 0 8px">${title}</h1><p style="margin:0;color:#BCC4B8;font-size:14px;line-height:1.5">${body}</p></div>
 </body></html>`,
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );

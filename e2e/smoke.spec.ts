@@ -86,15 +86,12 @@ test("a message sent by staff reaches the customer in real time", async ({ brows
   await customerCtx.close();
 });
 
-test("dark mode toggle persists across reload", async ({ page, context }, testInfo) => {
-  needsFixtures();
-  test.skip(testInfo.project.name !== "desktop", "rail is desktop-only");
-  await signIn(context, "test-staff@stayful.test");
-  await page.goto("/dms");
-  await page.getByRole("button", { name: "Toggle dark mode" }).click();
+test("the app is dark-only", async ({ page }) => {
+  await page.goto("/login");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.getByRole("button", { name: "Toggle dark mode" })).toHaveCount(0);
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(bg).toBe("rgb(30, 43, 28)");
 });
 
 test("mobile shows the list with a bottom tab bar, then the conversation with a back button", async ({
