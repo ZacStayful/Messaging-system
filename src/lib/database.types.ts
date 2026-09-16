@@ -1294,7 +1294,10 @@ export type Database = {
       start_phone_verification: { Args: { p_phone: string }; Returns: string };
       confirm_phone_verification: { Args: { p_phone: string; p_code: string }; Returns: undefined };
       set_customer_phone: { Args: { p_user_id: string; p_phone: string | null }; Returns: undefined };
-      set_conversation_whatsapp_account: { Args: { p_conversation_id: string; p_account_id: string | null }; Returns: undefined };
+      set_conversation_whatsapp_account: {
+        Args: { p_conversation_id: string; p_account_id: string | null };
+        Returns: undefined;
+      };
       set_member_side: { Args: { p_conversation_id: string; p_user_id: string; p_side: string }; Returns: undefined };
       shares_conversation_with: { Args: { other: string }; Returns: boolean };
       storage_path_conversation_id: { Args: { name: string }; Returns: string };
