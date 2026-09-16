@@ -436,7 +436,23 @@ export async function updateBookmark(db: ApiClient, bookmarkId: string, input: P
   if (!Object.keys(patch).length) throw new ApiError("invalid_request", "Nothing to change.");
 
   return must(
-    await db.from("conversation_bookmarks").update(patch).eq("id", bookmarkId).select().single(),
+    await db
+      .from("conversation_bookmarks")
+      .update(patch)
+      .eq("id", bookmarkId)
+      .select()
+      .single()
+      .then((r) => {
+        // conversation_bookmarks_guard (0021) refuses a title or url change on a mandatory
+        // bookmark, for anyone. Surface that as a request problem, not a raw Postgres error.
+        if (r.error?.message.includes("bookmark_templates")) {
+          throw new ApiError(
+            "invalid_request",
+            "That bookmark is set for every Stayful customer group. Change it in bookmark_templates instead.",
+          );
+        }
+        return r;
+      }),
     "That bookmark",
   );
 }
@@ -446,6 +462,19 @@ export async function deleteBookmark(db: ApiClient, bookmarkId: string) {
   const { data, error } = await db.from("conversation_bookmarks").delete().eq("id", bookmarkId).select("id");
   if (error) throw error;
   if (!data?.length) {
+    // A mandatory bookmark is filtered out by the delete policy (0021) and looks identical to a
+    // missing one from here. Say which, so a caller is not left guessing at a retry.
+    const { data: row } = await db
+      .from("conversation_bookmarks")
+      .select("is_mandatory")
+      .eq("id", bookmarkId)
+      .maybeSingle();
+    if (row?.is_mandatory) {
+      throw new ApiError(
+        "invalid_request",
+        "That bookmark is on every Stayful customer group and cannot be removed. Change it in bookmark_templates instead.",
+      );
+    }
     throw new ApiError("not_found", "That bookmark was not found, or you are not allowed to remove it.");
   }
   return { removed: bookmarkId };

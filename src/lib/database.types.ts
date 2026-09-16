@@ -205,6 +205,8 @@ export type Database = {
           emoji: string | null;
           id: string;
           note: string | null;
+          is_mandatory: boolean;
+          template_key: string | null;
           org_id: string;
           position: number;
           title: string;
@@ -218,6 +220,8 @@ export type Database = {
           emoji?: string | null;
           id?: string;
           note?: string | null;
+          is_mandatory?: boolean;
+          template_key?: string | null;
           org_id: string;
           position?: number;
           title: string;
@@ -231,6 +235,8 @@ export type Database = {
           emoji?: string | null;
           id?: string;
           note?: string | null;
+          is_mandatory?: boolean;
+          template_key?: string | null;
           org_id?: string;
           position?: number;
           title?: string;
@@ -268,6 +274,7 @@ export type Database = {
           last_read_at: string | null;
           muted: boolean;
           notify_level: string;
+          member_side: string;
           org_id: string;
           starred: boolean;
           user_id: string;
@@ -278,6 +285,7 @@ export type Database = {
           last_read_at?: string | null;
           muted?: boolean;
           notify_level?: string;
+          member_side?: string;
           org_id: string;
           starred?: boolean;
           user_id: string;
@@ -288,6 +296,7 @@ export type Database = {
           last_read_at?: string | null;
           muted?: boolean;
           notify_level?: string;
+          member_side?: string;
           org_id?: string;
           starred?: boolean;
           user_id?: string;
@@ -320,6 +329,7 @@ export type Database = {
         Row: {
           archived_at: string | null;
           assignee_id: string | null;
+          whatsapp_account_id: string | null;
           created_at: string;
           created_by: string | null;
           description: string | null;
@@ -337,6 +347,7 @@ export type Database = {
         Insert: {
           archived_at?: string | null;
           assignee_id?: string | null;
+          whatsapp_account_id?: string | null;
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
@@ -354,6 +365,7 @@ export type Database = {
         Update: {
           archived_at?: string | null;
           assignee_id?: string | null;
+          whatsapp_account_id?: string | null;
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
@@ -548,7 +560,10 @@ export type Database = {
           org_id: string;
           payload: Json;
           provider_message_id: string | null;
-          recipient_email: string;
+          recipient_email: string | null;
+          recipient_phone: string | null;
+          channel: string;
+          fallback_from: string | null;
           recipient_user_id: string | null;
           sent_at: string | null;
           status: string;
@@ -562,7 +577,10 @@ export type Database = {
           org_id: string;
           payload?: Json;
           provider_message_id?: string | null;
-          recipient_email: string;
+          recipient_email?: string | null;
+          recipient_phone?: string | null;
+          channel?: string;
+          fallback_from?: string | null;
           recipient_user_id?: string | null;
           sent_at?: string | null;
           status?: string;
@@ -576,7 +594,10 @@ export type Database = {
           org_id?: string;
           payload?: Json;
           provider_message_id?: string | null;
-          recipient_email?: string;
+          recipient_email?: string | null;
+          recipient_phone?: string | null;
+          channel?: string;
+          fallback_from?: string | null;
           recipient_user_id?: string | null;
           sent_at?: string | null;
           status?: string;
@@ -675,6 +696,158 @@ export type Database = {
           },
         ];
       };
+      whatsapp_accounts: {
+        Row: {
+          id: string;
+          org_id: string;
+          phone: string;
+          provider_account_id: string | null;
+          account_name: string | null;
+          owner_email: string | null;
+          owner_user_id: string | null;
+          status: string;
+          is_default: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          phone: string;
+          provider_account_id?: string | null;
+          account_name?: string | null;
+          owner_email?: string | null;
+          owner_user_id?: string | null;
+          status?: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          phone?: string;
+          provider_account_id?: string | null;
+          account_name?: string | null;
+          owner_email?: string | null;
+          owner_user_id?: string | null;
+          status?: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      whatsapp_threads: {
+        Row: {
+          user_id: string;
+          org_id: string;
+          conversation_id: string;
+          phone: string;
+          whatsapp_account_id: string | null;
+          last_outbound_at: string | null;
+          last_inbound_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          org_id: string;
+          conversation_id: string;
+          phone: string;
+          whatsapp_account_id?: string | null;
+          last_outbound_at?: string | null;
+          last_inbound_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          org_id?: string;
+          conversation_id?: string;
+          phone?: string;
+          whatsapp_account_id?: string | null;
+          last_outbound_at?: string | null;
+          last_inbound_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      inbound_messages_unmatched: {
+        Row: {
+          id: number;
+          channel: string;
+          external_ref: string | null;
+          from_identifier: string;
+          body: string | null;
+          payload: Json;
+          reason: string;
+          resolved_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: never;
+          channel: string;
+          external_ref?: string | null;
+          from_identifier: string;
+          body?: string | null;
+          payload?: Json;
+          reason: string;
+          resolved_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: never;
+          channel?: string;
+          external_ref?: string | null;
+          from_identifier?: string;
+          body?: string | null;
+          payload?: Json;
+          reason?: string;
+          resolved_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      phone_verifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          phone: string;
+          code_hash: string;
+          attempts: number;
+          expires_at: string;
+          consumed_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          phone: string;
+          code_hash: string;
+          attempts?: number;
+          expires_at: string;
+          consumed_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          phone?: string;
+          code_hash?: string;
+          attempts?: number;
+          expires_at?: string;
+          consumed_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "phone_verifications_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       profiles: {
         Row: {
           account_type: Database["public"]["Enums"]["account_type"];
@@ -685,6 +858,10 @@ export type Database = {
           display_name: string;
           email: string | null;
           email_notifications: string;
+          whatsapp_notifications: string;
+          phone: string | null;
+          phone_verified_at: string | null;
+          phone_prompt_skipped_at: string | null;
           full_name: string | null;
           id: string;
           last_active_at: string | null;
@@ -712,6 +889,10 @@ export type Database = {
           display_name: string;
           email?: string | null;
           email_notifications?: string;
+          whatsapp_notifications?: string;
+          phone?: string | null;
+          phone_verified_at?: string | null;
+          phone_prompt_skipped_at?: string | null;
           full_name?: string | null;
           id: string;
           last_active_at?: string | null;
@@ -739,6 +920,10 @@ export type Database = {
           display_name?: string;
           email?: string | null;
           email_notifications?: string;
+          whatsapp_notifications?: string;
+          phone?: string | null;
+          phone_verified_at?: string | null;
+          phone_prompt_skipped_at?: string | null;
           full_name?: string | null;
           id?: string;
           last_active_at?: string | null;
@@ -1106,6 +1291,14 @@ export type Database = {
           unread_count: number;
         }[];
       };
+      start_phone_verification: { Args: { p_phone: string }; Returns: string };
+      confirm_phone_verification: { Args: { p_phone: string; p_code: string }; Returns: undefined };
+      set_customer_phone: { Args: { p_user_id: string; p_phone: string | null }; Returns: undefined };
+      set_conversation_whatsapp_account: {
+        Args: { p_conversation_id: string; p_account_id: string | null };
+        Returns: undefined;
+      };
+      set_member_side: { Args: { p_conversation_id: string; p_user_id: string; p_side: string }; Returns: undefined };
       shares_conversation_with: { Args: { other: string }; Returns: boolean };
       storage_path_conversation_id: { Args: { name: string }; Returns: string };
       topic_conversation_id: { Args: { topic: string }; Returns: string };

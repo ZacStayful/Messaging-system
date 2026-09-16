@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { StoreProvider, type Org, type SavedRow } from "@/components/shell/store";
 import { AppShell } from "@/components/shell/AppShell";
+import { PhoneGate } from "@/components/onboarding/PhoneGate";
+import { shouldAskForPhone } from "@/lib/phone";
+import { whatsappConfigured } from "@/lib/whatsapp/timelines";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -26,6 +29,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </main>
     );
   }
+
+  // The mobile number gate. Here rather than in src/proxy.ts because this layout is the single
+  // funnel for every authenticated page and has already loaded the profile, so the check costs
+  // no extra query — while the proxy holds only an anon client and runs on every request.
+  // /login, /auth/* and /api/* sit outside this route group, so sign-out, the auth callback and
+  // every webhook keep working while the gate is up.
+  //
+  // Who it applies to — and whether it applies at all when we cannot send a code — is decided by
+  // shouldAskForPhone, so the rule is unit-tested rather than an inline conjunction here.
+  if (shouldAskForPhone(me, whatsappConfigured())) return <PhoneGate profile={me} />;
 
   const isTeam = me.account_type === "team";
   const [

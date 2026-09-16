@@ -40,6 +40,10 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   pasting a link offers to fill the title from its Open Graph data. The team can reorder and
   remove anything, a customer can edit their own. Changes reach everyone live over a `BOOKMARK`
   broadcast on the conversation topic. Also available over the API and MCP.
+- Every customer group carries two required bookmarks — the quarterly review call and Stayful
+  Intelligence — applied on creation and backfilled onto existing groups. They cannot be removed
+  or re-pointed from the app, the REST API or MCP. Growing or changing the set is an INSERT or
+  UPDATE on `bookmark_templates`, which fans out to every group with no deploy.
 - Pins tab (jump to message, unpin), Files and links tab (newest/oldest), details modal with
   editable topic and description, member add/remove/leave, rename and archive (team).
 - Header menus: notification level (all / mentions / nothing) per conversation, mute, star,
@@ -90,6 +94,21 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Email notifications (D8): every customer-visible message is queued in `notification_outbox`;
   a Vercel cron drains it through Resend (grouping messages within two minutes), with a
   signed one-click unsubscribe link.
+- Several Stayful numbers: each account manager connects their own mobile, and a customer group
+  owns one of them, so the customer's phone shows one continuous conversation rather than a chat
+  per person who replied. A new group takes its creator's number, falling back to the default.
+  A number we have not seen registers itself the first time it receives a message. Replies land
+  in the customer's group whichever of our numbers they reach — their number identifies them,
+  ours is only the doorway — and which one they used is recorded on the message.
+- WhatsApp out: the same outbox carries a `whatsapp` row for anyone who switched it on and has a
+  verified mobile. One message, one WhatsApp — no batching window, with a per-run cap instead.
+  If a send runs out of retries the email version is queued in its place and an internal-only
+  note appears in the group so the team can fix the number.
+- WhatsApp in: TimelinesAI posts to `/api/whatsapp/inbound/<WHATSAPP_WEBHOOK_TOKEN>`; the number
+  identifies the customer and the reply lands in their group as a normal message from them
+  (`sent_via = whatsapp`). Anything unroutable — an unknown number, an archived group — is
+  recorded in `inbound_messages_unmatched` and still answered 200, because a 4xx only makes
+  the provider retry a message that was never going to route. Inbound email now does the same.
 - Reply by email: notification emails carry `Reply-To: reply+<token>@<EMAIL_REPLY_DOMAIN>`;
   Resend Inbound posts replies to `/api/email/inbound`, which stores them in the same
   conversation as the customer (`sent_via = email`).
@@ -135,6 +154,13 @@ Environment variables (`.env.local`, also set in Vercel):
 | `CRON_SECRET`                          | Random string. Vercel sends it to the cron route; it also signs unsubscribe links                                     |
 | `EMAIL_REPLY_DOMAIN`                   | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk`                                      |
 | `RESEND_WEBHOOK_SECRET`                | Optional. `whsec_…` secret of the Resend webhook for `email.received`                                                 |
+| `TIMELINES_API_TOKEN`                  | TimelinesAI public API token. Also sends the first-login verification code, so sign-in degrades without it            |
+| `TIMELINES_WHATSAPP_ACCOUNT_ID`        | Optional fallback only. The sending number comes from the group's `whatsapp_accounts` row (0022)                      |
+| `TIMELINES_API_BASE`                   | Optional. Overrides the API base, e.g. a local stub in tests                                                          |
+| `TIMELINES_DRY_RUN`                    | Local and test only. `1` makes every WhatsApp send succeed without a request                                          |
+| `WHATSAPP_WEBHOOK_TOKEN`               | Secret path segment of the inbound webhook URL. TimelinesAI publishes no signature scheme                             |
+| `WHATSAPP_WEBHOOK_SECRET`              | Optional second factor: when set, an `x-stayful-token` header must match too                                          |
+| `WHATSAPP_MAX_PER_RUN`                 | Optional. Caps WhatsApp sends per cron run (default 60), since WhatsApp does not batch                                |
 | `SUPABASE_JWT_SECRET`                  | Server only. Required by the REST API and MCP server: each request is signed as the key's user (see below)            |
 
 ## Database
@@ -174,6 +200,22 @@ Migrations live in `supabase/migrations` and are applied in order:
 17. `0017_api_key_last_used.sql` `api_rate_hit` also stamps `api_keys.last_used_at`, because the
     separate `api_touch_key` call was an un-awaited promise that serverless dropped before it
     ran; that function is now unused and dropped
+18. `0018_phone_and_member_sides.sql` `profiles.phone` (verified by code, guarded against direct
+    writes), `phone_verifications`, `conversation_members.member_side`, and the trigger enforcing
+    one customer group per external member
+19. `0019_outbox_channels.sql` `notification_outbox` gains `channel`, `recipient_phone` and
+    `fallback_from`; `enqueue_message_notifications` emits one row per channel the external
+    participant has switched on; `whatsapp_threads` records which group we last messaged
+    someone from
+20. `0020_whatsapp_inbound.sql` unique `external_ref` for WhatsApp so a redelivered webhook is
+    one message, and `inbound_messages_unmatched` so nothing a customer sends is dropped
+    silently on either channel
+21. `0021_mandatory_bookmarks.sql` `bookmark_templates` plus `is_mandatory`/`template_key` on
+    `conversation_bookmarks`; every customer group gets the quarterly review call and Stayful
+    Intelligence automatically, and a guard trigger stops either being removed or re-pointed
+22. `0022_whatsapp_accounts.sql` `whatsapp_accounts` (one per account manager's mobile) and
+    `conversations.whatsapp_account_id`; a new customer group takes its creator's number, so a
+    customer always sees the same one
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

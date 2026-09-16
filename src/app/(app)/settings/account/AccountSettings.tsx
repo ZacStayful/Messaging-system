@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Icon } from "@/components/ui/Icon";
 import { useStore } from "@/components/shell/store";
 import { ProfileSection } from "./ProfileSection";
+import { ContactSection } from "./ContactSection";
 
 const input =
   "h-11 w-full rounded-lg border border-input-border bg-input px-3.5 text-[16px] text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]";
@@ -15,7 +16,7 @@ const primary =
 const card = "rounded-xl border border-line bg-card p-5";
 
 export function AccountSettings({ profile, hasPassword }: { profile: Profile; hasPassword: boolean }) {
-  const { nav, refresh } = useStore();
+  const { nav } = useStore();
   const supabase = createClient();
 
   const [pw, setPw] = useState("");
@@ -23,9 +24,6 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
   const [show, setShow] = useState(false);
   const [pwStatus, setPwStatus] = useState<"idle" | "busy" | "done" | "error">("idle");
   const [pwError, setPwError] = useState<string | null>(null);
-
-  const [emailPref, setEmailPref] = useState(profile.email_notifications);
-  const [prefStatus, setPrefStatus] = useState<"idle" | "busy" | "done" | "error">("idle");
 
   async function changePassword(e: FormEvent) {
     e.preventDefault();
@@ -42,14 +40,6 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
     setPw("");
     setPw2("");
     setPwStatus("done");
-  }
-
-  async function savePref(value: string) {
-    setEmailPref(value);
-    setPrefStatus("busy");
-    const { error } = await supabase.from("profiles").update({ email_notifications: value }).eq("id", profile.id);
-    setPrefStatus(error ? "error" : "done");
-    if (!error) refresh();
   }
 
   return (
@@ -132,45 +122,7 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
           </form>
         </section>
 
-        {profile.account_type === "customer" && (
-          <section className={card}>
-            <h2 className="mb-1 text-[16px] font-bold">Email notifications</h2>
-            <p className="mb-4 text-[14px] text-muted">
-              We email you when the Stayful team sends you a message, so you never miss an update.
-            </p>
-            <div className="flex flex-col gap-2">
-              {[
-                {
-                  value: "instant",
-                  label: "Email me every message",
-                  hint: "Recommended. Replies to the email are not read yet; use the link in the email.",
-                },
-                { value: "off", label: "Don't email me", hint: "You'll only see messages when you open the app." },
-              ].map((o) => (
-                <label
-                  key={o.value}
-                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-line px-3.5 py-3 hover:bg-hover"
-                  style={emailPref === o.value ? { borderColor: "var(--brand)" } : undefined}
-                >
-                  <input
-                    type="radio"
-                    name="email_notifications"
-                    value={o.value}
-                    checked={emailPref === o.value}
-                    onChange={() => savePref(o.value)}
-                    className="mt-1 accent-[#5D8156]"
-                  />
-                  <span>
-                    <span className="block text-[15px] font-semibold">{o.label}</span>
-                    <span className="block text-[14px] text-muted">{o.hint}</span>
-                  </span>
-                </label>
-              ))}
-              {prefStatus === "done" && <p className="text-[14px] text-link">Saved.</p>}
-              {prefStatus === "error" && <p className="text-[14px] text-new">Couldn&apos;t save. Try again.</p>}
-            </div>
-          </section>
-        )}
+        {profile.account_type === "customer" && <ContactSection profile={profile} />}
 
         <section className={`${card} flex items-center justify-between gap-3`}>
           <div>

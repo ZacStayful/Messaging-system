@@ -4,8 +4,10 @@ import { sendEmail, emailConfigured } from "@/lib/email/resend";
 import { messageEmail, welcomeEmail } from "@/lib/email/templates";
 import { unsubscribeUrl } from "@/lib/email/unsubscribe";
 import { newReplyToken, replyAddress, replyDomain } from "@/lib/email/inbound";
+import { sendWhatsApp, whatsappConfigured } from "@/lib/whatsapp/timelines";
+import { messageWhatsApp } from "@/lib/whatsapp/templates";
 import { siteUrl } from "@/lib/site";
-import { manualAway, notificationsSilenced } from "@/lib/presence";
+import { groupOutboxRows, skipReason } from "@/lib/notifications/policy";
 import type { NotificationOutbox } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,22 @@ export const maxDuration = 60;
 const MAX_ATTEMPTS = 5;
 /** Messages posted within this window to the same person in the same conversation go in one email (spec D8). */
 const GROUP_WINDOW_MS = 2 * 60_000;
+/**
+ * WhatsApp does not batch: one message, one chat message, as agreed. That removes the natural
+ * brake a grouping window gave us, so this cap is what stands between a busy morning and the
+ * kind of outbound burst that gets a real WhatsApp number flagged. Rows over the cap simply
+ * wait for the next minute — no attempt burned, nothing lost.
+ */
+const WHATSAPP_MAX_PER_RUN = Number(process.env.WHATSAPP_MAX_PER_RUN || 60);
+/** Sends run in small parallel chunks: maxDuration is 60s and a run can hold 200 rows. */
+const SEND_CONCURRENCY = 5;
+/**
+ * Rows are claimed by moving them to `sending`, and the drain only ever re-selects `pending`
+ * and `failed`. Anything that dies between the claim and finish() would therefore sit in
+ * `sending` for ever, unsent and unreported. Older claims are returned to the queue at the top
+ * of each run, which is what makes a bad deploy recoverable rather than a silent loss.
+ */
+const STRANDED_CLAIM_MS = 10 * 60_000;
 
 interface MessagePayload {
   message_id: string;
@@ -25,6 +43,22 @@ interface MessagePayload {
   recipient_name: string;
   body: string;
   created_at: string;
+  sent_via?: string;
+}
+
+/**
+ * Runs `run` over `items` a few at a time. Each call is isolated: a throw is logged and the
+ * rest of the batch continues. Without that, one bad row would reject the whole Promise.all —
+ * stranding every row already claimed in this run — and a second rejection in the same chunk
+ * would surface as an unhandled rejection, which Node treats as fatal.
+ */
+async function chunked<T>(items: T[], size: number, run: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    const results = await Promise.allSettled(items.slice(i, i + size).map(run));
+    for (const r of results) {
+      if (r.status === "rejected") console.error("notifications: send failed", r.reason);
+    }
+  }
 }
 
 /**
@@ -72,27 +106,47 @@ function authorised(request: NextRequest): boolean {
 
 /**
  * Drains the notification outbox. Triggered every minute by Vercel Cron (vercel.json).
- * Idempotent: rows are claimed by moving them to `sending` before any email goes out.
+ * Idempotent: rows are claimed by moving them to `sending` before anything goes out.
  */
 export async function GET(request: NextRequest) {
   if (!authorised(request)) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   const admin = createAdminClient();
   if (!admin) return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not set" }, { status: 503 });
   const posted = await postScheduledMessages(admin);
-  if (!emailConfigured()) return NextResponse.json({ posted, error: "RESEND_API_KEY is not set" }, { status: 503 });
 
-  // Only send message notifications that have had a moment to batch up
+  // Rescue anything a previous run claimed and never finished (see STRANDED_CLAIM_MS).
+  const { data: rescued } = await admin
+    .from("notification_outbox")
+    .update({ status: "pending" })
+    .eq("status", "sending")
+    .lt("created_at", new Date(Date.now() - STRANDED_CLAIM_MS).toISOString())
+    .select("id");
+  if (rescued?.length) console.warn(`notifications: requeued ${rescued.length} stranded row(s)`);
+
+  // Each channel stands on its own: WhatsApp can ship without Resend and vice versa, and an
+  // unconfigured channel leaves its rows `pending` rather than burning attempts against a
+  // provider we cannot reach.
+  const channels = [emailConfigured() ? "email" : null, whatsappConfigured() ? "whatsapp" : null].filter(
+    (c): c is string => !!c,
+  );
+  if (!channels.length) {
+    return NextResponse.json({ posted, error: "no notification channel is configured" }, { status: 503 });
+  }
+
+  // Email rows wait 20 seconds so a burst can batch into one message. WhatsApp does not batch,
+  // so making it wait would only add a minute to every send.
   const cutoff = new Date(Date.now() - 20_000).toISOString();
   const { data: rows, error } = await admin
     .from("notification_outbox")
     .select("*")
     .in("status", ["pending", "failed"])
+    .in("channel", channels)
     .lt("attempts", MAX_ATTEMPTS)
-    .lt("created_at", cutoff)
+    .or(`channel.eq.whatsapp,created_at.lt.${cutoff}`)
     .order("created_at", { ascending: true })
     .limit(200);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!rows?.length) return NextResponse.json({ sent: 0, failed: 0, skipped: 0 });
+  if (!rows?.length) return NextResponse.json({ sent: 0, failed: 0, skipped: 0, posted });
 
   // Claim
   const ids = rows.map((r) => r.id);
@@ -108,7 +162,7 @@ export async function GET(request: NextRequest) {
       await admin
         .from("notification_outbox")
         .update({
-          status: ok ? "sent" : r.attempts + 1 >= MAX_ATTEMPTS ? "failed" : "failed",
+          status: ok ? "sent" : "failed",
           attempts: r.attempts + 1,
           provider_message_id: providerId ?? r.provider_message_id,
           last_error: err ?? null,
@@ -120,47 +174,35 @@ export async function GET(request: NextRequest) {
     else failed += batch.length;
   };
 
-  // Drop message notifications for recipients who turned email off, went away or paused
+  const skip = async (r: NotificationOutbox, reason: string) => {
+    await admin.from("notification_outbox").update({ status: "skipped", last_error: reason }).eq("id", r.id);
+    skipped++;
+  };
+
+  // Drop message notifications for recipients who turned a channel off, went away or paused
   // notifications since queuing. The trigger checks this too, but a minute passes in between
   // and going quiet the moment you set yourself away is the entire point of the feature.
   const recipientIds = Array.from(new Set(rows.map((r) => r.recipient_user_id).filter((x): x is string => !!x)));
   const { data: prefs } = await admin
     .from("profiles")
-    .select("id, email_notifications, email, presence_mode, away_until, dnd_until")
+    .select("id, email_notifications, whatsapp_notifications, email, phone, presence_mode, away_until, dnd_until")
     .in("id", recipientIds);
   const prefById = new Map((prefs ?? []).map((p) => [p.id, p]));
 
-  // Group message rows per recipient + conversation within the window
-  const groups = new Map<string, NotificationOutbox[]>();
-  for (const r of rows) {
-    if (r.kind !== "message") continue;
-    const p = r.payload as unknown as MessagePayload;
-    const pref = r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined;
-    if (pref && (pref.email_notifications === "off" || notificationsSilenced(pref))) {
-      await admin
-        .from("notification_outbox")
-        .update({
-          status: "skipped",
-          last_error: notificationsSilenced(pref)
-            ? manualAway(pref)
-              ? "recipient away"
-              : "notifications paused"
-            : "email notifications off",
-        })
-        .eq("id", r.id);
-      skipped++;
-      continue;
-    }
-    const key = `${r.recipient_user_id}:${p.conversation_id}`;
-    const list = groups.get(key) ?? [];
-    const first = list[0] ? (list[0].payload as unknown as MessagePayload) : null;
-    if (first && new Date(p.created_at).getTime() - new Date(first.created_at).getTime() > GROUP_WINDOW_MS) {
-      groups.set(`${key}:${r.id}`, [r]);
-    } else {
-      list.push(r);
-      groups.set(key, list);
-    }
+  const messageRows = rows.filter((r) => r.kind === "message");
+  const live: NotificationOutbox[] = [];
+  for (const r of messageRows) {
+    const reason = skipReason(r, r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined);
+    if (reason) await skip(r, reason);
+    else live.push(r);
   }
+
+  // ---- email -----------------------------------------------------------------
+  // Email batches; WhatsApp deliberately does not (one message, one chat message).
+  const groups = groupOutboxRows(
+    live.filter((x) => x.channel === "email"),
+    GROUP_WINDOW_MS,
+  );
 
   const replyTo = async (userId: string, conversationId: string, orgId: string): Promise<string | undefined> => {
     if (!replyDomain()) return undefined;
@@ -178,8 +220,13 @@ export async function GET(request: NextRequest) {
     return error ? undefined : (replyAddress(token) ?? undefined);
   };
 
-  for (const batch of groups.values()) {
+  for (const batch of groups) {
     const first = batch[0].payload as unknown as MessagePayload;
+    const to = batch[0].recipient_email;
+    if (!to) {
+      await skip(batch[0], "no email address");
+      continue;
+    }
     const isDm = first.conversation_type === "dm" || first.conversation_type === "group_dm";
     const title = isDm ? first.sender_name : `#${first.conversation_name ?? "conversation"}`;
     const mail = messageEmail({
@@ -194,7 +241,7 @@ export async function GET(request: NextRequest) {
       canReplyByEmail: !!replyDomain(),
     });
     const res = await sendEmail({
-      to: batch[0].recipient_email,
+      to,
       subject: mail.subject,
       html: mail.html,
       text: mail.text,
@@ -204,6 +251,126 @@ export async function GET(request: NextRequest) {
       headers: { "List-Unsubscribe": `<${unsubscribeUrl(base, batch[0].recipient_user_id ?? "")}>` },
     });
     await finish(batch, res.ok, res.id, res.error);
+  }
+
+  // ---- whatsapp --------------------------------------------------------------
+  const waRows = live.filter((x) => x.channel === "whatsapp");
+
+  // Which number each group sends from (0022). One query for the run, not one per message.
+  const convIds = Array.from(new Set(waRows.map((r) => (r.payload as unknown as MessagePayload).conversation_id)));
+  const accountByConv = new Map<string, { id: string; provider_account_id: string | null; phone: string }>();
+  if (convIds.length) {
+    const { data: convs, error: convErr } = await admin
+      .from("conversations")
+      .select("id, whatsapp_account:whatsapp_accounts(id, provider_account_id, phone)")
+      .in("id", convIds);
+    // Worth shouting about: with no accounts resolved every message still sends, but from
+    // whichever number the provider defaults to, silently breaking the one-number-per-group
+    // guarantee that 0022 exists to provide.
+    if (convErr) console.error("notifications: could not resolve sending numbers", convErr.message);
+    for (const c of convs ?? []) {
+      const a = c.whatsapp_account as unknown as {
+        id: string;
+        provider_account_id: string | null;
+        phone: string;
+      } | null;
+      if (a) accountByConv.set(c.id, a);
+    }
+  }
+  const waSending = waRows.slice(0, WHATSAPP_MAX_PER_RUN);
+  const waDeferred = waRows.slice(WHATSAPP_MAX_PER_RUN);
+  // Over the cap: put them back so the next minute picks them up, rather than failing them.
+  if (waDeferred.length) {
+    await admin
+      .from("notification_outbox")
+      .update({ status: "pending" })
+      .in(
+        "id",
+        waDeferred.map((r) => r.id),
+      );
+  }
+
+  await chunked(waSending, SEND_CONCURRENCY, async (r) => {
+    const p = r.payload as unknown as MessagePayload;
+    const to = r.recipient_phone;
+    if (!to) {
+      await skip(r, "no mobile number");
+      return;
+    }
+    const isDm = p.conversation_type === "dm" || p.conversation_type === "group_dm";
+    const { text } = messageWhatsApp({
+      senderName: p.sender_name,
+      body: p.body,
+      conversationTitle: `#${p.conversation_name ?? "your group"}`,
+      isGroup: !isDm,
+      viewUrl: `${base}/home/${p.conversation_id}`,
+    });
+    const account = accountByConv.get(p.conversation_id);
+    const res = await sendWhatsApp({
+      to,
+      text,
+      accountId: account?.provider_account_id,
+      accountPhone: account?.phone,
+      label: "Stayful",
+    });
+    await finish([r], res.ok, res.id, res.error);
+
+    if (res.ok) {
+      // Remember which group we last WhatsApped this person from, so an inbound reply has an
+      // authoritative conversation to land in without re-deriving it.
+      await admin.from("whatsapp_threads").upsert(
+        {
+          user_id: r.recipient_user_id!,
+          org_id: r.org_id,
+          conversation_id: p.conversation_id,
+          phone: to,
+          whatsapp_account_id: account?.id ?? null,
+          last_outbound_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+      return;
+    }
+
+    // Out of retries: fall back to email rather than letting the message go undelivered, and
+    // tell the team, because a number that no longer works is theirs to fix.
+    if (r.attempts + 1 >= MAX_ATTEMPTS) await fallbackToEmail(r, p);
+  });
+
+  /**
+   * Queues the email version of a message whose WhatsApp gave up, and leaves an internal note in
+   * the conversation. `visibility: 'internal'` is never returned to customer accounts — over
+   * Realtime or in sidebar previews — so this reaches the team where the problem is without the
+   * customer seeing that we failed to reach them.
+   */
+  async function fallbackToEmail(r: NotificationOutbox, p: MessagePayload) {
+    const pref = r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined;
+    if (pref?.email) {
+      // A plain insert, not an upsert: the dedupe index is on an expression
+      // ((payload->>'message_id')) that PostgREST cannot name in on_conflict. A duplicate means
+      // they already had an email row for this message, which is exactly the no-op we want.
+      const { error: dupe } = await admin!.from("notification_outbox").insert({
+        org_id: r.org_id,
+        kind: "message",
+        channel: "email",
+        recipient_user_id: r.recipient_user_id,
+        recipient_email: pref.email,
+        payload: r.payload,
+        fallback_from: "whatsapp",
+      });
+      if (dupe && dupe.code !== "23505") console.error("whatsapp fallback to email failed", dupe.message);
+    }
+    // Written straight to messages rather than through channel_system_message: the admin client
+    // bypasses RLS, and that RPC is not exposed to PostgREST.
+    await admin!.from("messages").insert({
+      org_id: r.org_id,
+      conversation_id: p.conversation_id,
+      sender_id: null,
+      kind: "system",
+      visibility: "internal",
+      body: `WhatsApp to ${p.recipient_name} failed${pref?.email ? " — sent by email instead" : ""}. Check their mobile number.`,
+      meta: { event: "whatsapp_failed", user_id: r.recipient_user_id, error: r.last_error ?? null },
+    });
   }
 
   // Welcome emails that the app could not send synchronously
@@ -218,24 +385,26 @@ export async function GET(request: NextRequest) {
     };
     if (!p.password) {
       // The password is never stored; the team re-sends login details from the app instead.
-      await admin
-        .from("notification_outbox")
-        .update({ status: "skipped", last_error: "welcome email must be re-sent from the app" })
-        .eq("id", r.id);
-      skipped++;
+      await skip(r, "welcome email must be re-sent from the app");
+      continue;
+    }
+    // recipient_email is nullable since 0019, so a welcome row needs an address either way.
+    const to = p.email ?? r.recipient_email;
+    if (!to) {
+      await skip(r, "no email address");
       continue;
     }
     const mail = welcomeEmail({
       recipientName: p.recipient_name ?? "there",
-      email: p.email ?? r.recipient_email,
+      email: to,
       password: p.password,
       loginUrl: p.login_url ?? `${base}/login`,
       invitedBy: p.invited_by ?? "The Stayful team",
       groups: p.groups ?? [],
     });
-    const res = await sendEmail({ to: r.recipient_email, subject: mail.subject, html: mail.html, text: mail.text });
+    const res = await sendEmail({ to, subject: mail.subject, html: mail.html, text: mail.text });
     await finish([r], res.ok, res.id, res.error);
   }
 
-  return NextResponse.json({ sent, failed, skipped, posted });
+  return NextResponse.json({ sent, failed, skipped, posted, deferred: waDeferred.length });
 }

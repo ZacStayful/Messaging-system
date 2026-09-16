@@ -32,6 +32,32 @@ async function fetchReceivedEmail(
   return null;
 }
 
+type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
+
+/**
+ * Records an inbound email we could not route. Until now every `ignored` branch below returned
+ * 200 and kept no record, so "did we miss anything a customer sent?" had no answer. WhatsApp
+ * writes to the same table, so both channels answer it from one place.
+ */
+async function unmatched(
+  admin: Admin,
+  reason: string,
+  emailId: string,
+  from: string,
+  body: string | null,
+  raw: unknown,
+) {
+  await admin.from("inbound_messages_unmatched").insert({
+    channel: "email",
+    external_ref: emailId,
+    from_identifier: from || "unknown",
+    body,
+    payload: (raw ?? {}) as never,
+    reason,
+  });
+  return NextResponse.json({ ignored: reason });
+}
+
 /**
  * Resend "email.received" webhook. A customer replying to a notification email lands here;
  * the reply token in the To address identifies who they are and which conversation it belongs to.
@@ -72,10 +98,10 @@ export async function POST(request: NextRequest) {
   }
 
   const token = tokenFromRecipients(to ?? []);
-  if (!token) return NextResponse.json({ ignored: "no reply token" });
+  if (!token) return unmatched(admin, "no_reply_token", emailId, from ?? "", null, event);
 
   const { data: thread } = await admin.from("email_reply_threads").select("*").eq("token", token).maybeSingle();
-  if (!thread) return NextResponse.json({ ignored: "unknown token" });
+  if (!thread) return unmatched(admin, "unknown_token", emailId, from ?? "", null, event);
 
   // The sender must still be a member; a forwarded email from someone else is dropped.
   const [{ data: profile }, { data: membership }] = await Promise.all([
@@ -87,14 +113,25 @@ export async function POST(request: NextRequest) {
       .eq("user_id", thread.user_id)
       .maybeSingle(),
   ]);
-  if (!profile || profile.deactivated_at || !membership) return NextResponse.json({ ignored: "not a member" });
+  if (!profile || profile.deactivated_at || !membership) {
+    return unmatched(admin, profile?.deactivated_at ? "deactivated" : "not_a_member", emailId, from ?? "", null, event);
+  }
   const fromAddr = (from?.match(/<([^>]+)>/)?.[1] ?? from ?? "").trim().toLowerCase();
   if (profile.email && fromAddr && fromAddr !== profile.email.toLowerCase()) {
-    return NextResponse.json({ ignored: "sender does not match account email" });
+    return unmatched(admin, "sender_mismatch", emailId, fromAddr, null, event);
   }
 
+  // A reply to an old notification for a group that has since been archived would land where
+  // nobody is looking. Record it instead, so someone can act on it.
+  const { data: conv } = await admin
+    .from("conversations")
+    .select("archived_at")
+    .eq("id", thread.conversation_id)
+    .maybeSingle();
+  if (conv?.archived_at) return unmatched(admin, "archived", emailId, fromAddr, null, event);
+
   const body = stripQuotedReply(text?.trim() ? text : htmlToText(html ?? ""));
-  if (!body) return NextResponse.json({ ignored: "empty reply" });
+  if (!body) return unmatched(admin, "empty_body", emailId, fromAddr, null, event);
 
   const { error } = await admin.from("messages").insert({
     org_id: thread.org_id,
