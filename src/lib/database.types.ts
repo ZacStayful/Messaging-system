@@ -205,6 +205,8 @@ export type Database = {
           emoji: string | null;
           id: string;
           note: string | null;
+          is_mandatory: boolean;
+          template_key: string | null;
           org_id: string;
           position: number;
           title: string;
@@ -218,6 +220,8 @@ export type Database = {
           emoji?: string | null;
           id?: string;
           note?: string | null;
+          is_mandatory?: boolean;
+          template_key?: string | null;
           org_id: string;
           position?: number;
           title: string;
@@ -231,6 +235,8 @@ export type Database = {
           emoji?: string | null;
           id?: string;
           note?: string | null;
+          is_mandatory?: boolean;
+          template_key?: string | null;
           org_id?: string;
           position?: number;
           title?: string;

@@ -58,7 +58,9 @@ export function BookmarksTab({
       <div className="flex flex-col gap-3">
         {bookmarks.map((b, i) => {
           const author = b.created_by ? profiles[b.created_by] : undefined;
-          const canEdit = isTeam || b.created_by === meId;
+          // The database refuses both for a mandatory bookmark (0021); do not offer a button
+          // whose only outcome is an error.
+          const canEdit = !b.is_mandatory && (isTeam || b.created_by === meId);
           const u = safeHttpUrl(b.url);
           return (
             <div key={b.id} className="flex gap-3 rounded-xl border border-line bg-card px-4 py-3.5">
@@ -126,7 +128,9 @@ export function BookmarksTab({
                 </div>
                 {b.note && <p className="mt-1 text-[15px] whitespace-pre-wrap">{b.note}</p>}
                 <div className="mt-1 text-[13px] text-muted">
-                  Added by {author?.display_name ?? "a former member"} · {pinWhen(b.created_at)}
+                  {b.is_mandatory
+                    ? "On every Stayful customer group"
+                    : `Added by ${author?.display_name ?? "a former member"} · ${pinWhen(b.created_at)}`}
                 </div>
               </div>
             </div>

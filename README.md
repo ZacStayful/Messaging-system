@@ -40,6 +40,10 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   pasting a link offers to fill the title from its Open Graph data. The team can reorder and
   remove anything, a customer can edit their own. Changes reach everyone live over a `BOOKMARK`
   broadcast on the conversation topic. Also available over the API and MCP.
+- Every customer group carries two required bookmarks — the quarterly review call and Stayful
+  Intelligence — applied on creation and backfilled onto existing groups. They cannot be removed
+  or re-pointed from the app, the REST API or MCP. Growing or changing the set is an INSERT or
+  UPDATE on `bookmark_templates`, which fans out to every group with no deploy.
 - Pins tab (jump to message, unpin), Files and links tab (newest/oldest), details modal with
   editable topic and description, member add/remove/leave, rename and archive (team).
 - Header menus: notification level (all / mentions / nothing) per conversation, mute, star,
@@ -148,6 +152,9 @@ Environment variables (`.env.local`, also set in Vercel):
 | `TIMELINES_WHATSAPP_ACCOUNT_ID`        | Optional. Which connected WhatsApp account sends, when there is more than one                                         |
 | `TIMELINES_API_BASE`                   | Optional. Overrides the API base, e.g. a local stub in tests                                                          |
 | `TIMELINES_DRY_RUN`                    | Local and test only. `1` makes every WhatsApp send succeed without a request                                          |
+| `WHATSAPP_WEBHOOK_TOKEN`               | Secret path segment of the inbound webhook URL. TimelinesAI publishes no signature scheme                             |
+| `WHATSAPP_WEBHOOK_SECRET`              | Optional second factor: when set, an `x-stayful-token` header must match too                                          |
+| `WHATSAPP_MAX_PER_RUN`                 | Optional. Caps WhatsApp sends per cron run (default 60), since WhatsApp does not batch                                |
 | `SUPABASE_JWT_SECRET`                  | Server only. Required by the REST API and MCP server: each request is signed as the key's user (see below)            |
 
 ## Database
@@ -197,6 +204,9 @@ Migrations live in `supabase/migrations` and are applied in order:
 20. `0020_whatsapp_inbound.sql` unique `external_ref` for WhatsApp so a redelivered webhook is
     one message, and `inbound_messages_unmatched` so nothing a customer sends is dropped
     silently on either channel
+21. `0021_mandatory_bookmarks.sql` `bookmark_templates` plus `is_mandatory`/`template_key` on
+    `conversation_bookmarks`; every customer group gets the quarterly review call and Stayful
+    Intelligence automatically, and a guard trigger stops either being removed or re-pointed
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
