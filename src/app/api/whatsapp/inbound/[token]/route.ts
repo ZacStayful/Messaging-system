@@ -76,6 +76,42 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   return NextResponse.json({ ok: true, results });
 }
 
+/**
+ * Resolves which of our numbers a message arrived on, registering it if we have not seen it.
+ *
+ * Stayful connects a handful of numbers, one per account manager, and they get added in
+ * TimelinesAI rather than here. Self-registering on first contact means a newly connected number
+ * works immediately instead of dropping messages until someone remembers to add a row. The row
+ * arrives inactive-by-default in no sense — it is usable at once, but never `is_default`, so it
+ * cannot quietly take over as the fallback for every new group.
+ */
+async function resolveAccount(admin: Admin, orgId: string, m: InboundWhatsApp): Promise<string | null> {
+  if (!m.receivedOn) return null;
+  const { data: existing } = await admin
+    .from("whatsapp_accounts")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("phone", m.receivedOn)
+    .maybeSingle();
+  if (existing) return existing.id;
+
+  const { data: owner } = m.receivedByEmail
+    ? await admin.from("profiles").select("id").eq("org_id", orgId).ilike("email", m.receivedByEmail).maybeSingle()
+    : { data: null };
+  const { data: created } = await admin
+    .from("whatsapp_accounts")
+    .insert({
+      org_id: orgId,
+      phone: m.receivedOn,
+      owner_email: m.receivedByEmail,
+      owner_user_id: owner?.id ?? null,
+      account_name: m.receivedByEmail ?? null,
+    })
+    .select("id")
+    .maybeSingle();
+  return created?.id ?? null;
+}
+
 async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
   const parsed = normaliseUkMobile(m.fromPhone);
   if (!parsed.ok) return unmatched(admin, m, "bad_number", raw);
@@ -121,13 +157,25 @@ async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
     .maybeSingle();
   if (!stillIn) return unmatched(admin, m, "not_a_member", raw);
 
-  const { data: conv } = await admin.from("conversations").select("archived_at").eq("id", conversationId).maybeSingle();
+  const { data: conv } = await admin
+    .from("conversations")
+    .select("archived_at, whatsapp_account_id")
+    .eq("id", conversationId)
+    .maybeSingle();
   if (conv?.archived_at) return unmatched(admin, m, "archived", raw);
 
   // Media is not ingested yet, but a photo with no caption must not become an empty message that
   // silently disappears — the team needs to know something arrived.
   const body = m.text.trim() || (m.mediaUrl ? "[Sent an attachment on WhatsApp]" : "");
   if (!body) return unmatched(admin, m, "empty_body", raw);
+
+  const accountId = await resolveAccount(admin, profile.org_id, m);
+  // A group with no number yet takes the one they reached us on. This is not "moving" a group —
+  // an assigned group keeps its number however the customer gets in touch, per the agreed rule
+  // that their number identifies them and ours is only the doorway.
+  if (accountId && !conv?.whatsapp_account_id) {
+    await admin.from("conversations").update({ whatsapp_account_id: accountId }).eq("id", conversationId);
+  }
 
   const { error } = await admin.from("messages").insert({
     org_id: profile.org_id,
@@ -138,7 +186,14 @@ async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
     visibility: "public",
     sent_via: "whatsapp",
     external_ref: m.externalRef,
-    meta: { whatsapp_chat_id: m.chatId, whatsapp_from: parsed.e164, whatsapp_media_url: m.mediaUrl ?? null },
+    meta: {
+      whatsapp_chat_id: m.chatId,
+      whatsapp_from: parsed.e164,
+      // Which Stayful number they reached, so the team can see it even when it is not the
+      // group's own and so a mis-sent reply is traceable.
+      whatsapp_received_on: m.receivedOn ?? null,
+      whatsapp_media_url: m.mediaUrl ?? null,
+    },
   });
   if (error) {
     // messages_external_ref_whatsapp_idx: TimelinesAI redelivered one we already stored.
@@ -146,18 +201,16 @@ async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
     return { error: error.message, ref: m.externalRef };
   }
 
-  await admin
-    .from("whatsapp_threads")
-    .upsert(
-      {
-        user_id: profile.id,
-        org_id: profile.org_id,
-        conversation_id: conversationId,
-        phone: parsed.e164!,
-        last_inbound_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
+  await admin.from("whatsapp_threads").upsert(
+    {
+      user_id: profile.id,
+      org_id: profile.org_id,
+      conversation_id: conversationId,
+      phone: parsed.e164!,
+      last_inbound_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
 
   return { ok: true, ref: m.externalRef, conversation_id: conversationId };
 }

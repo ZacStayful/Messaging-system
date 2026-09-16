@@ -196,3 +196,73 @@ describe("verifyWebhookToken", () => {
     expect(verifyWebhookToken(undefined, undefined)).toBe(false);
   });
 });
+
+describe("normaliseInboundPayload — the documented event shape", () => {
+  // Copied from https://timelinesai.mintlify.app/webhook-reference/overview. This is the shape a
+  // real delivery has: no `data` wrapper, chat_id a number, is_group nested under chat. An
+  // earlier version of the parser returned [] for it, so no reply would ever have arrived.
+  const real = {
+    event_type: "message:received:new",
+    chat: {
+      full_name: "John Doe",
+      chat_url: "https://app.timelines.ai/chat/123456/messages/",
+      chat_id: 123456,
+      is_group: false,
+      phone: "+15551234567",
+      responsible_name: "Agent Brown",
+      responsible_email: "agent-brown@example.com",
+    },
+    whatsapp_account: { full_name: "Agent Brown", email: "agent-brown@example.com", phone: "+15559876543" },
+    message: {
+      text: "Hi, here is the signed contract",
+      direction: "received",
+      origin: "WhatsApp",
+      timestamp: "2024-01-15 10:30:00 +0200",
+      message_uid: "a5bbb005-37f2-402c-96fa-e479a2e09b02",
+      reply_to_uid: "c7ec509d-0171-1ead-a84b-c6943a644768",
+      sender: { full_name: "John Doe", phone: "+15551234567" },
+      recipient: { full_name: "Agent Brown", phone: "+15559876543" },
+      attachments: [],
+    },
+  };
+
+  it("reads a real delivery", () => {
+    const out = normaliseInboundPayload(real);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      externalRef: "a5bbb005-37f2-402c-96fa-e479a2e09b02",
+      fromPhone: "+15551234567",
+      text: "Hi, here is the signed contract",
+      direction: "received",
+      isGroup: false,
+    });
+  });
+
+  it("coerces a numeric chat_id rather than losing it", () => {
+    expect(normaliseInboundPayload(real)[0].chatId).toBe("123456");
+  });
+
+  it("records which of our numbers received it, which is what multi-number needs", () => {
+    const out = normaliseInboundPayload(real)[0];
+    expect(out.receivedOn).toBe("+15559876543");
+    expect(out.receivedByEmail).toBe("agent-brown@example.com");
+  });
+
+  it("still labels our own outbound as sent in the real shape", () => {
+    const sent = { ...real, event_type: "message:sent:new", message: { ...real.message, direction: "sent" } };
+    expect(normaliseInboundPayload(sent)[0].direction).toBe("sent");
+  });
+
+  it("sees a group chat flagged under chat, not at the top level", () => {
+    const group = { ...real, chat: { ...real.chat, is_group: true } };
+    expect(normaliseInboundPayload(group)[0].isGroup).toBe(true);
+  });
+
+  it("picks up an attachment url from the attachments array", () => {
+    const withFile = {
+      ...real,
+      message: { ...real.message, text: "", attachments: [{ url: "https://x.test/contract.pdf" }] },
+    };
+    expect(normaliseInboundPayload(withFile)[0].mediaUrl).toBe("https://x.test/contract.pdf");
+  });
+});

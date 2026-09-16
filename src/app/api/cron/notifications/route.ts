@@ -230,6 +230,24 @@ export async function GET(request: NextRequest) {
 
   // ---- whatsapp --------------------------------------------------------------
   const waRows = live.filter((x) => x.channel === "whatsapp");
+
+  // Which number each group sends from (0022). One query for the run, not one per message.
+  const convIds = Array.from(new Set(waRows.map((r) => (r.payload as unknown as MessagePayload).conversation_id)));
+  const accountByConv = new Map<string, { id: string; provider_account_id: string | null; phone: string }>();
+  if (convIds.length) {
+    const { data: convs } = await admin
+      .from("conversations")
+      .select("id, whatsapp_account:whatsapp_accounts(id, provider_account_id, phone)")
+      .in("id", convIds);
+    for (const c of convs ?? []) {
+      const a = c.whatsapp_account as unknown as {
+        id: string;
+        provider_account_id: string | null;
+        phone: string;
+      } | null;
+      if (a) accountByConv.set(c.id, a);
+    }
+  }
   const waSending = waRows.slice(0, WHATSAPP_MAX_PER_RUN);
   const waDeferred = waRows.slice(WHATSAPP_MAX_PER_RUN);
   // Over the cap: put them back so the next minute picks them up, rather than failing them.
@@ -258,7 +276,14 @@ export async function GET(request: NextRequest) {
       isGroup: !isDm,
       viewUrl: `${base}/home/${p.conversation_id}`,
     });
-    const res = await sendWhatsApp({ to, text, label: "Stayful" });
+    const account = accountByConv.get(p.conversation_id);
+    const res = await sendWhatsApp({
+      to,
+      text,
+      accountId: account?.provider_account_id,
+      accountPhone: account?.phone,
+      label: "Stayful",
+    });
     await finish([r], res.ok, res.id, res.error);
 
     if (res.ok) {
@@ -270,6 +295,7 @@ export async function GET(request: NextRequest) {
           org_id: r.org_id,
           conversation_id: p.conversation_id,
           phone: to,
+          whatsapp_account_id: account?.id ?? null,
           last_outbound_at: new Date().toISOString(),
         },
         { onConflict: "user_id" },

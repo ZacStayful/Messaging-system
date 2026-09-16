@@ -30,6 +30,10 @@ export interface InboundWhatsApp {
   sentAt: string | null;
   chatId: string | null;
   isGroup: boolean;
+  /** Which of OUR numbers received it. Null when the payload does not say. */
+  receivedOn: string | null;
+  /** The Stayful person that number belongs to, per TimelinesAI. */
+  receivedByEmail: string | null;
   /** "received" is a customer writing to us; "sent" is our own outbound coming back. */
   direction: "received" | "sent";
   /** Set when the message carried media we are not ingesting yet. */
@@ -37,7 +41,11 @@ export interface InboundWhatsApp {
 }
 
 type Unknown = Record<string, unknown>;
-const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+const str = (v: unknown): string | null => {
+  if (typeof v === "number") return String(v); // chat_id arrives as a number
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+};
+const obj = (v: unknown): Unknown => (v && typeof v === "object" ? (v as Unknown) : {});
 
 /**
  * Normalises both documented TimelinesAI webhook shapes into one list.
@@ -75,6 +83,8 @@ export function normaliseInboundPayload(raw: unknown): InboundWhatsApp[] {
           chatId,
           isGroup,
           direction: m.direction === "sent" ? "sent" : "received",
+          receivedOn: str(obj(m.recipient).phone) ?? str(obj(body.whatsapp_account).phone),
+          receivedByEmail: str(obj(body.whatsapp_account).email),
           mediaUrl: str(m.attachment_url) ?? str(m.media_url),
         };
       })
@@ -82,24 +92,35 @@ export function normaliseInboundPayload(raw: unknown): InboundWhatsApp[] {
   }
 
   // --- event form ---
+  // The documented shape is { event_type, chat, whatsapp_account, message } with no wrapper:
+  // https://timelinesai.mintlify.app/webhook-reference/overview. `data` and a flat body are
+  // tolerated too, because an older webhook configuration may still send them and the cost of
+  // being wrong here is that a customer's message is dropped on the floor.
   const eventType = str(body.event_type) ?? str(body.event);
-  const data = (body.data ?? body) as Unknown;
+  const msg = obj(body.message);
+  const chat = obj(body.chat);
+  const account = obj(body.whatsapp_account);
+  const data = Object.keys(msg).length ? msg : obj(body.data ?? body);
+
   const ref = str(data.message_uid) ?? str(data.uid) ?? str(data.id);
-  const phone = str(data.phone) ?? str(data.sender_phone) ?? str((data.sender as Unknown)?.phone as string);
+  const phone = str(obj(data.sender).phone) ?? str(chat.phone) ?? str(data.phone) ?? str(data.sender_phone);
   if (!ref || !phone) return [];
   // An event form with no event_type at all is treated as received; an explicitly "sent" one is
   // kept and labelled so the caller drops it, rather than silently vanishing here.
   const direction = eventType?.includes(":sent:") || data.direction === "sent" ? "sent" : "received";
+  const attachments = Array.isArray(data.attachments) ? (data.attachments as Unknown[]) : [];
   return [
     {
       externalRef: ref,
       fromPhone: phone,
       text: str(data.text) ?? "",
       sentAt: str(data.timestamp) ?? str(data.created_at),
-      chatId: str(data.chat_id),
-      isGroup: data.is_group === true,
+      chatId: str(chat.chat_id) ?? str(data.chat_id),
+      isGroup: chat.is_group === true || data.is_group === true,
       direction,
-      mediaUrl: str(data.attachment_url) ?? str(data.media_url),
+      receivedOn: str(account.phone) ?? str(obj(data.recipient).phone),
+      receivedByEmail: str(account.email),
+      mediaUrl: str(attachments[0] && obj(attachments[0]).url) ?? str(data.attachment_url) ?? str(data.media_url),
     },
   ];
 }

@@ -94,6 +94,12 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Email notifications (D8): every customer-visible message is queued in `notification_outbox`;
   a Vercel cron drains it through Resend (grouping messages within two minutes), with a
   signed one-click unsubscribe link.
+- Several Stayful numbers: each account manager connects their own mobile, and a customer group
+  owns one of them, so the customer's phone shows one continuous conversation rather than a chat
+  per person who replied. A new group takes its creator's number, falling back to the default.
+  A number we have not seen registers itself the first time it receives a message. Replies land
+  in the customer's group whichever of our numbers they reach — their number identifies them,
+  ours is only the doorway — and which one they used is recorded on the message.
 - WhatsApp out: the same outbox carries a `whatsapp` row for anyone who switched it on and has a
   verified mobile. One message, one WhatsApp — no batching window, with a per-run cap instead.
   If a send runs out of retries the email version is queued in its place and an internal-only
@@ -149,7 +155,7 @@ Environment variables (`.env.local`, also set in Vercel):
 | `EMAIL_REPLY_DOMAIN`                   | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk`                                      |
 | `RESEND_WEBHOOK_SECRET`                | Optional. `whsec_…` secret of the Resend webhook for `email.received`                                                 |
 | `TIMELINES_API_TOKEN`                  | TimelinesAI public API token. Also sends the first-login verification code, so sign-in degrades without it            |
-| `TIMELINES_WHATSAPP_ACCOUNT_ID`        | Optional. Which connected WhatsApp account sends, when there is more than one                                         |
+| `TIMELINES_WHATSAPP_ACCOUNT_ID`        | Optional fallback only. The sending number comes from the group's `whatsapp_accounts` row (0022)                      |
 | `TIMELINES_API_BASE`                   | Optional. Overrides the API base, e.g. a local stub in tests                                                          |
 | `TIMELINES_DRY_RUN`                    | Local and test only. `1` makes every WhatsApp send succeed without a request                                          |
 | `WHATSAPP_WEBHOOK_TOKEN`               | Secret path segment of the inbound webhook URL. TimelinesAI publishes no signature scheme                             |
@@ -207,6 +213,9 @@ Migrations live in `supabase/migrations` and are applied in order:
 21. `0021_mandatory_bookmarks.sql` `bookmark_templates` plus `is_mandatory`/`template_key` on
     `conversation_bookmarks`; every customer group gets the quarterly review call and Stayful
     Intelligence automatically, and a guard trigger stops either being removed or re-pointed
+22. `0022_whatsapp_accounts.sql` `whatsapp_accounts` (one per account manager's mobile) and
+    `conversations.whatsapp_account_id`; a new customer group takes its creator's number, so a
+    customer always sees the same one
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

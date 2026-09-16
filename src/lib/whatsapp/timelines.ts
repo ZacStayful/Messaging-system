@@ -14,6 +14,16 @@ export interface WhatsAppMessage {
   /** E.164, as produced by normaliseUkMobile. TimelinesAI rejects spaces and brackets. */
   to: string;
   text: string;
+  /**
+   * Which of our numbers to send from. Stayful runs one per account manager, and the group being
+   * messaged decides which — so the customer always sees the same number and their phone shows
+   * one continuous conversation rather than a chat per person who replied.
+   *
+   * TimelinesAI's own account id (`4479…@s.whatsapp.net`) when we know it; falling back to the
+   * account's phone number, which is all the inbound webhook tells us about a number.
+   */
+  accountId?: string | null;
+  accountPhone?: string | null;
   /** Optional TimelinesAI chat label, handy for telling app traffic from hand-sent messages. */
   label?: string;
 }
@@ -53,7 +63,9 @@ export async function sendWhatsApp(message: WhatsAppMessage): Promise<SendResult
       body: JSON.stringify({
         phone: message.to,
         text: message.text,
-        whatsapp_account_id: process.env.TIMELINES_WHATSAPP_ACCOUNT_ID || undefined,
+        // Per-group account first, then the env fallback for a single-number setup.
+        whatsapp_account_id: message.accountId || process.env.TIMELINES_WHATSAPP_ACCOUNT_ID || undefined,
+        whatsapp_account_phone: message.accountPhone || undefined,
         label: message.label,
       }),
     });

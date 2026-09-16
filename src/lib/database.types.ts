@@ -329,6 +329,7 @@ export type Database = {
         Row: {
           archived_at: string | null;
           assignee_id: string | null;
+          whatsapp_account_id: string | null;
           created_at: string;
           created_by: string | null;
           description: string | null;
@@ -346,6 +347,7 @@ export type Database = {
         Insert: {
           archived_at?: string | null;
           assignee_id?: string | null;
+          whatsapp_account_id?: string | null;
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
@@ -363,6 +365,7 @@ export type Database = {
         Update: {
           archived_at?: string | null;
           assignee_id?: string | null;
+          whatsapp_account_id?: string | null;
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
@@ -693,12 +696,55 @@ export type Database = {
           },
         ];
       };
+      whatsapp_accounts: {
+        Row: {
+          id: string;
+          org_id: string;
+          phone: string;
+          provider_account_id: string | null;
+          account_name: string | null;
+          owner_email: string | null;
+          owner_user_id: string | null;
+          status: string;
+          is_default: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          phone: string;
+          provider_account_id?: string | null;
+          account_name?: string | null;
+          owner_email?: string | null;
+          owner_user_id?: string | null;
+          status?: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          phone?: string;
+          provider_account_id?: string | null;
+          account_name?: string | null;
+          owner_email?: string | null;
+          owner_user_id?: string | null;
+          status?: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       whatsapp_threads: {
         Row: {
           user_id: string;
           org_id: string;
           conversation_id: string;
           phone: string;
+          whatsapp_account_id: string | null;
           last_outbound_at: string | null;
           last_inbound_at: string | null;
           created_at: string;
@@ -708,6 +754,7 @@ export type Database = {
           org_id: string;
           conversation_id: string;
           phone: string;
+          whatsapp_account_id?: string | null;
           last_outbound_at?: string | null;
           last_inbound_at?: string | null;
           created_at?: string;
@@ -717,6 +764,7 @@ export type Database = {
           org_id?: string;
           conversation_id?: string;
           phone?: string;
+          whatsapp_account_id?: string | null;
           last_outbound_at?: string | null;
           last_inbound_at?: string | null;
           created_at?: string;
@@ -1246,6 +1294,7 @@ export type Database = {
       start_phone_verification: { Args: { p_phone: string }; Returns: string };
       confirm_phone_verification: { Args: { p_phone: string; p_code: string }; Returns: undefined };
       set_customer_phone: { Args: { p_user_id: string; p_phone: string | null }; Returns: undefined };
+      set_conversation_whatsapp_account: { Args: { p_conversation_id: string; p_account_id: string | null }; Returns: undefined };
       set_member_side: { Args: { p_conversation_id: string; p_user_id: string; p_side: string }; Returns: undefined };
       shares_conversation_with: { Args: { other: string }; Returns: boolean };
       storage_path_conversation_id: { Args: { name: string }; Returns: string };
