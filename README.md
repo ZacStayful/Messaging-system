@@ -90,6 +90,10 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Email notifications (D8): every customer-visible message is queued in `notification_outbox`;
   a Vercel cron drains it through Resend (grouping messages within two minutes), with a
   signed one-click unsubscribe link.
+- WhatsApp out: the same outbox carries a `whatsapp` row for anyone who switched it on and has a
+  verified mobile. One message, one WhatsApp — no batching window, with a per-run cap instead.
+  If a send runs out of retries the email version is queued in its place and an internal-only
+  note appears in the group so the team can fix the number.
 - Reply by email: notification emails carry `Reply-To: reply+<token>@<EMAIL_REPLY_DOMAIN>`;
   Resend Inbound posts replies to `/api/email/inbound`, which stores them in the same
   conversation as the customer (`sent_via = email`).
@@ -181,6 +185,10 @@ Migrations live in `supabase/migrations` and are applied in order:
 18. `0018_phone_and_member_sides.sql` `profiles.phone` (verified by code, guarded against direct
     writes), `phone_verifications`, `conversation_members.member_side`, and the trigger enforcing
     one customer group per external member
+19. `0019_outbox_channels.sql` `notification_outbox` gains `channel`, `recipient_phone` and
+    `fallback_from`; `enqueue_message_notifications` emits one row per channel the external
+    participant has switched on; `whatsapp_threads` records which group we last messaged
+    someone from
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

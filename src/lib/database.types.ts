@@ -551,7 +551,10 @@ export type Database = {
           org_id: string;
           payload: Json;
           provider_message_id: string | null;
-          recipient_email: string;
+          recipient_email: string | null;
+          recipient_phone: string | null;
+          channel: string;
+          fallback_from: string | null;
           recipient_user_id: string | null;
           sent_at: string | null;
           status: string;
@@ -565,7 +568,10 @@ export type Database = {
           org_id: string;
           payload?: Json;
           provider_message_id?: string | null;
-          recipient_email: string;
+          recipient_email?: string | null;
+          recipient_phone?: string | null;
+          channel?: string;
+          fallback_from?: string | null;
           recipient_user_id?: string | null;
           sent_at?: string | null;
           status?: string;
@@ -579,7 +585,10 @@ export type Database = {
           org_id?: string;
           payload?: Json;
           provider_message_id?: string | null;
-          recipient_email?: string;
+          recipient_email?: string | null;
+          recipient_phone?: string | null;
+          channel?: string;
+          fallback_from?: string | null;
           recipient_user_id?: string | null;
           sent_at?: string | null;
           status?: string;
@@ -677,6 +686,36 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      whatsapp_threads: {
+        Row: {
+          user_id: string;
+          org_id: string;
+          conversation_id: string;
+          phone: string;
+          last_outbound_at: string | null;
+          last_inbound_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          org_id: string;
+          conversation_id: string;
+          phone: string;
+          last_outbound_at?: string | null;
+          last_inbound_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          org_id?: string;
+          conversation_id?: string;
+          phone?: string;
+          last_outbound_at?: string | null;
+          last_inbound_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
       };
       phone_verifications: {
         Row: {
