@@ -94,6 +94,11 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   verified mobile. One message, one WhatsApp — no batching window, with a per-run cap instead.
   If a send runs out of retries the email version is queued in its place and an internal-only
   note appears in the group so the team can fix the number.
+- WhatsApp in: TimelinesAI posts to `/api/whatsapp/inbound/<WHATSAPP_WEBHOOK_TOKEN>`; the number
+  identifies the customer and the reply lands in their group as a normal message from them
+  (`sent_via = whatsapp`). Anything unroutable — an unknown number, an archived group — is
+  recorded in `inbound_messages_unmatched` and still answered 200, because a 4xx only makes
+  the provider retry a message that was never going to route. Inbound email now does the same.
 - Reply by email: notification emails carry `Reply-To: reply+<token>@<EMAIL_REPLY_DOMAIN>`;
   Resend Inbound posts replies to `/api/email/inbound`, which stores them in the same
   conversation as the customer (`sent_via = email`).
@@ -189,6 +194,9 @@ Migrations live in `supabase/migrations` and are applied in order:
     `fallback_from`; `enqueue_message_notifications` emits one row per channel the external
     participant has switched on; `whatsapp_threads` records which group we last messaged
     someone from
+20. `0020_whatsapp_inbound.sql` unique `external_ref` for WhatsApp so a redelivered webhook is
+    one message, and `inbound_messages_unmatched` so nothing a customer sends is dropped
+    silently on either channel
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

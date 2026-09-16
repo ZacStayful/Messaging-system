@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { messageWhatsApp } from "@/lib/whatsapp/templates";
 import { dryRun, sendWhatsApp, whatsappApiBase, whatsappConfigured } from "@/lib/whatsapp/timelines";
+import { normaliseInboundPayload, verifyWebhookToken } from "@/lib/whatsapp/inbound";
 
 const env = { ...process.env };
 afterEach(() => {
@@ -88,5 +89,110 @@ describe("timelines adapter", () => {
     expect(whatsappApiBase()).toBe("https://app.timelines.ai/integrations/api");
     process.env.TIMELINES_API_BASE = "https://stub.test/api/";
     expect(whatsappApiBase()).toBe("https://stub.test/api");
+  });
+});
+
+describe("normaliseInboundPayload", () => {
+  it("reads the event form", () => {
+    const out = normaliseInboundPayload({
+      event_type: "message:received:new",
+      data: {
+        message_uid: "m-1",
+        phone: "+447700900001",
+        text: "Tuesday works",
+        chat_id: "c-1",
+        timestamp: "2026-09-16T09:00:00Z",
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      externalRef: "m-1",
+      fromPhone: "+447700900001",
+      text: "Tuesday works",
+      direction: "received",
+      chatId: "c-1",
+    });
+  });
+
+  it("reads the older bundle form, including several messages at once", () => {
+    const out = normaliseInboundPayload({
+      chat_id: "c-9",
+      phone: "+447700900002",
+      is_group: false,
+      messages: [
+        { message_uid: "m-1", direction: "received", text: "one", sender: { phone: "+447700900002" } },
+        { message_uid: "m-2", direction: "received", text: "two" },
+      ],
+    });
+    expect(out.map((m) => m.externalRef)).toEqual(["m-1", "m-2"]);
+    // The second message has no sender of its own and inherits the chat's number.
+    expect(out[1].fromPhone).toBe("+447700900002");
+  });
+
+  it("labels our own outbound as sent, in both shapes", () => {
+    // The caller drops these. If it did not, storing one would post our own notification into
+    // the conversation as the customer, notifying them, arriving back here — the echo loop.
+    const evt = normaliseInboundPayload({
+      event_type: "message:sent:new",
+      data: { message_uid: "m-3", phone: "+447700900001", text: "from us" },
+    });
+    expect(evt[0].direction).toBe("sent");
+
+    const bundle = normaliseInboundPayload({
+      chat_id: "c-1",
+      phone: "+447700900001",
+      messages: [{ message_uid: "m-4", direction: "sent", text: "from us" }],
+    });
+    expect(bundle[0].direction).toBe("sent");
+  });
+
+  it("flags group chats so they are not routed into someone's private group", () => {
+    const out = normaliseInboundPayload({
+      chat_id: "c-2",
+      phone: "+447700900001",
+      is_group: true,
+      messages: [{ message_uid: "m-5", direction: "received", text: "hi all" }],
+    });
+    expect(out[0].isGroup).toBe(true);
+  });
+
+  it("keeps a media message rather than dropping it for having no text", () => {
+    const out = normaliseInboundPayload({
+      event_type: "message:received:new",
+      data: { message_uid: "m-6", phone: "+447700900001", text: "", media_url: "https://x.test/p.jpg" },
+    });
+    expect(out[0].text).toBe("");
+    expect(out[0].mediaUrl).toBe("https://x.test/p.jpg");
+  });
+
+  it("returns nothing for junk rather than throwing", () => {
+    for (const junk of [null, undefined, 42, "hello", {}, { data: {} }, { messages: [] }, { messages: [{}] }]) {
+      expect(normaliseInboundPayload(junk), JSON.stringify(junk)).toEqual([]);
+    }
+  });
+
+  it("skips messages with no id or no number, keeping the ones beside them", () => {
+    const out = normaliseInboundPayload({
+      chat_id: "c-3",
+      phone: "+447700900001",
+      messages: [{ text: "no id" }, { message_uid: "m-7", direction: "received", text: "fine" }],
+    });
+    expect(out.map((m) => m.externalRef)).toEqual(["m-7"]);
+  });
+});
+
+describe("verifyWebhookToken", () => {
+  it("accepts the right token and rejects everything else", () => {
+    expect(verifyWebhookToken("s3cret-token", "s3cret-token")).toBe(true);
+    expect(verifyWebhookToken("s3cret-tokeX", "s3cret-token")).toBe(false);
+    expect(verifyWebhookToken("short", "s3cret-token")).toBe(false);
+    expect(verifyWebhookToken("much-much-longer-token", "s3cret-token")).toBe(false);
+  });
+
+  it("rejects a missing token or a missing secret without throwing", () => {
+    expect(verifyWebhookToken(null, "s3cret")).toBe(false);
+    expect(verifyWebhookToken("", "s3cret")).toBe(false);
+    expect(verifyWebhookToken("s3cret", undefined)).toBe(false);
+    expect(verifyWebhookToken(undefined, undefined)).toBe(false);
   });
 });

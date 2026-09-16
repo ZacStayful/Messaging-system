@@ -717,6 +717,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      inbound_messages_unmatched: {
+        Row: {
+          id: number;
+          channel: string;
+          external_ref: string | null;
+          from_identifier: string;
+          body: string | null;
+          payload: Json;
+          reason: string;
+          resolved_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: never;
+          channel: string;
+          external_ref?: string | null;
+          from_identifier: string;
+          body?: string | null;
+          payload?: Json;
+          reason: string;
+          resolved_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: never;
+          channel?: string;
+          external_ref?: string | null;
+          from_identifier?: string;
+          body?: string | null;
+          payload?: Json;
+          reason?: string;
+          resolved_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       phone_verifications: {
         Row: {
           id: string;
