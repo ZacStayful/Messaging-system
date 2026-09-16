@@ -1,0 +1,43 @@
+name: CI
+
+# Until now nothing re-ran the test suite: the only check on a pull request was Vercel's
+# build, which compiles the app but never runs `pnpm test`. Tests passing therefore meant
+# "they passed on someone's laptop once", and a change could break them silently.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  # A new push supersedes the run in flight for the same branch.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm lint
+
+      - run: pnpm format:check
+
+      # The RLS suite and the Playwright sign-in specs need SEED_TEST_PASSWORD and a seeded
+      # database; without it they skip themselves, so this runs the unit tests only. Point it
+      # at a staging project later if those become worth running here — never at production,
+      # which holds real accounts.
+      - run: pnpm test
