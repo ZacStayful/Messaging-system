@@ -268,6 +268,7 @@ export type Database = {
           last_read_at: string | null;
           muted: boolean;
           notify_level: string;
+          member_side: string;
           org_id: string;
           starred: boolean;
           user_id: string;
@@ -278,6 +279,7 @@ export type Database = {
           last_read_at?: string | null;
           muted?: boolean;
           notify_level?: string;
+          member_side?: string;
           org_id: string;
           starred?: boolean;
           user_id: string;
@@ -288,6 +290,7 @@ export type Database = {
           last_read_at?: string | null;
           muted?: boolean;
           notify_level?: string;
+          member_side?: string;
           org_id?: string;
           starred?: boolean;
           user_id?: string;
@@ -675,6 +678,47 @@ export type Database = {
           },
         ];
       };
+      phone_verifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          phone: string;
+          code_hash: string;
+          attempts: number;
+          expires_at: string;
+          consumed_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          phone: string;
+          code_hash: string;
+          attempts?: number;
+          expires_at: string;
+          consumed_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          phone?: string;
+          code_hash?: string;
+          attempts?: number;
+          expires_at?: string;
+          consumed_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "phone_verifications_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       profiles: {
         Row: {
           account_type: Database["public"]["Enums"]["account_type"];
@@ -685,6 +729,10 @@ export type Database = {
           display_name: string;
           email: string | null;
           email_notifications: string;
+          whatsapp_notifications: string;
+          phone: string | null;
+          phone_verified_at: string | null;
+          phone_prompt_skipped_at: string | null;
           full_name: string | null;
           id: string;
           last_active_at: string | null;
@@ -712,6 +760,10 @@ export type Database = {
           display_name: string;
           email?: string | null;
           email_notifications?: string;
+          whatsapp_notifications?: string;
+          phone?: string | null;
+          phone_verified_at?: string | null;
+          phone_prompt_skipped_at?: string | null;
           full_name?: string | null;
           id: string;
           last_active_at?: string | null;
@@ -739,6 +791,10 @@ export type Database = {
           display_name?: string;
           email?: string | null;
           email_notifications?: string;
+          whatsapp_notifications?: string;
+          phone?: string | null;
+          phone_verified_at?: string | null;
+          phone_prompt_skipped_at?: string | null;
           full_name?: string | null;
           id?: string;
           last_active_at?: string | null;
@@ -1106,6 +1162,10 @@ export type Database = {
           unread_count: number;
         }[];
       };
+      start_phone_verification: { Args: { p_phone: string }; Returns: string };
+      confirm_phone_verification: { Args: { p_phone: string; p_code: string }; Returns: undefined };
+      set_customer_phone: { Args: { p_user_id: string; p_phone: string | null }; Returns: undefined };
+      set_member_side: { Args: { p_conversation_id: string; p_user_id: string; p_side: string }; Returns: undefined };
       shares_conversation_with: { Args: { other: string }; Returns: boolean };
       storage_path_conversation_id: { Args: { name: string }; Returns: string };
       topic_conversation_id: { Args: { topic: string }; Returns: string };

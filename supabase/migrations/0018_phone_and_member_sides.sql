@@ -96,7 +96,9 @@ begin
   if extensions.crypt(p_code, v.code_hash) <> v.code_hash then raise exception 'that code is not right'; end if;
 
   update public.phone_verifications set consumed_at = now() where id = v.id;
+  perform set_config('app.phone_write', 'on', true);
   update public.profiles set phone = p_phone, phone_verified_at = now() where id = me;
+  perform set_config('app.phone_write', '', true);
 end $$;
 revoke all on function public.confirm_phone_verification(text, text) from public, anon;
 grant execute on function public.confirm_phone_verification(text, text) to authenticated;
@@ -115,7 +117,9 @@ begin
     raise exception 'that number is already on another Stayful account';
   end if;
   -- phone_verified_at stays null: the team typed this, the customer has not proved it.
+  perform set_config('app.phone_write', 'on', true);
   update public.profiles set phone = p_phone, phone_verified_at = null where id = p_user_id;
+  perform set_config('app.phone_write', '', true);
   insert into public.audit_log (org_id, actor_id, action, entity, entity_id, diff)
   values (v_org, auth.uid(), 'profile.phone_set', 'profile', p_user_id::text,
           jsonb_build_object('phone', p_phone));
@@ -134,8 +138,14 @@ begin
      and auth.uid() is not null and not public.is_admin() then
     raise exception 'only an admin can change roles, emails or account types';
   end if;
+  -- SECURITY DEFINER swaps the database role, not the JWT, so auth.uid() is still the caller
+  -- inside confirm_phone_verification and set_customer_phone. Without the flag below those two
+  -- functions are blocked by this very guard and no number can ever be verified. The flag is
+  -- transaction-local and set only inside them; PostgREST gives each request its own
+  -- transaction and does not expose set_config, so a client cannot raise it and then update.
   if (new.phone is distinct from old.phone or new.phone_verified_at is distinct from old.phone_verified_at)
-     and auth.uid() is not null then
+     and auth.uid() is not null
+     and coalesce(current_setting('app.phone_write', true), '') <> 'on' then
     raise exception 'change your number from your account settings so we can verify it';
   end if;
   return new;

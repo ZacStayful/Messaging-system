@@ -135,6 +135,10 @@ Environment variables (`.env.local`, also set in Vercel):
 | `CRON_SECRET`                          | Random string. Vercel sends it to the cron route; it also signs unsubscribe links                                     |
 | `EMAIL_REPLY_DOMAIN`                   | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk`                                      |
 | `RESEND_WEBHOOK_SECRET`                | Optional. `whsec_…` secret of the Resend webhook for `email.received`                                                 |
+| `TIMELINES_API_TOKEN`                  | TimelinesAI public API token. Also sends the first-login verification code, so sign-in degrades without it            |
+| `TIMELINES_WHATSAPP_ACCOUNT_ID`        | Optional. Which connected WhatsApp account sends, when there is more than one                                         |
+| `TIMELINES_API_BASE`                   | Optional. Overrides the API base, e.g. a local stub in tests                                                          |
+| `TIMELINES_DRY_RUN`                    | Local and test only. `1` makes every WhatsApp send succeed without a request                                          |
 | `SUPABASE_JWT_SECRET`                  | Server only. Required by the REST API and MCP server: each request is signed as the key's user (see below)            |
 
 ## Database
@@ -174,6 +178,9 @@ Migrations live in `supabase/migrations` and are applied in order:
 17. `0017_api_key_last_used.sql` `api_rate_hit` also stamps `api_keys.last_used_at`, because the
     separate `api_touch_key` call was an un-awaited promise that serverless dropped before it
     ran; that function is now unused and dropped
+18. `0018_phone_and_member_sides.sql` `profiles.phone` (verified by code, guarded against direct
+    writes), `phone_verifications`, `conversation_members.member_side`, and the trigger enforcing
+    one customer group per external member
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

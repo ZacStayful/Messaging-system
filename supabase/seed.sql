@@ -120,6 +120,17 @@ select pg_temp.seed_user('b0000000-0000-4000-8000-000000000091', 'test-staff@sta
 select pg_temp.seed_user('b0000000-0000-4000-8000-000000000092', 'test-customer@stayful.test',
   '{"display_name":"Test Customer","full_name":"Test Customer","account_type":"customer","role":"owner","avatar_color":"#616061"}', '__TEST_PASSWORD__');
 
+-- Mobile numbers (0018). Every seeded customer needs one, or the first-login gate in
+-- (app)/layout.tsx stands between them and the app and the Playwright sign-in specs never
+-- reach a page. Ofcom's 07700 900xxx range is reserved for drama and documentation, so these
+-- can never reach a real handset even if something tried to send to them.
+update public.profiles set phone = '+447700900001', phone_verified_at = now()
+  where id = 'b0000000-0000-4000-8000-000000000020';
+update public.profiles set phone = '+447700900002', phone_verified_at = now()
+  where id = 'b0000000-0000-4000-8000-000000000021';
+update public.profiles set phone = '+447700900092', phone_verified_at = now()
+  where id = 'b0000000-0000-4000-8000-000000000092';
+
 -- Presence as shown in the prototype
 update public.profiles set presence = 'online' where id = 'b0000000-0000-4000-8000-000000000002';
 update public.profiles set presence = 'away'   where id in (

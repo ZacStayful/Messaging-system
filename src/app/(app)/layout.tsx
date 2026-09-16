@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { StoreProvider, type Org, type SavedRow } from "@/components/shell/store";
 import { AppShell } from "@/components/shell/AppShell";
+import { PhoneGate } from "@/components/onboarding/PhoneGate";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -26,6 +27,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </main>
     );
   }
+
+  // The mobile number gate. Here rather than in src/proxy.ts because this layout is the single
+  // funnel for every authenticated page and has already loaded the profile, so the check costs
+  // no extra query — while the proxy holds only an anon client and runs on every request.
+  // /login, /auth/* and /api/* sit outside this route group, so sign-out, the auth callback and
+  // every webhook keep working while the gate is up.
+  //
+  // Customers only: the gate exists so Stayful can reach customers on WhatsApp, and blocking
+  // staff out of their own workspace on day one is a support incident. Team members get the
+  // same field in their account settings instead.
+  const needsPhone =
+    me.account_type === "customer" && !me.phone && !me.phone_prompt_skipped_at && !me.deactivated_at;
+  if (needsPhone) return <PhoneGate profile={me} />;
 
   const isTeam = me.account_type === "team";
   const [
