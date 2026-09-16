@@ -11,8 +11,9 @@ import { useStore, type NotifyLevel } from "@/components/shell/store";
 import { presenceLook } from "@/lib/presence";
 import { longDate } from "@/lib/format";
 import { NOTIFY_LABELS } from "./Header";
+import { ServiceContacts } from "./ServiceContacts";
 
-export type DetailTab = "about" | "members" | "settings";
+export type DetailTab = "about" | "members" | "contacts" | "settings";
 
 interface DetailsModalProps {
   conversation: ConversationSummary;
@@ -56,6 +57,24 @@ export function DetailsModal({ conversation, title, createdAt, description, init
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // Does this group carry the Cleaning and Maintenance threads? property_threads is readable by
+  // any member, so this is one small query rather than another prop threaded through the shell.
+  const [isProperty, setIsProperty] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void supabase
+      .from("property_threads")
+      .select("kind")
+      .eq("conversation_id", conversation.id)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setIsProperty(Boolean(data));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, conversation.id]);
 
   // editable fields
   const [topic, setTopic] = useState(conversation.topic ?? "");
@@ -90,6 +109,9 @@ export function DetailsModal({ conversation, title, createdAt, description, init
   const tabs: { id: DetailTab; label: string; count?: number }[] = [
     { id: "about", label: "About" },
     { id: "members", label: "Members", count: members.length },
+    // Only on a property group, which is what having the two threads means (0024). Asked for
+    // rather than inferred from the type, because not every internal channel is a property.
+    ...(canManage && isProperty ? [{ id: "contacts" as DetailTab, label: "Service contacts" }] : []),
     ...(canManage && isChannel ? [{ id: "settings" as DetailTab, label: "Settings" }] : []),
   ];
 
@@ -424,6 +446,8 @@ export function DetailsModal({ conversation, title, createdAt, description, init
             )}
           </>
         )}
+
+        {tab === "contacts" && isProperty && <ServiceContacts conversationId={conversation.id} />}
 
         {tab === "about" && (
           <div className="flex flex-col gap-3 px-5 pt-4 pb-5 md:px-6 md:pb-6">

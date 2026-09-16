@@ -747,6 +747,7 @@ export type Database = {
           whatsapp_account_id: string | null;
           last_outbound_at: string | null;
           last_inbound_at: string | null;
+          parent_message_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -757,6 +758,7 @@ export type Database = {
           whatsapp_account_id?: string | null;
           last_outbound_at?: string | null;
           last_inbound_at?: string | null;
+          parent_message_id?: string | null;
           created_at?: string;
         };
         Update: {
@@ -767,6 +769,7 @@ export type Database = {
           whatsapp_account_id?: string | null;
           last_outbound_at?: string | null;
           last_inbound_at?: string | null;
+          parent_message_id?: string | null;
           created_at?: string;
         };
         Relationships: [];
@@ -1148,6 +1151,260 @@ export type Database = {
         };
         Relationships: [];
       };
+      bookmark_templates: {
+        Row: {
+          org_id: string;
+          key: string;
+          title: string;
+          url: string;
+          emoji: string | null;
+          note: string | null;
+          position: number;
+          is_mandatory: boolean;
+          applies_to: Database["public"]["Enums"]["conversation_type"][];
+          active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          org_id: string;
+          key: string;
+          title: string;
+          url: string;
+          emoji?: string | null;
+          note?: string | null;
+          position?: number;
+          is_mandatory?: boolean;
+          applies_to?: Database["public"]["Enums"]["conversation_type"][];
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          org_id?: string;
+          key?: string;
+          title?: string;
+          url?: string;
+          emoji?: string | null;
+          note?: string | null;
+          position?: number;
+          is_mandatory?: boolean;
+          applies_to?: Database["public"]["Enums"]["conversation_type"][];
+          active?: boolean;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      message_templates: {
+        Row: {
+          org_id: string;
+          key: string;
+          title: string;
+          description: string | null;
+          body: string;
+          applies_to: Database["public"]["Enums"]["conversation_type"][];
+          active: boolean;
+          updated_by: string | null;
+          updated_at: string;
+          created_at: string;
+        };
+        Insert: {
+          org_id: string;
+          key: string;
+          title: string;
+          description?: string | null;
+          body: string;
+          applies_to?: Database["public"]["Enums"]["conversation_type"][];
+          active?: boolean;
+          updated_by?: string | null;
+          updated_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          org_id?: string;
+          key?: string;
+          title?: string;
+          description?: string | null;
+          body?: string;
+          applies_to?: Database["public"]["Enums"]["conversation_type"][];
+          active?: boolean;
+          updated_by?: string | null;
+          updated_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      properties: {
+        Row: {
+          id: string;
+          org_id: string;
+          address: string;
+          monday_item_id: string | null;
+          client_monday_item_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          address: string;
+          monday_item_id?: string | null;
+          client_monday_item_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          address?: string;
+          monday_item_id?: string | null;
+          client_monday_item_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      property_threads: {
+        Row: {
+          conversation_id: string;
+          kind: string;
+          org_id: string;
+          root_message_id: string;
+          created_at: string;
+        };
+        Insert: {
+          conversation_id: string;
+          kind: string;
+          org_id: string;
+          root_message_id: string;
+          created_at?: string;
+        };
+        Update: {
+          conversation_id?: string;
+          kind?: string;
+          org_id?: string;
+          root_message_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      property_contacts: {
+        Row: {
+          conversation_id: string;
+          user_id: string;
+          kind: string;
+          org_id: string;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          conversation_id: string;
+          user_id: string;
+          kind: string;
+          org_id: string;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          conversation_id?: string;
+          user_id?: string;
+          kind?: string;
+          org_id?: string;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      integrations: {
+        Row: {
+          org_id: string;
+          key: string;
+          enabled: boolean;
+          config: Json;
+          updated_by: string | null;
+          updated_at: string;
+          created_at: string;
+        };
+        Insert: {
+          org_id: string;
+          key: string;
+          enabled?: boolean;
+          config?: Json;
+          updated_by?: string | null;
+          updated_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          org_id?: string;
+          key?: string;
+          enabled?: boolean;
+          config?: Json;
+          updated_by?: string | null;
+          updated_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      monday_events: {
+        Row: {
+          id: number;
+          event_id: string | null;
+          board_id: string | null;
+          item_id: string | null;
+          event_type: string | null;
+          payload: Json;
+          outcome: string;
+          error: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: never;
+          event_id?: string | null;
+          board_id?: string | null;
+          item_id?: string | null;
+          event_type?: string | null;
+          payload?: Json;
+          outcome: string;
+          error?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          event_id?: string | null;
+          board_id?: string | null;
+          item_id?: string | null;
+          event_type?: string | null;
+          payload?: Json;
+          outcome?: string;
+          error?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      monday_links: {
+        Row: {
+          org_id: string;
+          monday_item_id: string;
+          board_id: string | null;
+          customer_conversation_id: string | null;
+          property_conversation_id: string | null;
+          property_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          org_id: string;
+          monday_item_id: string;
+          board_id?: string | null;
+          customer_conversation_id?: string | null;
+          property_conversation_id?: string | null;
+          property_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          org_id?: string;
+          monday_item_id?: string;
+          board_id?: string | null;
+          customer_conversation_id?: string | null;
+          property_conversation_id?: string | null;
+          property_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -1213,6 +1470,44 @@ export type Database = {
         Returns: string;
       };
       create_group_dm: { Args: { p_member_ids: string[] }; Returns: string };
+      next_available_slug: { Args: { p_org: string; p_base: string }; Returns: string | null };
+      default_message_templates: {
+        Args: Record<string, never>;
+        Returns: {
+          key: string;
+          title: string;
+          description: string | null;
+          body: string;
+          applies_to: Database["public"]["Enums"]["conversation_type"][];
+        }[];
+      };
+      create_property_group: {
+        Args: {
+          p_name: string;
+          p_topic?: string | null;
+          p_property_id?: string | null;
+          p_member_ids?: string[];
+        };
+        Returns: string;
+      };
+      add_property_contact: {
+        Args: { p_conversation_id: string; p_user_id: string; p_kind: string };
+        Returns: undefined;
+      };
+      remove_property_contact: {
+        Args: { p_conversation_id: string; p_user_id: string; p_kind: string };
+        Returns: undefined;
+      };
+      ensure_maintenance_channel: { Args: { p_org: string }; Returns: string };
+      move_message: { Args: { p_message_id: string; p_parent_id?: string | null }; Returns: undefined };
+      file_message_to_property: {
+        Args: { p_message_id: string; p_conversation_id: string; p_kind: string };
+        Returns: string;
+      };
+      render_message_template: {
+        Args: { p_org: string; p_key: string; p_vars?: Json };
+        Returns: string | null;
+      };
       search_messages: {
         Args: { q: string; max_rows?: number };
         Returns: {

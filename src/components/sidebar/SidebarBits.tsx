@@ -68,7 +68,17 @@ export function SidebarHeader({
             )}
             {isAdmin && (
               <Link href="/settings/api" onClick={() => setOpen(false)} className={item}>
-                <Icon name="key" size={18} /> API and integrations
+                <Icon name="key" size={18} /> API keys
+              </Link>
+            )}
+            {isAdmin && (
+              <Link href="/settings/integrations" onClick={() => setOpen(false)} className={item}>
+                <Icon name="link" size={18} /> Integrations
+              </Link>
+            )}
+            {isAdmin && (
+              <Link href="/settings/templates" onClick={() => setOpen(false)} className={item}>
+                <Icon name="messages" size={18} /> Message templates
               </Link>
             )}
             <Link href="/search" onClick={() => setOpen(false)} className={`${item} md:hidden`}>

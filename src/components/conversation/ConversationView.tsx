@@ -18,6 +18,7 @@ import { useSignedUrls } from "@/lib/storage/useSignedUrls";
 import { Header } from "./Header";
 import { ATTACH_EVENT, Composer, type OutgoingFile } from "./Composer";
 import { MessageItem, type LocalMessage } from "./MessageItem";
+import { FileToPropertyDialog } from "./FileToPropertyDialog";
 import type { PendingAttachment } from "./AttachmentView";
 import { PinsTab } from "./PinsTab";
 import { BookmarkBar } from "./BookmarkBar";
@@ -128,6 +129,8 @@ export function ConversationView({
   const [pending, setPending] = useState<Record<string, PendingAttachment[]>>({});
   const [tab, setTab] = useState<Tab>("messages");
   const [details, setDetails] = useState<DetailTab | null>(null);
+  /** The message being filed into a property thread, if any. */
+  const [filing, setFiling] = useState<string | null>(null);
   const [initialLastRead] = useState(lastReadAt);
   const [search, setSearch] = useState<{ open: boolean; q: string; index: number }>({ open: false, q: "", index: 0 });
   const [flash, setFlash] = useState<string | null>(null);
@@ -1122,6 +1125,7 @@ export function ConversationView({
                         onEdit={(body) => void editMessage(m, body)}
                         onDelete={() => void deleteMessage(m)}
                         onOpenThread={m._status ? undefined : () => void openThread(m.id)}
+                        onFile={isTeam && !m._status ? () => setFiling(m.id) : undefined}
                         saved={isTeam ? savedByMessage.has(m.id) : undefined}
                         onToggleSave={isTeam ? () => toggleSave(m) : undefined}
                         compact={compact}
@@ -1261,6 +1265,9 @@ export function ConversationView({
             onSave={saveBookmark}
             onClose={() => setBookmarkEdit(null)}
           />
+        )}
+        {filing && (
+          <FileToPropertyDialog messageId={filing} conversationId={conversation.id} onClose={() => setFiling(null)} />
         )}
         {details && (
           <DetailsModal
