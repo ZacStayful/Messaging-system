@@ -255,10 +255,15 @@ the authorisation rules to drift. A key can therefore never see more than the pe
 as. Messages it posts carry `sent_via = 'api'` and show a "via API" chip beside the timestamp,
 so a conversation always shows who said what. Every write is recorded in `audit_log`.
 
-This is why `SUPABASE_JWT_SECRET` is required (Supabase dashboard → Project Settings → API →
-Legacy JWT Secret). Without it the API answers `503 not_configured` rather than failing
-obscurely. **If that secret is ever rotated or revoked, the REST API and the MCP server both
-stop working at once, with 401s and no other symptom** — worth knowing before it happens.
+This is why `SUPABASE_JWT_SECRET` is required: Supabase dashboard → **Project Settings → JWT
+Keys** → the **Legacy JWT Secret** section → Reveal. Without it the API answers
+`503 not_configured` rather than failing obscurely.
+
+**Do not click "Migrate JWT secret" or rotate the keys on that page.** Requests are signed
+HS256 with the legacy secret, so moving the project to asymmetric signing keys stops the REST
+API and the MCP server at once, with 401s and no other symptom. The same is true if the secret
+is rotated or revoked. Migrating is a fine thing to want — it just needs `src/lib/api/jwt.ts`
+reworked to sign with the asymmetric private key first.
 
 Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
 `members:write`, `bookmarks:read|write`, `users:read|invite`, `status:write`.

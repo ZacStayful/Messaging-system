@@ -102,7 +102,8 @@ export function ApiKeys({ keys, team, meId, jwtReady }: ApiKeysProps) {
             <p className="mt-3 rounded-lg bg-soft px-3 py-2 text-[14px] text-[#B4661F]">
               <strong>Not configured.</strong> <code>SUPABASE_JWT_SECRET</code> is not set on this deployment, so the
               API and MCP server will answer 503 until it is. Find it in the Supabase dashboard under Project Settings →
-              API → Legacy JWT Secret.
+              JWT Keys → Legacy JWT Secret. Don&rsquo;t migrate or rotate those keys: requests are signed with the
+              legacy secret, so switching to asymmetric keys stops both at once.
             </p>
           )}
         </section>
