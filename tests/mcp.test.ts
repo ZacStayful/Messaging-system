@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { registerTools } from "@/lib/mcp/tools";
 
@@ -50,6 +51,34 @@ const READ_TOOLS = [
   "list_people",
   "list_bookmarks",
 ];
+
+describe("audit logging", () => {
+  // The bug this guards: src/lib/api/audit.ts was planned, described as done, and never
+  // written, so no API or MCP write ever recorded actor_type='api_key'. A registry that
+  // merely *has* the tools says nothing about whether they leave a trail.
+  const src = readFileSync(new URL("../src/lib/mcp/tools.ts", import.meta.url), "utf8");
+
+  /**
+   * A write tool passes its own name to tool() as a second argument; a read tool does not.
+   * Matched independently of formatting, because prettier collapses short handlers onto one
+   * line (`}, "open_dm"),`) and leaves longer ones spread over three.
+   */
+  const isMarkedForAudit = (name: string) => new RegExp(`\\}\\s*,\\s*"${name}",?\\s*\\)`).test(src);
+
+  it("marks every write tool for auditing", () => {
+    for (const name of WRITE_TOOLS) expect(isMarkedForAudit(name), name).toBe(true);
+  });
+
+  it("leaves read tools unaudited, so the writes are not buried", () => {
+    for (const name of READ_TOOLS) expect(isMarkedForAudit(name), name).toBe(false);
+  });
+
+  it("calls the audit helper at all, from both surfaces", () => {
+    expect(src).toContain("logApiCall");
+    const wrapper = readFileSync(new URL("../src/lib/api/withApiKey.ts", import.meta.url), "utf8");
+    expect(wrapper).toContain("logApiCall");
+  });
+});
 
 describe("the MCP tool registry", () => {
   it("registers every tool the README documents", () => {

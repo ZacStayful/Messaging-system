@@ -170,8 +170,10 @@ Migrations live in `supabase/migrations` and are applied in order:
 15. `0015_conversation_bookmarks.sql` `conversation_bookmarks` with pins-mirrored RLS,
     `add_bookmark` / `move_bookmark`, and a `BOOKMARK` realtime broadcast
 16. `0016_api_keys.sql` `api_keys` (sha256 hashes, scopes, revoke), `api_rate_limits` +
-    `api_rate_hit`, `api_touch_key`, and a partial unique index on `meta->>'client_id'` for
-    idempotent posting
+    `api_rate_hit`, and a partial unique index on `meta->>'client_id'` for idempotent posting
+17. `0017_api_key_last_used.sql` `api_rate_hit` also stamps `api_keys.last_used_at`, because the
+    separate `api_touch_key` call was an un-awaited promise that serverless dropped before it
+    ran; that function is now unused and dropped
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -314,6 +316,8 @@ Every tool acts as the key's Stayful team member and is bounded by that person's
 an agent cannot see a group they are not in, and its messages are labelled "via MCP". Write
 tools say so in their own descriptions, so a model knows it is acting in a live workspace and
 not a sandbox.
+
+Seventeen tools in all.
 
 **Reading:** `list_conversations`, `get_conversation`, `list_messages`, `list_thread_replies`,
 `search_messages`, `list_people`, `list_bookmarks`, `whoami`.
