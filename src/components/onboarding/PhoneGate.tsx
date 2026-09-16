@@ -17,9 +17,11 @@ const panel = "max-w-md rounded-[14px] border border-line bg-panel p-7 shadow-[0
 /**
  * The first-login mobile number gate, shown in place of the app shell.
  *
- * Every branch keeps a way out — sign out is always on screen, and "Skip for now" appears the
- * moment we discover a code cannot be delivered. A gate nobody can pass is an outage: a wrong
- * TimelinesAI token must not lock every customer out of their messages.
+ * Every branch keeps a way out, because a gate nobody can pass is an outage rather than a
+ * feature. Sign out is always on screen, and "Skip for now" appears as soon as any attempt
+ * fails — including one we reject locally, such as a number that is not a UK mobile. An earlier
+ * version showed it only when the server reported the code undeliverable, which left a customer
+ * with a non-UK number no route into the app at all.
  */
 export function PhoneGate({ profile }: { profile: Profile }) {
   const router = useRouter();
@@ -96,7 +98,9 @@ export function PhoneGate({ profile }: { profile: Profile }) {
               <button type="button" onClick={() => void v.sendCode()} disabled={v.busy} className={primary}>
                 {v.busy ? "Sending…" : "Send me a code"}
               </button>
-              {v.undeliverable && (
+              {/* Offered after any failed attempt, not only an undeliverable one: a customer
+                  whose number we refuse must never be left with an error and no way forward. */}
+              {v.canSkip && (
                 <button type="button" onClick={() => void onSkip()} disabled={skipping} className={quiet}>
                   {skipping ? "…" : "Skip for now"}
                 </button>

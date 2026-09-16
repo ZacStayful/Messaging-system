@@ -17,8 +17,14 @@ export interface PhoneVerification {
   setCode: (v: string) => void;
   busy: boolean;
   error: string | null;
-  /** True once we know a code cannot be delivered, so the caller can offer a way out. */
+  /** True once we know a code cannot be delivered, so the caller can explain why. */
   undeliverable: boolean;
+  /**
+   * True once any attempt has failed, for any reason. The gate offers a way out on this rather
+   * than on `undeliverable`: a customer whose number we simply refuse — a non-UK mobile, say —
+   * never reaches the server at all, and must not be left with an error and no way forward.
+   */
+  canSkip: boolean;
   /** Seconds until another code may be requested; start_phone_verification refuses inside 60s. */
   cooldown: number;
   sendCode: () => Promise<void>;
@@ -34,6 +40,7 @@ export function usePhoneVerification(initialPhone = ""): PhoneVerification {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [undeliverable, setUndeliverable] = useState(false);
+  const [canSkip, setCanSkip] = useState(false);
   const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
@@ -48,6 +55,7 @@ export function usePhoneVerification(initialPhone = ""): PhoneVerification {
     const parsed = normaliseUkMobile(phone);
     if (!parsed.ok) {
       setError(parsed.error!);
+      setCanSkip(true);
       return;
     }
     setBusy(true);
@@ -55,6 +63,7 @@ export function usePhoneVerification(initialPhone = ""): PhoneVerification {
     setBusy(false);
     if (!res.ok) {
       setError(res.error ?? "Something went wrong.");
+      setCanSkip(true);
       if (res.undeliverable) setUndeliverable(true);
       return;
     }
@@ -88,6 +97,7 @@ export function usePhoneVerification(initialPhone = ""): PhoneVerification {
     setCode("");
     setError(null);
     setUndeliverable(false);
+    setCanSkip(false);
     setCooldown(0);
   }, []);
 
@@ -100,6 +110,7 @@ export function usePhoneVerification(initialPhone = ""): PhoneVerification {
     busy,
     error,
     undeliverable,
+    canSkip,
     cooldown,
     sendCode,
     confirm,

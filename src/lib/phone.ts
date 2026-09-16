@@ -85,3 +85,26 @@ export function formatUkMobile(e164: string): string {
   if (!ACCEPT_RE.test(e164)) return e164;
   return `+44 ${e164.slice(3, 7)} ${e164.slice(7)}`;
 }
+
+/** The fields `shouldAskForPhone` needs. A subset of Profile, so tests need no fixture. */
+export interface PhoneGateProfile {
+  account_type: string;
+  phone: string | null;
+  phone_prompt_skipped_at: string | null;
+  deactivated_at: string | null;
+}
+
+/**
+ * Whether to stand the first-login gate in front of this person.
+ *
+ * `whatsappReady` matters as much as the profile: the gate exists to collect a number we can
+ * verify by sending a code over WhatsApp, so with no way to send there is nothing to ask for
+ * and no reason to block anyone. It switches itself on the moment a token is configured.
+ *
+ * Customers only — the gate exists so Stayful can reach customers, and shutting staff out of
+ * their own workspace is a support incident.
+ */
+export function shouldAskForPhone(p: PhoneGateProfile, whatsappReady: boolean): boolean {
+  if (!whatsappReady) return false;
+  return p.account_type === "customer" && !p.phone && !p.phone_prompt_skipped_at && !p.deactivated_at;
+}

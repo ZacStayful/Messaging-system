@@ -25,6 +25,13 @@ const GROUP_WINDOW_MS = 2 * 60_000;
 const WHATSAPP_MAX_PER_RUN = Number(process.env.WHATSAPP_MAX_PER_RUN || 60);
 /** Sends run in small parallel chunks: maxDuration is 60s and a run can hold 200 rows. */
 const SEND_CONCURRENCY = 5;
+/**
+ * Rows are claimed by moving them to `sending`, and the drain only ever re-selects `pending`
+ * and `failed`. Anything that dies between the claim and finish() would therefore sit in
+ * `sending` for ever, unsent and unreported. Older claims are returned to the queue at the top
+ * of each run, which is what makes a bad deploy recoverable rather than a silent loss.
+ */
+const STRANDED_CLAIM_MS = 10 * 60_000;
 
 interface MessagePayload {
   message_id: string;
@@ -39,9 +46,18 @@ interface MessagePayload {
   sent_via?: string;
 }
 
+/**
+ * Runs `run` over `items` a few at a time. Each call is isolated: a throw is logged and the
+ * rest of the batch continues. Without that, one bad row would reject the whole Promise.all —
+ * stranding every row already claimed in this run — and a second rejection in the same chunk
+ * would surface as an unhandled rejection, which Node treats as fatal.
+ */
 async function chunked<T>(items: T[], size: number, run: (item: T) => Promise<void>): Promise<void> {
   for (let i = 0; i < items.length; i += size) {
-    await Promise.all(items.slice(i, i + size).map(run));
+    const results = await Promise.allSettled(items.slice(i, i + size).map(run));
+    for (const r of results) {
+      if (r.status === "rejected") console.error("notifications: send failed", r.reason);
+    }
   }
 }
 
@@ -97,6 +113,15 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   if (!admin) return NextResponse.json({ error: "SUPABASE_SERVICE_ROLE_KEY is not set" }, { status: 503 });
   const posted = await postScheduledMessages(admin);
+
+  // Rescue anything a previous run claimed and never finished (see STRANDED_CLAIM_MS).
+  const { data: rescued } = await admin
+    .from("notification_outbox")
+    .update({ status: "pending" })
+    .eq("status", "sending")
+    .lt("created_at", new Date(Date.now() - STRANDED_CLAIM_MS).toISOString())
+    .select("id");
+  if (rescued?.length) console.warn(`notifications: requeued ${rescued.length} stranded row(s)`);
 
   // Each channel stands on its own: WhatsApp can ship without Resend and vice versa, and an
   // unconfigured channel leaves its rows `pending` rather than burning attempts against a
@@ -235,10 +260,14 @@ export async function GET(request: NextRequest) {
   const convIds = Array.from(new Set(waRows.map((r) => (r.payload as unknown as MessagePayload).conversation_id)));
   const accountByConv = new Map<string, { id: string; provider_account_id: string | null; phone: string }>();
   if (convIds.length) {
-    const { data: convs } = await admin
+    const { data: convs, error: convErr } = await admin
       .from("conversations")
       .select("id, whatsapp_account:whatsapp_accounts(id, provider_account_id, phone)")
       .in("id", convIds);
+    // Worth shouting about: with no accounts resolved every message still sends, but from
+    // whichever number the provider defaults to, silently breaking the one-number-per-group
+    // guarantee that 0022 exists to provide.
+    if (convErr) console.error("notifications: could not resolve sending numbers", convErr.message);
     for (const c of convs ?? []) {
       const a = c.whatsapp_account as unknown as {
         id: string;

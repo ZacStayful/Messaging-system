@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { StoreProvider, type Org, type SavedRow } from "@/components/shell/store";
 import { AppShell } from "@/components/shell/AppShell";
 import { PhoneGate } from "@/components/onboarding/PhoneGate";
+import { shouldAskForPhone } from "@/lib/phone";
+import { whatsappConfigured } from "@/lib/whatsapp/timelines";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -34,12 +36,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // /login, /auth/* and /api/* sit outside this route group, so sign-out, the auth callback and
   // every webhook keep working while the gate is up.
   //
-  // Customers only: the gate exists so Stayful can reach customers on WhatsApp, and blocking
-  // staff out of their own workspace on day one is a support incident. Team members get the
-  // same field in their account settings instead.
-  const needsPhone =
-    me.account_type === "customer" && !me.phone && !me.phone_prompt_skipped_at && !me.deactivated_at;
-  if (needsPhone) return <PhoneGate profile={me} />;
+  // Who it applies to — and whether it applies at all when we cannot send a code — is decided by
+  // shouldAskForPhone, so the rule is unit-tested rather than an inline conjunction here.
+  if (shouldAskForPhone(me, whatsappConfigured())) return <PhoneGate profile={me} />;
 
   const isTeam = me.account_type === "team";
   const [
