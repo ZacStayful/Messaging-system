@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Message, Profile, Reaction } from "@/lib/database.types";
 import { Avatar } from "@/components/ui/Avatar";
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { listTime, timeLabel } from "@/lib/format";
 import { QUICK_REACTIONS } from "@/lib/emoji";
 import { MessageBody } from "./MessageBody";
@@ -56,6 +56,16 @@ interface MessageItemProps {
 
 const actionBtn =
   "flex h-8 min-w-8 items-center justify-center rounded-md border-0 bg-transparent px-1 text-ink hover:bg-hover";
+
+/**
+ * How a message got here, when it did not come from someone typing in the app. `sent_via` is
+ * free text, so anything unlisted simply shows no chip.
+ */
+const VIA: Record<string, { icon: IconName; label: string; title: string }> = {
+  email: { icon: "mail", label: "via email", title: "Sent by replying to an email" },
+  api: { icon: "link", label: "via API", title: "Posted through the Stayful API" },
+  mcp: { icon: "link", label: "via MCP", title: "Posted by an assistant over MCP" },
+};
 
 export function MessageItem({
   message,
@@ -197,9 +207,9 @@ export function MessageItem({
             )}
             <span className="text-[13px] text-muted">{timeLabel(message.created_at)}</span>
             {message.edited_at && <span className="text-[13px] text-muted">(edited)</span>}
-            {message.sent_via === "email" && (
-              <span className="flex items-center gap-1 text-[13px] text-muted" title="Sent by replying to an email">
-                <Icon name="mail" size={13} /> via email
+            {VIA[message.sent_via] && (
+              <span className="flex items-center gap-1 text-[13px] text-muted" title={VIA[message.sent_via].title}>
+                <Icon name={VIA[message.sent_via].icon} size={13} /> {VIA[message.sent_via].label}
               </span>
             )}
             {internal && (

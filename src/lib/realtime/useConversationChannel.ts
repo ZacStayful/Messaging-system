@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import type { Attachment, Message, Pin, Reaction } from "@/lib/database.types";
+import type { Attachment, ConversationBookmark, Message, Pin, Reaction } from "@/lib/database.types";
 
 export type ChangeOp = "INSERT" | "UPDATE" | "DELETE";
 
@@ -26,6 +26,7 @@ interface Options {
   onUpdate: (row: Message) => void;
   onReaction?: (change: Change<Reaction>) => void;
   onPin?: (change: Change<Pin>) => void;
+  onBookmark?: (change: Change<ConversationBookmark>) => void;
   onAttachment?: (change: Change<Attachment>) => void;
   onTyping?: (evt: TypingEvent) => void;
   /** Called after a reconnect so the caller can back-fill anything missed. */
@@ -78,6 +79,7 @@ export function useConversationChannel(opts: Options) {
       })
       .on("broadcast", { event: "REACTION" }, ({ payload }) => handlers.current.onReaction?.(asChange(payload)))
       .on("broadcast", { event: "PIN" }, ({ payload }) => handlers.current.onPin?.(asChange(payload)))
+      .on("broadcast", { event: "BOOKMARK" }, ({ payload }) => handlers.current.onBookmark?.(asChange(payload)))
       .on("broadcast", { event: "ATTACHMENT" }, ({ payload }) => handlers.current.onAttachment?.(asChange(payload)))
       .on("broadcast", { event: "typing" }, ({ payload }) => handlers.current.onTyping?.(payload as TypingEvent));
 

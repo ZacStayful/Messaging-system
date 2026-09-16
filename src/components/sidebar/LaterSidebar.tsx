@@ -7,7 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { Menu, type MenuItem } from "@/components/ui/Menu";
 import { futureTime, listTime, previewOf } from "@/lib/format";
-import { untilFor } from "@/components/people/StatusDialog";
+import { untilFor } from "@/lib/presence";
 import { SidebarHeader } from "./SidebarBits";
 import { useNow } from "@/lib/useNow";
 

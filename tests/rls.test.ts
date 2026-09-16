@@ -3,7 +3,7 @@
  * seeded test accounts (supabase/seed.sql). Requires in .env.local:
  *   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SEED_TEST_PASSWORD
  */
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 
@@ -375,5 +375,139 @@ suite("customer accounts", () => {
     expect(error).not.toBeNull();
     const { data } = await customer.from("notification_outbox").select("id").limit(1);
     expect(data ?? []).toEqual([]);
+  });
+});
+
+suite("conversation bookmarks", () => {
+  let staff: SupabaseClient<Database>;
+  let customer: SupabaseClient<Database>;
+  const added: string[] = [];
+
+  beforeAll(async () => {
+    staff = await signIn("test-staff@stayful.test");
+    customer = await signIn("test-customer@stayful.test");
+  });
+
+  afterAll(async () => {
+    // Bookmarks are visible to everyone in the group, so don't leave test rows behind.
+    for (const id of added) await staff.from("conversation_bookmarks").delete().eq("id", id);
+  });
+
+  it("a member can add a bookmark to their own group", async () => {
+    const { data, error } = await customer.rpc("add_bookmark", {
+      p_conversation_id: CUSTOMER_GROUP,
+      p_title: "Customer link",
+      p_url: "https://example.com/customer",
+    });
+    expect(error).toBeNull();
+    expect(data?.conversation_id).toBe(CUSTOMER_GROUP);
+    expect(data?.position).toBeGreaterThan(0);
+    if (data) added.push(data.id);
+  });
+
+  it("both members of the group can read it", async () => {
+    const { data } = await staff.from("conversation_bookmarks").select("id").eq("conversation_id", CUSTOMER_GROUP);
+    expect(data?.map((b) => b.id)).toEqual(expect.arrayContaining(added));
+  });
+
+  it("a non-member cannot add one, even through the RPC", async () => {
+    const { error } = await customer.rpc("add_bookmark", {
+      p_conversation_id: TEAM_ONLY,
+      p_title: "Sneaky",
+      p_url: "https://example.com/sneaky",
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("a non-member cannot read another group's bookmarks", async () => {
+    const { data: mine } = await staff.rpc("add_bookmark", {
+      p_conversation_id: TEAM_ONLY,
+      p_title: "Team only",
+      p_url: "https://example.com/team",
+    });
+    expect(mine).toBeTruthy();
+    if (mine) added.push(mine.id);
+
+    const { data } = await customer.from("conversation_bookmarks").select("id").eq("conversation_id", TEAM_ONLY);
+    expect(data ?? []).toEqual([]);
+  });
+
+  it("a customer cannot delete a team member's bookmark", async () => {
+    const { data: theirs } = await staff.rpc("add_bookmark", {
+      p_conversation_id: CUSTOMER_GROUP,
+      p_title: "Staff link",
+      p_url: "https://example.com/staff",
+    });
+    expect(theirs).toBeTruthy();
+    if (theirs) added.push(theirs.id);
+
+    await customer.from("conversation_bookmarks").delete().eq("id", theirs!.id);
+    // RLS makes the delete a no-op rather than an error, so assert the row survived.
+    const { data: still } = await staff.from("conversation_bookmarks").select("id").eq("id", theirs!.id).maybeSingle();
+    expect(still?.id).toBe(theirs!.id);
+  });
+
+  it("only the team can reorder", async () => {
+    const { error } = await customer.rpc("move_bookmark", { p_id: added[0], p_delta: 1 });
+    expect(error?.message).toMatch(/team/i);
+    const { error: staffError } = await staff.rpc("move_bookmark", { p_id: added[0], p_delta: 1 });
+    expect(staffError).toBeNull();
+  });
+
+  it("rejects a link that is not http or https", async () => {
+    const { error } = await staff.rpc("add_bookmark", {
+      p_conversation_id: CUSTOMER_GROUP,
+      p_title: "Bad",
+      p_url: "javascript:alert(1)",
+    });
+    expect(error?.message).toMatch(/http/i);
+  });
+});
+
+suite("api keys", () => {
+  let staff: SupabaseClient<Database>;
+  let customer: SupabaseClient<Database>;
+
+  beforeAll(async () => {
+    staff = await signIn("test-staff@stayful.test");
+    customer = await signIn("test-customer@stayful.test");
+  });
+
+  it("a customer cannot read api keys at all", async () => {
+    const { data } = await customer.from("api_keys").select("id, key_prefix").limit(5);
+    expect(data ?? []).toEqual([]);
+  });
+
+  it("a non-admin team member cannot read api keys either", async () => {
+    // The seeded test-staff account is `staff`, not `admin`.
+    const { data } = await staff.from("api_keys").select("id").limit(5);
+    expect(data ?? []).toEqual([]);
+  });
+
+  it("a non-admin cannot create one", async () => {
+    const { error } = await staff.from("api_keys").insert({
+      org_id: ORG,
+      user_id: STAFF_ID,
+      name: "Should not exist",
+      key_hash: "0".repeat(64),
+      key_prefix: "sk_live_000000",
+      scopes: ["messages:read"],
+      created_by: STAFF_ID,
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("nobody can read the rate-limit table", async () => {
+    const { data } = await staff.from("api_rate_limits").select("key_id").limit(1);
+    expect(data ?? []).toEqual([]);
+  });
+
+  it("the rate-limit and touch helpers are not callable by a signed-in user", async () => {
+    const { error } = await staff.rpc("api_rate_hit", {
+      p_key_id: "00000000-0000-4000-8000-000000000000",
+      p_limit: 1,
+      p_window_seconds: 60,
+    });
+    expect(error).not.toBeNull();
   });
 });

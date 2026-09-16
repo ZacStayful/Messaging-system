@@ -8,6 +8,87 @@ export type Database = {
   };
   public: {
     Tables: {
+      api_keys: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          expires_at: string | null;
+          id: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          name: string;
+          org_id: string;
+          revoked_at: string | null;
+          scopes: string[];
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string | null;
+          id?: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          name: string;
+          org_id: string;
+          revoked_at?: string | null;
+          scopes?: string[];
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string | null;
+          id?: string;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          name?: string;
+          org_id?: string;
+          revoked_at?: string | null;
+          scopes?: string[];
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "api_keys_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "api_keys_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      api_rate_limits: {
+        Row: { count: number; key_id: string; window_start: string };
+        Insert: { count?: number; key_id: string; window_start: string };
+        Update: { count?: number; key_id?: string; window_start?: string };
+        Relationships: [
+          {
+            foreignKeyName: "api_rate_limits_key_id_fkey";
+            columns: ["key_id"];
+            isOneToOne: false;
+            referencedRelation: "api_keys";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       attachments: {
         Row: {
           category: string | null;
@@ -109,6 +190,70 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "audit_log_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      conversation_bookmarks: {
+        Row: {
+          conversation_id: string;
+          created_at: string;
+          created_by: string | null;
+          emoji: string | null;
+          id: string;
+          note: string | null;
+          org_id: string;
+          position: number;
+          title: string;
+          updated_at: string;
+          url: string;
+        };
+        Insert: {
+          conversation_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          emoji?: string | null;
+          id?: string;
+          note?: string | null;
+          org_id: string;
+          position?: number;
+          title: string;
+          updated_at?: string;
+          url: string;
+        };
+        Update: {
+          conversation_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          emoji?: string | null;
+          id?: string;
+          note?: string | null;
+          org_id?: string;
+          position?: number;
+          title?: string;
+          updated_at?: string;
+          url?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "conversation_bookmarks_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "conversation_bookmarks_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "conversation_bookmarks_org_id_fkey";
             columns: ["org_id"];
             isOneToOne: false;
             referencedRelation: "organisations";
@@ -551,6 +696,9 @@ export type Database = {
           status_emoji: string | null;
           status_expires_at: string | null;
           dnd_until: string | null;
+          presence_mode: string;
+          away_since: string | null;
+          away_until: string | null;
           activity_seen_at: string | null;
           timezone: string;
           updated_at: string;
@@ -575,6 +723,9 @@ export type Database = {
           status_emoji?: string | null;
           status_expires_at?: string | null;
           dnd_until?: string | null;
+          presence_mode?: string;
+          away_since?: string | null;
+          away_until?: string | null;
           activity_seen_at?: string | null;
           timezone?: string;
           updated_at?: string;
@@ -599,6 +750,9 @@ export type Database = {
           status_emoji?: string | null;
           status_expires_at?: string | null;
           dnd_until?: string | null;
+          presence_mode?: string;
+          away_since?: string | null;
+          away_until?: string | null;
           activity_seen_at?: string | null;
           timezone?: string;
           updated_at?: string;
@@ -817,6 +971,22 @@ export type Database = {
       auth_org_id: { Args: never; Returns: string };
       add_members: { Args: { p_conversation_id: string; p_user_ids: string[] }; Returns: undefined };
       archive_channel: { Args: { p_conversation_id: string; p_archived?: boolean }; Returns: undefined };
+      add_bookmark: {
+        Args: {
+          p_conversation_id: string;
+          p_title: string;
+          p_url: string;
+          p_emoji?: string | null;
+          p_note?: string | null;
+        };
+        Returns: Database["public"]["Tables"]["conversation_bookmarks"]["Row"];
+      };
+      move_bookmark: { Args: { p_id: string; p_delta: number }; Returns: undefined };
+      api_rate_hit: {
+        Args: { p_key_id: string; p_limit: number; p_window_seconds: number };
+        Returns: boolean;
+      };
+      api_touch_key: { Args: { p_key_id: string }; Returns: undefined };
       remove_member: { Args: { p_conversation_id: string; p_user_id: string }; Returns: undefined };
       rename_channel: { Args: { p_conversation_id: string; p_name: string }; Returns: undefined };
       set_channel_details: {
@@ -964,6 +1134,8 @@ export type Pin = Tables<"pins">;
 export type Attachment = Tables<"attachments">;
 export type Reaction = Tables<"reactions">;
 export type SavedItem = Tables<"saved_items">;
+export type ConversationBookmark = Tables<"conversation_bookmarks">;
+export type ApiKey = Tables<"api_keys">;
 export type ScheduledMessage = Tables<"scheduled_messages">;
 export type LinkPreview = Tables<"link_previews">;
 export type ThreadSummary = Database["public"]["Functions"]["my_threads"]["Returns"][number];

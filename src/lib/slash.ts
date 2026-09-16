@@ -13,6 +13,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "shrug", args: "[message]", description: "Append ¯\\_(ツ)_/¯ to your message" },
   { name: "status", args: "[text]", description: "Set (or clear) your status" },
   { name: "dnd", args: "30m | 1h | 2h | off", description: "Pause notifications" },
+  { name: "away", args: "[1h | today | off]", description: "Set yourself away and stop all notifications" },
   { name: "mute", description: "Mute or unmute this conversation" },
   { name: "dm", args: "@name [message]", description: "Open a direct message" },
   { name: "search", args: "text", description: "Search Stayful", team: true },

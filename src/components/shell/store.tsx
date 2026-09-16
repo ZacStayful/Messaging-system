@@ -14,7 +14,7 @@ import type {
 } from "@/lib/database.types";
 import { previewOf } from "@/lib/format";
 import { isNav, type Nav } from "@/lib/nav";
-import { AWAY_AFTER_MS, type PresenceStatus } from "@/lib/presence";
+import { AWAY_AFTER_MS, manualAway, type PresenceStatus } from "@/lib/presence";
 
 export type { Nav } from "@/lib/nav";
 
@@ -54,6 +54,9 @@ export type ProfileChangedEvent = Pick<
   | "dnd_until"
   | "timezone"
   | "presence"
+  | "presence_mode"
+  | "away_since"
+  | "away_until"
   | "deactivated_at"
 >;
 
@@ -113,7 +116,7 @@ interface StoreValue {
   conversationName: (c: ConversationSummary) => string;
   otherMember: (c: ConversationSummary) => Profile | undefined;
   isOnline: (userId: string) => boolean;
-  /** online (active in the last 10 minutes), away (open but idle) or offline. */
+  /** online (active in the last 10 minutes), away (idle, or set by hand) or offline. */
   presenceOf: (userId: string) => PresenceStatus;
   /** Update my own profile (name, photo, status, DND); optimistic, then persisted. */
   updateMe: (patch: Partial<Profile>) => Promise<boolean>;
@@ -266,8 +269,13 @@ export function StoreProvider({
   );
 
   const presenceOf = useCallback(
-    (userId: string): PresenceStatus => (presence.has(userId) ? (presence.get(userId) ? "away" : "online") : "offline"),
-    [presence],
+    (userId: string): PresenceStatus => {
+      // A manual away beats both the idle timer and "offline": the person told us, and it has
+      // to stay visible while their tab is closed, which is the whole point of storing it.
+      if (manualAway(userId === me.id ? meState : profiles[userId])) return "away";
+      return presence.has(userId) ? (presence.get(userId) ? "away" : "online") : "offline";
+    },
+    [presence, profiles, meState, me.id],
   );
   const isOnline = useCallback((userId: string) => presenceOf(userId) === "online", [presenceOf]);
   const online = useMemo(() => new Set(presence.keys()) as ReadonlySet<string>, [presence]);

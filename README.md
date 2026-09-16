@@ -32,6 +32,14 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   covering messages (Postgres full-text via `search_messages`, RLS-scoped), people and files;
   results deep-link to the message (`?m=<id>`). The magnifier in a conversation header opens
   in-conversation search with highlighted matches and next/previous.
+- Bookmarks (`0015_conversation_bookmarks.sql`): a scrolling row of link chips under the
+  conversation header plus a Bookmarks tab, for the third-party sites and important information a
+  group needs often — a listing, a cleaning rota, a shared folder, a gate code in the note field.
+  Any member can add one (http/https only, never a private or local address — the rule lives in
+  `src/lib/urls.ts` and is shared with `/api/unfurl`, with a CHECK constraint as the backstop);
+  pasting a link offers to fill the title from its Open Graph data. The team can reorder and
+  remove anything, a customer can edit their own. Changes reach everyone live over a `BOOKMARK`
+  broadcast on the conversation topic. Also available over the API and MCP.
 - Pins tab (jump to message, unpin), Files and links tab (newest/oldest), details modal with
   editable topic and description, member add/remove/leave, rename and archive (team).
 - Header menus: notification level (all / mentions / nothing) per conversation, mute, star,
@@ -46,6 +54,16 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   photo to the public `avatars` bucket, time zone), custom status with an expiry, pause
   notifications (DND), and away-after-10-minutes presence. Profile changes reach everyone live
   through a `profile_changed` broadcast on the org topic (`0012_profile_presence.sql`).
+- Manual **Away** (`0014_manual_away.sql`): set yourself away from the status sheet, the You
+  sidebar or `/away` (`/away 1h`, `/away off`). Everyone sees an Away badge — including while your
+  tab is closed, because it is stored on the profile rather than derived from the idle timer — and
+  every notification stops until you clear it: no notification emails (the SQL trigger and the
+  cron worker both check it) and no rail or tab-bar badges. Unread counts and the activity feed
+  keep accruing, so nothing is lost while you are away; you are simply not nagged about it. Away
+  implies DND, so pausing notifications stays available separately for silence without looking
+  away. Note that team accounts never receive notification emails in the first place
+  (`enqueue_message_notifications` is customer-only), so for a team member Away changes the
+  visible badge and the in-app badges only.
 - Later: save any message (bookmark action), In progress / Archived / Completed tabs, reminders
   (20 min to next week) that surface as a badge on the Later rail item when due.
 - Files: workspace-wide list of everything shared in your conversations with Media / Documents /
@@ -81,9 +99,14 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Tests: unit (formatting, rich text), RLS suite against the live project, Playwright smoke
   tests on desktop and mobile including two-user realtime delivery.
 
+- Public REST API at `/api/v1` with scoped API keys managed at `/settings/api`, and a remote
+  MCP server at `/api/mcp` so Claude, n8n or Zapier can read conversations, create groups,
+  invite people, post messages and manage bookmarks. Both act as a real team member, so nothing
+  an integration does escapes that person's own access. See "Public API" below.
+
 Out of scope for this pass (next passes): staff inbox with SLA, email attachments,
-huddles/calls, canvases, digest emails, Monday and Uplisting sync, public API, webhooks, MCP
-server, Slack import.
+huddles/calls, canvases, digest emails, Monday and Uplisting sync, outgoing webhooks, Slack
+import.
 
 ## Stack
 
@@ -112,6 +135,7 @@ Environment variables (`.env.local`, also set in Vercel):
 | `CRON_SECRET`                          | Random string. Vercel sends it to the cron route; it also signs unsubscribe links                                     |
 | `EMAIL_REPLY_DOMAIN`                   | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk`                                      |
 | `RESEND_WEBHOOK_SECRET`                | Optional. `whsec_…` secret of the Resend webhook for `email.received`                                                 |
+| `SUPABASE_JWT_SECRET`                  | Server only. Required by the REST API and MCP server: each request is signed as the key's user (see below)            |
 
 ## Database
 
@@ -140,6 +164,14 @@ Migrations live in `supabase/migrations` and are applied in order:
 12. `0012_profile_presence.sql` `profile_changed` broadcast trigger on `profiles`
 13. `0013_profiles_update_policy.sql` profiles update policy without self-reference (status, name and
     photo edits work again); role / account type / email changes guarded by trigger (admin only)
+14. `0014_manual_away.sql` manual away (`presence_mode`, `away_since`, `away_until`); away implies
+    do-not-disturb inside `enqueue_message_notifications`; away travels on the `profile_changed`
+    broadcast so everyone sees the badge live
+15. `0015_conversation_bookmarks.sql` `conversation_bookmarks` with pins-mirrored RLS,
+    `add_bookmark` / `move_bookmark`, and a `BOOKMARK` realtime broadcast
+16. `0016_api_keys.sql` `api_keys` (sha256 hashes, scopes, revoke), `api_rate_limits` +
+    `api_rate_hit`, `api_touch_key`, and a partial unique index on `meta->>'client_id'` for
+    idempotent posting
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -210,6 +242,104 @@ voice notes). Downloads use one-hour signed URLs.
    `https://chat.stayful.co.uk/api/email/inbound`. Set `EMAIL_REPLY_DOMAIN` and
    `RESEND_WEBHOOK_SECRET`. Replies are stripped of quoted history, matched to the customer by
    the token in the To address, and rejected if the From address differs from the account email.
+
+## Public API
+
+`/api/v1/*`, authenticated with an API key an admin creates at `/settings/api`. The plaintext
+is shown once; only a sha256 hash is stored.
+
+**A key acts as a real person.** It is bound to one active team member, and every request runs
+with a 120-second token minted for them (`src/lib/api/jwt.ts`), so every RLS policy and every
+`auth.uid()`-based RPC applies exactly as it does in the browser — there is no second copy of
+the authorisation rules to drift. A key can therefore never see more than the person it acts
+as. Messages it posts carry `sent_via = 'api'` and show a "via API" chip beside the timestamp,
+so a conversation always shows who said what. Every write is recorded in `audit_log`.
+
+This is why `SUPABASE_JWT_SECRET` is required: Supabase dashboard → **Project Settings → JWT
+Keys** → the **Legacy JWT Secret** section → Reveal. Without it the API answers
+`503 not_configured` rather than failing obscurely.
+
+**Do not click "Migrate JWT secret" or rotate the keys on that page.** Requests are signed
+HS256 with the legacy secret, so moving the project to asymmetric signing keys stops the REST
+API and the MCP server at once, with 401s and no other symptom. The same is true if the secret
+is rotated or revoked. Migrating is a fine thing to want — it just needs `src/lib/api/jwt.ts`
+reworked to sign with the asymmetric private key first.
+
+Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
+`members:write`, `bookmarks:read|write`, `users:read|invite`, `status:write`.
+
+| Method           | Path                                          | Scope                                        |
+| ---------------- | --------------------------------------------- | -------------------------------------------- |
+| `GET`            | `/api/v1/me`                                  | —                                            |
+| `PATCH`          | `/api/v1/me/status`                           | `status:write`                               |
+| `GET` `POST`     | `/api/v1/conversations`                       | `conversations:read` / `conversations:write` |
+| `GET` `PATCH`    | `/api/v1/conversations/{id}`                  | `conversations:read` / `conversations:write` |
+| `GET` `POST`     | `/api/v1/conversations/{id}/messages`         | `messages:read` / `messages:write`           |
+| `GET` `POST`     | `/api/v1/conversations/{id}/members`          | `conversations:read` / `members:write`       |
+| `DELETE`         | `/api/v1/conversations/{id}/members/{userId}` | `members:write`                              |
+| `GET` `POST`     | `/api/v1/conversations/{id}/bookmarks`        | `bookmarks:read` / `bookmarks:write`         |
+| `PATCH` `DELETE` | `/api/v1/bookmarks/{id}`                      | `bookmarks:write`                            |
+| `GET`            | `/api/v1/messages/{id}/replies`               | `messages:read`                              |
+| `GET`            | `/api/v1/search?q=`                           | `messages:read`                              |
+| `GET` `POST`     | `/api/v1/users`                               | `users:read` / `users:invite`                |
+
+Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
+`forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,
+`not_configured` and `internal`. 600 requests per key per minute, counted in Postgres (a fixed
+window — coarse, but the only stateful option without adding Redis; a token bucket is a
+follow-up). Posting a message with the same `client_id` twice returns the original rather than
+a duplicate, enforced by a unique index.
+
+Not covered in this pass: attachments and uploads, reactions, pins, editing and deleting
+messages, scheduled messages, saved items, outgoing webhooks, pagination beyond
+`before` + `limit`, and an OpenAPI document.
+
+```bash
+K=sk_live_...
+curl -sS -H "Authorization: Bearer $K" https://chat.stayful.co.uk/api/v1/me
+curl -sS -X POST -H "Authorization: Bearer $K" -H 'content-type: application/json' \
+  -d '{"body":"Posted over the API","client_id":"demo-1"}' \
+  "https://chat.stayful.co.uk/api/v1/conversations/$CID/messages"
+```
+
+## MCP server
+
+`/api/mcp` speaks the Model Context Protocol over Streamable HTTP, so Claude, n8n, Zapier or
+anything else speaking MCP can drive the workspace with nothing to install. It authenticates
+with the same API keys and the same `verifyApiKey` helper as the REST API, so the two surfaces
+cannot end up authenticating differently, and every tool goes through the same
+`src/lib/api/service.ts` — neither front door holds logic of its own.
+
+Every tool acts as the key's Stayful team member and is bounded by that person's own access:
+an agent cannot see a group they are not in, and its messages are labelled "via MCP". Write
+tools say so in their own descriptions, so a model knows it is acting in a live workspace and
+not a sandbox.
+
+**Reading:** `list_conversations`, `get_conversation`, `list_messages`, `list_thread_replies`,
+`search_messages`, `list_people`, `list_bookmarks`, `whoami`.
+**Writing:** `send_message`, `create_group`, `open_dm`, `add_members`, `remove_member`,
+`invite_member`, `add_bookmark`, `remove_bookmark`, `set_my_status`.
+
+Scopes are checked per tool, not just at the endpoint, so a read-only key can still connect.
+
+```bash
+claude mcp add --transport http stayful https://chat.stayful.co.uk/api/mcp \
+  --header "Authorization: Bearer sk_live_..."
+```
+
+The endpoint is **stateless** — Vercel keeps nothing between requests, so there is no session
+to resume, and `maxSubscriptions: 0` rejects `subscriptions/listen` rather than opening an SSE
+stream a serverless function cannot hold. That rules out server-initiated notifications,
+resource subscriptions and streaming progress: every tool is plain request/response. The app's
+own live updates ride Supabase Realtime; MCP clients poll.
+
+**A bearer key works today** for Claude Code (above), the Anthropic Messages API `mcp_servers`
+block, n8n's MCP Client node, and stdio-only clients via `npx mcp-remote <url>`. **Adding this
+as a connector in the claude.ai or Claude Desktop UI generally needs OAuth**, which wants an
+authorization server this app does not have — that is a follow-up, not something this pass
+delivers. The groundwork is in place for it (`mcp-handler` ships `protectedResourceHandler` for
+RFC 9728, and the 401 already carries a spec-compliant `WWW-Authenticate` challenge). Check
+whether Zapier's MCP client accepts a static bearer header before promising it there.
 
 ## Scripts
 

@@ -66,6 +66,11 @@ export function SidebarHeader({
                 <Icon name="people" size={18} /> Add a team member
               </Link>
             )}
+            {isAdmin && (
+              <Link href="/settings/api" onClick={() => setOpen(false)} className={item}>
+                <Icon name="key" size={18} /> API and integrations
+              </Link>
+            )}
             <Link href="/search" onClick={() => setOpen(false)} className={`${item} md:hidden`}>
               <Icon name="search" size={18} /> Search
             </Link>
