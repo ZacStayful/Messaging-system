@@ -4,6 +4,7 @@ import { NotConfiguredError, jwtConfigured } from "./jwt";
 import { verifyApiKey, userClient, type ApiClient, type ApiKeyContext } from "./auth";
 import { ApiError, fail } from "./respond";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logApiCall } from "./audit";
 
 /** Requests per key per minute. Generous for real use, low enough to notice a runaway loop. */
 const RATE_LIMIT = 600;
@@ -67,7 +68,8 @@ export function withApiKey(handler: Handler, options: Options) {
           headers: { "retry-after": String(RATE_WINDOW_SECONDS) },
         });
       }
-      void admin.rpc("api_touch_key", { p_key_id: ctx.keyId });
+      // last_used_at is stamped inside api_rate_hit (0017). It used to be a separate
+      // `void admin.rpc(...)`, which serverless dropped before it ever ran.
     }
 
     // Checked up front rather than caught: supabase-js invokes the accessToken callback inside
@@ -81,7 +83,21 @@ export function withApiKey(handler: Handler, options: Options) {
 
     try {
       const params = await context.params;
-      return await handler({ request, ctx, db, params: params ?? {} });
+      const response = await handler({ request, ctx, db, params: params ?? {} });
+
+      // Logged here rather than in each route: a per-handler call is one someone forgets, and
+      // an unrecorded API write is the kind of gap you only notice when you need the trail.
+      // Reads are skipped — an audit row per GET would bury the writes.
+      if (request.method !== "GET" && response.ok) {
+        const path = new URL(request.url).pathname;
+        await logApiCall(db, ctx, {
+          action: `api.${request.method.toLowerCase()}`,
+          entity: path,
+          entity_id: params?.id ?? null,
+          diff: { status: response.status },
+        });
+      }
+      return response;
     } catch (e) {
       return mapError(e);
     }

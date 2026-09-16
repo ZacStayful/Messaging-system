@@ -986,7 +986,6 @@ export type Database = {
         Args: { p_key_id: string; p_limit: number; p_window_seconds: number };
         Returns: boolean;
       };
-      api_touch_key: { Args: { p_key_id: string }; Returns: undefined };
       remove_member: { Args: { p_conversation_id: string; p_user_id: string }; Returns: undefined };
       rename_channel: { Args: { p_conversation_id: string; p_name: string }; Returns: undefined };
       set_channel_details: {

@@ -59,7 +59,8 @@ const authed = withMcpAuth(
         p_window_seconds: RATE_WINDOW_SECONDS,
       });
       if (withinLimit === false) return undefined;
-      void admin.rpc("api_touch_key", { p_key_id: ctx.keyId });
+      // last_used_at is stamped inside api_rate_hit (0017); the old separate call was an
+      // un-awaited promise that serverless dropped before it ran.
     }
 
     const extra: McpAuthExtra = { ctx };

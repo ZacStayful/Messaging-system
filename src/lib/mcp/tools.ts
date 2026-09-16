@@ -5,6 +5,7 @@ import type { Scope } from "@/lib/api/keys";
 import { userClient, type ApiKeyContext } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/respond";
 import * as service from "@/lib/api/service";
+import { logApiCall } from "@/lib/api/audit";
 
 /**
  * The MCP face of the same service layer the REST API uses. Every tool body is a few lines of
@@ -59,11 +60,26 @@ function requireTeam(ctx: ApiKeyContext) {
   }
 }
 
-/** Wraps a tool body so a failure reaches the model as a readable message, not a stack trace. */
-function tool<A>(run: (args: A, ctx: ToolContext) => Promise<unknown>) {
+/**
+ * Wraps a tool body so a failure reaches the model as a readable message, not a stack trace,
+ * and so a write leaves an audit row. `name` is passed for the audit entry; omit it for reads,
+ * which are not logged (a row per read would bury the writes).
+ */
+function tool<A>(run: (args: A, ctx: ToolContext) => Promise<unknown>, writes?: string) {
   return async (args: A, ctx: ToolContext) => {
     try {
-      return text(await run(args, ctx));
+      const result = await run(args, ctx);
+      if (writes) {
+        const extra = ctx.http?.authInfo?.extra as McpAuthExtra | undefined;
+        if (extra?.ctx) {
+          await logApiCall(userClient(extra.ctx), extra.ctx, {
+            action: `mcp.${writes}`,
+            entity: "tool",
+            entity_id: writes,
+          });
+        }
+      }
+      return text(result);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (!(e instanceof ApiError)) console.error("[mcp] tool failed", e);
@@ -230,6 +246,7 @@ export function registerTools(server: McpServer): void {
           "mcp",
         );
       },
+      "send_message",
     ),
   );
 
@@ -259,6 +276,7 @@ export function registerTools(server: McpServer): void {
           topic: args.topic,
         });
       },
+      "create_group",
     ),
   );
 
@@ -272,7 +290,7 @@ export function registerTools(server: McpServer): void {
     tool(async (args: { user_id: string }, c) => {
       const { db } = actor(c, ["conversations:write"]);
       return service.openDm(db, args.user_id);
-    }),
+    }, "open_dm"),
   );
 
   server.registerTool(
@@ -286,7 +304,7 @@ export function registerTools(server: McpServer): void {
       const { ctx, db } = actor(c, ["members:write"]);
       requireTeam(ctx);
       return service.addMembers(db, args.conversation_id, args.user_ids);
-    }),
+    }, "add_members"),
   );
 
   server.registerTool(
@@ -300,7 +318,7 @@ export function registerTools(server: McpServer): void {
       const { ctx, db } = actor(c, ["members:write"]);
       requireTeam(ctx);
       return service.removeMember(db, args.conversation_id, args.user_id);
-    }),
+    }, "remove_member"),
   );
 
   server.registerTool(
@@ -343,6 +361,7 @@ export function registerTools(server: McpServer): void {
           conversationIds: args.conversation_ids,
         });
       },
+      "invite_member",
     ),
   );
 
@@ -369,7 +388,7 @@ export function registerTools(server: McpServer): void {
         emoji: args.emoji,
         note: args.note,
       });
-    }),
+    }, "add_bookmark"),
   );
 
   server.registerTool(
@@ -382,7 +401,7 @@ export function registerTools(server: McpServer): void {
     tool(async (args: { bookmark_id: string }, c) => {
       const { db } = actor(c, ["bookmarks:write"]);
       return service.deleteBookmark(db, args.bookmark_id);
-    }),
+    }, "remove_bookmark"),
   );
 
   server.registerTool(
@@ -423,6 +442,7 @@ export function registerTools(server: McpServer): void {
           dndFor: args.dnd_for as Parameters<typeof service.setMyStatus>[2]["dndFor"],
         });
       },
+      "set_my_status",
     ),
   );
 
