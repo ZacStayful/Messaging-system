@@ -561,6 +561,7 @@ export type Database = {
           external_ref: string | null;
           from_identifier: string;
           id: number;
+          org_id: string | null;
           payload: Json;
           reason: string;
           resolved_at: string | null;
@@ -572,6 +573,7 @@ export type Database = {
           external_ref?: string | null;
           from_identifier: string;
           id?: never;
+          org_id?: string | null;
           payload?: Json;
           reason: string;
           resolved_at?: string | null;
@@ -583,6 +585,7 @@ export type Database = {
           external_ref?: string | null;
           from_identifier?: string;
           id?: never;
+          org_id?: string | null;
           payload?: Json;
           reason?: string;
           resolved_at?: string | null;
@@ -640,6 +643,7 @@ export type Database = {
           fetched_at: string;
           image_url: string | null;
           ok: boolean;
+          org_id: string;
           site_name: string | null;
           title: string | null;
           url: string;
@@ -649,6 +653,7 @@ export type Database = {
           fetched_at?: string;
           image_url?: string | null;
           ok?: boolean;
+          org_id: string;
           site_name?: string | null;
           title?: string | null;
           url: string;
@@ -658,6 +663,7 @@ export type Database = {
           fetched_at?: string;
           image_url?: string | null;
           ok?: boolean;
+          org_id?: string;
           site_name?: string | null;
           title?: string | null;
           url?: string;
@@ -819,6 +825,7 @@ export type Database = {
           event_type: string | null;
           id: number;
           item_id: string | null;
+          org_id: string | null;
           outcome: string;
           payload: Json;
         };
@@ -830,6 +837,7 @@ export type Database = {
           event_type?: string | null;
           id?: never;
           item_id?: string | null;
+          org_id?: string | null;
           outcome: string;
           payload?: Json;
         };
@@ -841,6 +849,7 @@ export type Database = {
           event_type?: string | null;
           id?: never;
           item_id?: string | null;
+          org_id?: string | null;
           outcome?: string;
           payload?: Json;
         };

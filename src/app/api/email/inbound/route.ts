@@ -116,9 +116,17 @@ export async function POST(request: NextRequest) {
   if (!profile || profile.deactivated_at || !membership) {
     return unmatched(admin, profile?.deactivated_at ? "deactivated" : "not_a_member", emailId, from ?? "", null, event);
   }
+  // The sender check is the only thing standing between a leaked reply token and a message
+  // posted as someone else, so it fails closed. It used to be skipped whenever `From` could not
+  // be parsed or the profile carried no email — exactly the two cases an attacker controls, by
+  // sending a bracket-less or absent From header.
+  //
+  // It is still only a string compare against an unauthenticated RFC 5322 header: nothing here
+  // sees SPF, DKIM or DMARC results, because the webhook payload does not carry them. Treat the
+  // reply token as the real credential, and see the note on expiry in 0007_reply_by_email.sql.
   const fromAddr = (from?.match(/<([^>]+)>/)?.[1] ?? from ?? "").trim().toLowerCase();
-  if (profile.email && fromAddr && fromAddr !== profile.email.toLowerCase()) {
-    return unmatched(admin, "sender_mismatch", emailId, fromAddr, null, event);
+  if (!fromAddr || !profile.email || fromAddr !== profile.email.toLowerCase()) {
+    return unmatched(admin, "sender_mismatch", emailId, fromAddr || "unknown", null, event);
   }
 
   // A reply to an old notification for a group that has since been archived would land where

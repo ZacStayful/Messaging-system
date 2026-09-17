@@ -258,6 +258,12 @@ Migrations live in `supabase/migrations` and are applied in order:
     update policy given the same predicates as its insert; internal notes broadcast on
     `conversation-internal:<id>`, which requires `is_team()`; `notification_outbox.claimed_at` so
     the stranded-row rescue keys on the claim rather than on when the row was queued
+30. `0030_tenant_and_audit_fixes.sql` `link_previews` scoped to an organisation (it was
+    `using (true)`, so one tenant could read every link another had posted); the org check
+    `remove_member` was missing on its `is_admin()` branch; `edited_at`, `sent_via` and
+    `external_ref` added to `messages_guard_update`, so the "(edited)" marker cannot be erased
+    on its own; `org_id` on `monday_events` and `inbound_messages_unmatched`, whose policies
+    asked only "are you team?"
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

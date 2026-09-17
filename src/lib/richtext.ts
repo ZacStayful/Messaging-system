@@ -192,6 +192,24 @@ export function mentionedNames(body: string): string[] {
   return Array.from(body.matchAll(MENTION_RE), (m) => m[1] ?? m[2]);
 }
 
+/**
+ * Does this preview @mention `displayName`?
+ *
+ * The realtime handler used to build `new RegExp("@\\[?" + display_name + "\\b")`, which put an
+ * arbitrary display name into a pattern. A name with an unbalanced bracket ("Dan [") or a
+ * leading quantifier threw a SyntaxError inside the message_created handler — before the state
+ * update, so that person's sidebar silently stopped moving until they reloaded — and a name
+ * with a full stop ("J. Smith") matched anything in that position and badged false mentions.
+ *
+ * Asking the mention parser is both safer and more accurate: it understands the two forms the
+ * composer actually writes (`@Name` and `@[Name With Spaces]`), so no name needs escaping.
+ */
+export function previewMentions(preview: string, displayName: string): boolean {
+  const target = displayName.trim().toLowerCase();
+  if (!target) return false;
+  return mentionedNames(preview).some((n) => n?.trim().toLowerCase() === target);
+}
+
 /** The text the composer inserts for a mention of `displayName`. */
 export function mentionToken(displayName: string): string {
   const name = displayName.trim();

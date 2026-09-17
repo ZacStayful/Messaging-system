@@ -105,6 +105,18 @@ export function Composer({
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const discardRecording = useRef(false);
+  /**
+   * The live microphone tracks, held separately from the recorder.
+   *
+   * rec.onstop was the only thing that stopped them, and it is only reached through
+   * recorder.current.stop(). recorder.current is assigned *after* `await getUserMedia`, so
+   * unmounting while the permission prompt is up left the cleanup with nothing to stop, and the
+   * stream the await then handed back was never released — the browser's recording indicator
+   * stayed lit for the rest of the session.
+   */
+  const mediaStream = useRef<MediaStream | null>(null);
+  /** Set before the await, so a second tap during acquisition cannot start a second recorder. */
+  const acquiring = useRef(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -180,6 +192,12 @@ export function Composer({
     return () => window.clearInterval(id);
   }, [recording]);
 
+  /** Stops every track and forgets the stream. Safe to call twice; safe to call with none. */
+  const releaseMicrophone = () => {
+    mediaStream.current?.getTracks().forEach((t) => t.stop());
+    mediaStream.current = null;
+  };
+
   const startRecording = async () => {
     setMenu("none");
     setError(null);
@@ -187,8 +205,11 @@ export function Composer({
       setError("Voice notes aren't supported in this browser.");
       return;
     }
+    if (acquiring.current || recorder.current) return;
+    acquiring.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStream.current = stream;
       const mimeType = pickRecorderMime();
       const rec = new MediaRecorder(stream, { mimeType });
       chunks.current = [];
@@ -198,7 +219,7 @@ export function Composer({
         if (e.data.size > 0) chunks.current.push(e.data);
       };
       rec.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
+        releaseMicrophone();
         const duration = Date.now() - startedAt;
         setRecording(null);
         if (discardRecording.current || duration < 500 || chunks.current.length === 0) return;
@@ -222,15 +243,32 @@ export function Composer({
       rec.start(250);
       setRecording({ startedAt, elapsed: 0 });
     } catch {
+      // MediaRecorder can throw after getUserMedia has already succeeded, so the stream has to
+      // be released here too; otherwise the failure message appears with the mic still live.
+      releaseMicrophone();
       setError("Microphone access was blocked. Allow the microphone for chat.stayful.co.uk and try again.");
+    } finally {
+      acquiring.current = false;
     }
   };
   const stopRecording = (discard = false) => {
     discardRecording.current = discard;
     recorder.current?.stop();
     recorder.current = null;
+    // stop() fires onstop, which releases the microphone — but only if the recorder was still
+    // running. Releasing again here is harmless and covers a recorder already in "inactive".
+    releaseMicrophone();
   };
-  useEffect(() => () => recorder.current?.stop(), []);
+  // Stop the recorder *and* the tracks: unmounting mid-acquisition leaves recorder.current null
+  // while the stream is live, which is exactly the case that used to strand the microphone.
+  useEffect(
+    () => () => {
+      recorder.current?.stop();
+      recorder.current = null;
+      releaseMicrophone();
+    },
+    [],
+  );
 
   // ---- mentions -------------------------------------------------------------
   const mentionCandidates = mention
