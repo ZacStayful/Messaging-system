@@ -18,7 +18,10 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: { default: "Stayful", template: "%s · Stayful" },
   description: "Stayful owner and team messaging",
-  icons: { icon: "/brand/stayful-logo.png", apple: "/brand/stayful-logo.png" },
+  // No `icons` here on purpose. Next picks up icon.svg, favicon.ico and apple-icon.png from
+  // this directory by convention, and an explicit entry would override them — which is what
+  // used to happen: the tab was served the full 176 KB logo, whose script wordmark is an
+  // unreadable smudge at 16px. The mark in icon.svg is the same palette reduced to one letter.
   applicationName: "Stayful",
 };
 
