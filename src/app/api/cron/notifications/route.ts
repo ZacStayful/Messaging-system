@@ -8,6 +8,7 @@ import { sendWhatsApp, whatsappConfigured } from "@/lib/whatsapp/timelines";
 import { messageWhatsApp } from "@/lib/whatsapp/templates";
 import { siteUrl } from "@/lib/site";
 import { groupOutboxRows, skipReason } from "@/lib/notifications/policy";
+import { authorised } from "@/lib/cron/auth";
 import type { NotificationOutbox } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
@@ -140,13 +141,6 @@ async function postScheduledMessages(admin: NonNullable<ReturnType<typeof create
     posted++;
   }
   return posted;
-}
-
-function authorised(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = request.headers.get("authorization");
-  return header === `Bearer ${secret}`;
 }
 
 /**

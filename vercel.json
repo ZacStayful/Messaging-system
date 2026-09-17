@@ -1,4 +1,13 @@
 {
   "framework": "nextjs",
-  "crons": [{ "path": "/api/cron/notifications", "schedule": "* * * * *" }]
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/retention",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

@@ -609,9 +609,23 @@ which is a separate table from `calls` on purpose: a customer may see in their g
 happened without being able to play back the team discussing them. RLS is row-level, so a
 stricter rule needs its own row.
 
-**Retention is not yet decided.** Recordings of conversations about named people are personal
-data and "keep for ever" is not defensible under UK GDPR. A scheduled deletion after a fixed
-window is the obvious shape; the window is a business decision.
+**Retention is six months.** Recordings of conversations about named people are personal data,
+and "keep for ever" is not defensible under UK GDPR. `/api/cron/retention` runs nightly at 03:00
+(`vercel.json`) and deletes audio past the window: for a call recording, a `DELETE` to Twilio
+followed by the `call_recordings` row; for a voicemail, the storage object and its attachment row.
+The window is `RECORDING_RETENTION_DAYS` (default 180), so changing it is a setting rather than a
+deploy, and an unreadable value falls back to the default rather than to zero — this job deletes
+things and should never fail toward deleting more.
+
+**The line in the thread survives the audio.** That a call happened, with whom and for how long,
+is business record; the recording is the personal data. An expired voicemail keeps its message and
+gains `meta.audio_expired`, which renders "Audio deleted after 180 days" where the player was — a
+player that has quietly become a dead control reads as a bug rather than as a policy. Deleting the
+message too would rewrite the history of a conversation six months after the fact, which is a
+bigger thing than this job is for.
+
+A recording Twilio refuses to delete keeps its row, because dropping it would lose the only handle
+we have on audio that is still sitting in Twilio's account. The sweep runs again tomorrow.
 
 ## Public API
 

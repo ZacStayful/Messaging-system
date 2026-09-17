@@ -264,6 +264,17 @@ export function MessageItem({
             {message.body && !message._status && previewableLink(message.body) && (
               <LinkPreview url={previewableLink(message.body)!} />
             )}
+            {/*
+              A voicemail whose audio has aged out of the retention window. The line stays — that
+              somebody rang, and for how long, is business record — but the player is gone, and a
+              missing player with no explanation reads as a bug rather than as a policy.
+            */}
+            {(message.meta as { audio_expired?: boolean } | null)?.audio_expired && (
+              <div className="mt-0.5 text-[13px] text-muted">
+                Audio deleted after{" "}
+                {(message.meta as { audio_expired_after_days?: number } | null)?.audio_expired_after_days ?? 180} days.
+              </div>
+            )}
             {attachments.length > 0 && (
               <div className="mt-1 mb-2 flex flex-wrap gap-2">
                 {attachments.map((a) => (
