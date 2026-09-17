@@ -1066,9 +1066,12 @@ export function ConversationView({
             <div
               ref={scrollRef}
               onScroll={onScroll}
-              className="scroll-thin flex min-h-0 flex-1 flex-col justify-end overflow-y-auto pt-2 pb-3"
+              // Messages hug the bottom via mt-auto on the list below, NOT justify-end here:
+              // justify-content on a scroll container collapses scrollHeight to clientHeight, so
+              // the element cannot scroll at all and everything above the fold is unreachable.
+              className="scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-3"
             >
-              <div className="px-3.5 md:px-5">
+              <div className="mt-auto px-3.5 md:px-5">
                 {messages.length === 0 && (
                   <p className="py-10 text-center text-[15px] text-muted">
                     This is the very beginning of {isDm ? "your conversation" : `#${conversation.name}`}.
