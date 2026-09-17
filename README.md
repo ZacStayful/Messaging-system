@@ -250,6 +250,14 @@ Migrations live in `supabase/migrations` and are applied in order:
     (every delivery, deduped on Monday's own event id) and `monday_links` (what an item produced)
 27. `0027_move_message.sql` `move_message` and `file_message_to_property`, and the narrowing of
     `messages_guard_update` that lets `parent_id` change inside them and nowhere else
+28. `0028_tenant_guards.sql` the org guard on the three `security definer` functions that took a
+    `p_org` and believed it (`render_message_template`, `next_available_slug`,
+    `ensure_maintenance_channel`)
+29. `0029_security_fixes.sql` sign-up metadata is only honoured behind `app.trusted_signup`;
+    `conversation_id` pinned in the `conversation_members` update policy and the scheduled-message
+    update policy given the same predicates as its insert; internal notes broadcast on
+    `conversation-internal:<id>`, which requires `is_team()`; `notification_outbox.claimed_at` so
+    the stranded-row rescue keys on the claim rather than on when the row was queued
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

@@ -117,11 +117,16 @@ export async function GET(request: NextRequest) {
   const posted = await postScheduledMessages(admin);
 
   // Rescue anything a previous run claimed and never finished (see STRANDED_CLAIM_MS).
+  //
+  // Keyed on claimed_at, never created_at: created_at is when the row was queued, so asking for
+  // rows older than the timeout returned every row that had merely *waited* — which is all of
+  // them after an unconfigured provider or a WhatsApp burst — and handed them to the next run
+  // while this one was still sending. That is how a queue double-sends everything.
   const { data: rescued } = await admin
     .from("notification_outbox")
-    .update({ status: "pending" })
+    .update({ status: "pending", claimed_at: null })
     .eq("status", "sending")
-    .lt("created_at", new Date(Date.now() - STRANDED_CLAIM_MS).toISOString())
+    .lt("claimed_at", new Date(Date.now() - STRANDED_CLAIM_MS).toISOString())
     .select("id");
   if (rescued?.length) console.warn(`notifications: requeued ${rescued.length} stranded row(s)`);
 
@@ -150,9 +155,25 @@ export async function GET(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!rows?.length) return NextResponse.json({ sent: 0, failed: 0, skipped: 0, posted });
 
-  // Claim
-  const ids = rows.map((r) => r.id);
-  await admin.from("notification_outbox").update({ status: "sending" }).in("id", ids);
+  // Claim.
+  //
+  // One conditional statement, not a select followed by a blind update: this cron is scheduled
+  // every minute and may run for sixty seconds, so two runs overlap by design. Both used to
+  // select the same rows and both wrote `sending` unconditionally, so both sent. Re-asserting
+  // the status the select saw means Postgres locks each row and the loser updates nothing;
+  // `select("id")` then returns only what this run actually took.
+  const { data: claimed } = await admin
+    .from("notification_outbox")
+    .update({ status: "sending", claimed_at: new Date().toISOString() })
+    .in(
+      "id",
+      rows.map((r) => r.id),
+    )
+    .in("status", ["pending", "failed"])
+    .select("id");
+  const mine = new Set((claimed ?? []).map((r) => r.id));
+  const claimedRows = rows.filter((r) => mine.has(r.id));
+  if (!claimedRows.length) return NextResponse.json({ sent: 0, failed: 0, skipped: 0, posted });
 
   const base = siteUrl();
   let sent = 0;
@@ -184,14 +205,14 @@ export async function GET(request: NextRequest) {
   // Drop message notifications for recipients who turned a channel off, went away or paused
   // notifications since queuing. The trigger checks this too, but a minute passes in between
   // and going quiet the moment you set yourself away is the entire point of the feature.
-  const recipientIds = Array.from(new Set(rows.map((r) => r.recipient_user_id).filter((x): x is string => !!x)));
+  const recipientIds = Array.from(new Set(claimedRows.map((r) => r.recipient_user_id).filter((x): x is string => !!x)));
   const { data: prefs } = await admin
     .from("profiles")
     .select("id, email_notifications, whatsapp_notifications, email, phone, presence_mode, away_until, dnd_until")
     .in("id", recipientIds);
   const prefById = new Map((prefs ?? []).map((p) => [p.id, p]));
 
-  const messageRows = rows.filter((r) => r.kind === "message");
+  const messageRows = claimedRows.filter((r) => r.kind === "message");
   const live: NotificationOutbox[] = [];
   for (const r of messageRows) {
     const reason = skipReason(r, r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined);
@@ -285,7 +306,7 @@ export async function GET(request: NextRequest) {
   if (waDeferred.length) {
     await admin
       .from("notification_outbox")
-      .update({ status: "pending" })
+      .update({ status: "pending", claimed_at: null })
       .in(
         "id",
         waDeferred.map((r) => r.id),
@@ -382,7 +403,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Welcome emails that the app could not send synchronously
-  for (const r of rows.filter((x) => x.kind === "welcome")) {
+  for (const r of claimedRows.filter((x) => x.kind === "welcome")) {
     const p = r.payload as {
       email?: string;
       login_url?: string;

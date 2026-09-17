@@ -411,6 +411,8 @@ export function ConversationView({
 
   const { sendTyping } = useConversationChannel({
     conversationId,
+    // Internal notes ride their own topic (0029); only the team is authorised to hear it.
+    internal: me.account_type === "team",
     onTyping: onTypingEvent,
     onInsert: (row) => {
       upsert(row);

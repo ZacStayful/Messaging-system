@@ -23,6 +23,9 @@ on conflict (id) do nothing;
 create or replace function pg_temp.seed_user(uid uuid, email text, meta jsonb, password text default null)
 returns void language plpgsql as $$
 begin
+  -- handle_new_user (0029) only honours account_type/role/org_slug from a caller that raises
+  -- this flag. The seed is one: it decides who Zac and the test staff account are.
+  perform set_config('app.trusted_signup', 'on', true);
   insert into auth.users (
     instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
     raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
