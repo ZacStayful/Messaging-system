@@ -45,7 +45,10 @@ jobs:
       # Nothing else here parses the migrations: typecheck and lint never open a .sql file, so a
       # plpgsql body that does not compile was only discovered by `supabase db push` against a
       # real project. README says this is why db:verify exists and why CI can run it; now it does.
-      # The runner image already ships PostgreSQL 16.
+      # The runner image already ships PostgreSQL 16. PGVERIFY_DIR matters: the script defaults
+      # the cluster to /var/lib/postgresql, which only root can write to, and the runner is not
+      # root — so it builds the cluster under the job's temp directory instead.
       - run: pnpm db:verify
         env:
           PGBIN: /usr/lib/postgresql/16/bin
+          PGVERIFY_DIR: ${{ runner.temp }}/verify-migrations
