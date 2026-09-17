@@ -23,6 +23,11 @@ export const ICON_PATHS = {
   lock: "M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4",
   star: "M12 3l2.8 6 6.2.7-4.6 4.3 1.3 6.3L12 17l-5.7 3.3 1.3-6.3L3 9.7 9.2 9z",
   huddle: "M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v6H4zM17 14h3v6h-3z",
+  // A handset, drawn at the same weight as the rest: the classic receiver tilted into a call.
+  phone: "M7 3h3l1.5 4-2 1.5a12 12 0 0 0 6 6L17 12.5 21 14v3a2 2 0 0 1-2.2 2A16 16 0 0 1 5 5.2 2 2 0 0 1 7 3z",
+  // The same handset with a line through it. Used for Hang up, so the two read as a pair.
+  phoneOff:
+    "M7 3h3l1.5 4-2 1.5a12 12 0 0 0 6 6L17 12.5 21 14v3a2 2 0 0 1-2.2 2A16 16 0 0 1 5 5.2 2 2 0 0 1 7 3zM3 3l18 18",
   bell: "M6 17V11a6 6 0 1 1 12 0v6l2 2H4l2-2zM10 21h4",
   bellOff: "M6 17V11a6 6 0 0 1 9-5.3M18 11v6l2 2H4l2-2M10 21h4M4 4l16 16",
   more: "M12 5.5h.01M12 12h.01M12 18.5h.01",

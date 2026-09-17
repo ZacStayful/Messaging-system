@@ -28,6 +28,14 @@ interface HeaderProps {
   searchOpen: boolean;
   onLeave: () => void;
   onArchive: () => void;
+  /**
+   * The people on this thread who can be rung: members other than me with a mobile on file.
+   * Empty means no button at all — including when calling is not configured at all, which the
+   * parent decides, because a control that throws when pressed is worse than no control. That
+   * lesson is why e0bcc91 removed the Huddle button.
+   */
+  callable: Profile[];
+  onCall: (person: Profile) => void;
 }
 
 const btn =
@@ -55,11 +63,13 @@ export function Header({
   searchOpen,
   onLeave,
   onArchive,
+  callable,
+  onCall,
 }: HeaderProps) {
   const isDm = conversation.type === "dm" || conversation.type === "group_dm";
   const look = presenceLook(otherStatus);
   const sub = isDm ? presenceText(otherStatus, other) : conversation.topic || `${conversation.member_count} members`;
-  const [menu, setMenu] = useState<"none" | "more" | "notify">("none");
+  const [menu, setMenu] = useState<"none" | "more" | "notify" | "call">("none");
   const level = (conversation.notify_level as NotifyLevel) || "all";
 
   const copyLink = () => {
@@ -235,6 +245,39 @@ export function Header({
           />
         )}
       </div>
+      {callable.length > 0 && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => (callable.length === 1 ? onCall(callable[0]) : setMenu(menu === "call" ? "none" : "call"))}
+            className={btn}
+            aria-label={callable.length === 1 ? `Call ${callable[0].display_name}` : "Call someone on this thread"}
+            title={callable.length === 1 ? `Call ${callable[0].display_name}` : "Call"}
+            aria-expanded={callable.length > 1 ? menu === "call" : undefined}
+          >
+            <Icon name="phone" />
+          </button>
+          {/*
+            One contact is the common case and gets one press. A property group can hold both a
+            cleaner and a contractor, and guessing between them would be the kind of wrong that is
+            only discovered once a stranger's phone is ringing — so more than one asks.
+          */}
+          {menu === "call" && callable.length > 1 && (
+            <Menu
+              label="Call someone on this thread"
+              header="Call"
+              items={callable.map((p) => ({
+                id: p.id,
+                label: p.display_name,
+                icon: "phone" as const,
+                hint: p.phone ?? undefined,
+                onSelect: () => onCall(p),
+              }))}
+              onClose={() => setMenu("none")}
+            />
+          )}
+        </div>
+      )}
       <button
         type="button"
         onClick={onToggleSearch}

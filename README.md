@@ -521,6 +521,42 @@ cannot be replayed to ring someone twice.
 The `call_summary` message carries `meta.client_id = call:<id>`, which `messages_client_id_idx`
 makes unique per conversation — so a status callback Twilio retries writes one line, not two.
 
+### Pressing Call
+
+`@twilio/voice-sdk` is the only new production dependency in the feature; everything server-side
+stays hand-rolled `fetch`. It lives behind `src/lib/twilio/device.ts`, so no component imports it
+or knows a `Device` has a lifecycle — which matters because the SDK holds a WebSocket and a
+microphone, and a component that forgets to destroy it leaves the mic light on.
+
+Two settings are pinned rather than defaulted:
+
+- **`edge: "dublin"`.** Twilio's public edges are `sydney, sao-paulo, dublin, frankfurt, tokyo,
+singapore, ashburn, umatilla, roaming`. **There is no public London edge** — `london-ix` is a
+  private Interconnect. The default `roaming` uses Global Low Latency routing and would usually
+  pick Dublin for a browser in Britain, but a VPN or a bad geolocation silently anchors the media
+  in Ashburn instead, which sounds like the other person keeps interrupting. Pinning it makes a
+  latency complaint something that can be reasoned about.
+- **`codecPreferences: ["opus", "pcmu"]`.** The SDK default is the other way round; opus first is
+  audibly better on the laptop microphones these calls are actually made from.
+
+**Who the button offers to call** is `callablePeople()` in `src/lib/calls/callable.ts`: members of
+the thread other than you, with a mobile on file, who are not deactivated — and nobody at all
+unless calling is configured and you are on the team. Membership rather than `property_contacts`,
+because a cleaner is a member of the property group and a customer of their own, while a rule
+written against `property_contacts` would refuse to call anyone in a DM. One callable person gets
+one press; more than one opens a menu, because guessing between a cleaner and a contractor is the
+kind of wrong that is only noticed once a stranger's phone is ringing.
+
+`CallBar` docks above the composer rather than opening a modal, so the thread stays readable —
+the last message is usually the reason for the call. It shows **the number as dialled**, not just
+the name: contractor numbers are set by `set_customer_phone`, which leaves `phone_verified_at`
+null, so a transposed digit calls a stranger from a number they can ring back.
+
+Recordings are played through `/api/calls/[id]/recording`, which reads `call_recordings` on the
+listener's own session so the `call recordings: team reads` policy decides, then streams from
+Twilio with the account credentials attached. A customer in the group sees the summary line and
+gets a 404. Twilio's own URL never reaches a browser, because anyone holding it can read it.
+
 ### Which number a call goes out from
 
 `voice_numbers`, not an env var. A caller ID cannot be invented — Twilio only accepts a `From` it

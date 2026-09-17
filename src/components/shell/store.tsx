@@ -88,6 +88,14 @@ export type NotifyLevel = "all" | "mentions" | "none";
 interface StoreValue {
   me: Profile;
   org: Org;
+  /**
+   * Whether calling is switched on for this deployment.
+   *
+   * Decided server-side by callsConfigured(), because the answer is six secrets none of which
+   * may reach the browser, and carried here rather than through a NEXT_PUBLIC_ flag so there is
+   * one definition of "configured" rather than an env var that can disagree with it.
+   */
+  callsEnabled: boolean;
   isTeam: boolean;
   isAdmin: boolean;
   isCustomer: boolean;
@@ -153,6 +161,7 @@ const StoreContext = createContext<StoreValue | null>(null);
 interface StoreProviderProps {
   me: Profile;
   org: Org;
+  callsEnabled: boolean;
   profiles: Profile[];
   conversations: ConversationSummary[];
   activity: ActivityItem[];
@@ -164,6 +173,7 @@ interface StoreProviderProps {
 export function StoreProvider({
   me,
   org,
+  callsEnabled,
   profiles: profileList,
   conversations: initialConversations,
   activity: initialActivity,
@@ -649,6 +659,7 @@ export function StoreProvider({
     () => ({
       me: meState,
       org,
+      callsEnabled,
       isTeam,
       isAdmin,
       isCustomer,
@@ -695,6 +706,7 @@ export function StoreProvider({
     [
       meState,
       org,
+      callsEnabled,
       isTeam,
       isAdmin,
       isCustomer,

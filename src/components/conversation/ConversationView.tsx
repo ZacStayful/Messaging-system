@@ -27,6 +27,9 @@ import { BookmarkDialog, type BookmarkDraft } from "./BookmarkDialog";
 import { FilesTab } from "./FilesTab";
 import { DetailsModal, type DetailTab } from "./DetailsModal";
 import { ThreadPanel } from "./ThreadPanel";
+import { CallBar, type CallTarget } from "./CallBar";
+import { startCall } from "@/lib/calls/startCall";
+import { callableProfiles } from "@/lib/calls/callable";
 
 export interface PinWithMessage {
   pinned_at: string;
@@ -94,6 +97,7 @@ export function ConversationView({
     profiles,
     nav,
     isTeam,
+    callsEnabled,
     conversationById,
     conversationName,
     otherMember,
@@ -575,6 +579,29 @@ export function ConversationView({
   // ---- actions --------------------------------------------------------------
   const memberProfiles = (conversation?.member_ids ?? []).map((id) => profiles[id]).filter(Boolean);
 
+  // ---- calling --------------------------------------------------------------
+  const [call, setCall] = useState<CallTarget | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
+
+  const callable = callableProfiles(memberProfiles, me.id, callsEnabled, isTeam);
+
+  const beginCall = async (person: (typeof memberProfiles)[number]) => {
+    setCallError(null);
+    // The row first, so that by the time any audio exists there is already something for the
+    // status callbacks and the summary to attach themselves to.
+    const result = await startCall(conversationId, person.id, openParent?.id ?? null);
+    if (!result.ok || !result.call) {
+      setCallError(result.error ?? "That call could not be started.");
+      return;
+    }
+    setCall({
+      userId: person.id,
+      name: person.display_name,
+      phone: person.phone ?? "",
+      callId: result.call.id,
+    });
+  };
+
   const toggleReaction = async (messageId: string, emoji: string) => {
     const key = { message_id: messageId, user_id: me.id, emoji };
     const existing = reactions.find((r) => sameReaction(r, key));
@@ -976,6 +1003,8 @@ export function ConversationView({
             else setSearch({ open: true, q: "", index: 0 });
           }}
           searchOpen={search.open}
+          callable={callable}
+          onCall={(person) => void beginCall(person)}
         />
 
         <BookmarkBar
@@ -1221,18 +1250,31 @@ export function ConversationView({
                 )}
               </div>
             ) : (
-              <Composer
-                conversationId={conversationId}
-                placeholder={placeholder}
-                canPostInternal={canPostInternal}
-                members={memberProfiles.filter((p) => p.id !== me.id)}
-                onSend={(body, visibility, files) => void send(body, visibility, files)}
-                commands={commands}
-                onCommand={runCommand}
-                onSchedule={(body, visibility, at) => void scheduleMessage(body, visibility, at, null)}
-                onTyping={() => sendTyping({ user_id: me.id, parent_id: null })}
-                onEditLast={editLast}
-              />
+              <>
+                {callError && (
+                  <div className="border-t border-line bg-panel px-3 py-2 text-[14px] text-new" role="alert">
+                    {callError}
+                  </div>
+                )}
+                {/*
+                  Keyed on the call id, so starting a second call mounts a fresh bar rather than
+                  asking the existing one to change who it is ringing halfway through — which is
+                  what makes its mount-only effect safe.
+                */}
+                {call && <CallBar key={call.callId} target={call} onClose={() => setCall(null)} />}
+                <Composer
+                  conversationId={conversationId}
+                  placeholder={placeholder}
+                  canPostInternal={canPostInternal}
+                  members={memberProfiles.filter((p) => p.id !== me.id)}
+                  onSend={(body, visibility, files) => void send(body, visibility, files)}
+                  commands={commands}
+                  onCommand={runCommand}
+                  onSchedule={(body, visibility, at) => void scheduleMessage(body, visibility, at, null)}
+                  onTyping={() => sendTyping({ user_id: me.id, parent_id: null })}
+                  onEditLast={editLast}
+                />
+              </>
             )}
           </div>
         )}
