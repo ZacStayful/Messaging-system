@@ -3,6 +3,8 @@ import { createHmac } from "node:crypto";
 import { formParams, publicUrlOf, twilioSignature, verifyTwilioSignature } from "@/lib/twilio/signature";
 import { dialTwiML, esc, sayAndHangupTwiML, voicemailTwiML, RECORDING_NOTICE } from "@/lib/twilio/twiml";
 import { buildCallSummary, formatDuration, voicemailBody } from "@/lib/twilio/summary";
+import { accessTokenInputFromEnv, TwilioNotConfiguredError, voiceAccessToken } from "@/lib/twilio/accessToken";
+import { callbackOrigin, readSignedWebhook } from "@/lib/twilio/webhook";
 
 const TOKEN = "12345678901234567890123456789012";
 
@@ -211,5 +213,239 @@ describe("voicemailBody", () => {
   it("names the caller and the length", () => {
     expect(voicemailBody("Marta", 42)).toBe("Voicemail from Marta · 42s");
     expect(voicemailBody("Marta", null)).toBe("Voicemail from Marta");
+  });
+});
+
+describe("voiceAccessToken", () => {
+  const input = {
+    accountSid: "AC00000000000000000000000000000000",
+    apiKeySid: "SK11111111111111111111111111111111",
+    apiKeySecret: "shhh-api-key-secret",
+    twimlAppSid: "AP22222222222222222222222222222222",
+    identity: "9f1c0a4e-0000-4000-8000-000000000001",
+  };
+
+  const decode = (segment: string) => JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
+  const parts = (token: string) => {
+    const [h, p, s] = token.split(".");
+    return { header: decode(h), payload: decode(p), signature: s, signingInput: `${h}.${p}` };
+  };
+
+  // The one the Voice SDK silently rejects a token for. An access token is a JWT with a content
+  // type the ordinary JWT libraries do not set, and the failure mode is an unhelpful client-side
+  // error rather than anything the server sees — so it is asserted here or nowhere.
+  it("declares the twilio-fpa content type in the header", () => {
+    expect(parts(voiceAccessToken(input)).header).toEqual({ typ: "JWT", alg: "HS256", cty: "twilio-fpa;v=1" });
+  });
+
+  // iss and sub are the two most natural things to get backwards, and swapping them produces a
+  // token that looks entirely reasonable and is refused at the edge.
+  it("issues from the API key and subjects the account", () => {
+    const { payload } = parts(voiceAccessToken(input));
+    expect(payload.iss).toBe(input.apiKeySid);
+    expect(payload.sub).toBe(input.accountSid);
+  });
+
+  it("carries the identity and the TwiML app in the voice grant", () => {
+    const { payload } = parts(voiceAccessToken(input));
+    expect(payload.grants.identity).toBe(input.identity);
+    expect(payload.grants.voice.outgoing.application_sid).toBe(input.twimlAppSid);
+  });
+
+  // No incoming grant: a cleaner ringing the Stayful number back must reach the voicemail TwiML,
+  // not whichever team member happens to have a browser tab open.
+  it("grants outgoing only", () => {
+    expect(parts(voiceAccessToken(input)).payload.grants.voice.incoming).toBeUndefined();
+  });
+
+  it("signs with the API key secret, not the auth token", () => {
+    const { signingInput, signature } = parts(voiceAccessToken(input));
+    const expected = createHmac("sha256", input.apiKeySecret).update(signingInput).digest("base64url");
+    expect(signature).toBe(expected);
+    expect(signature).not.toBe(createHmac("sha256", TOKEN).update(signingInput).digest("base64url"));
+  });
+
+  it("expires, and by default within the hour", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { payload } = parts(voiceAccessToken(input));
+    expect(payload.exp - payload.nbf).toBe(3600);
+    expect(payload.nbf).toBeGreaterThanOrEqual(now - 2);
+
+    const short = parts(voiceAccessToken({ ...input, ttlSeconds: 60 })).payload;
+    expect(short.exp - short.nbf).toBe(60);
+  });
+
+  it("produces base64url, with no padding to be mangled in transit", () => {
+    expect(voiceAccessToken(input)).not.toMatch(/[+/=]/);
+  });
+});
+
+describe("accessTokenInputFromEnv", () => {
+  const KEYS = ["TWILIO_ACCOUNT_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET", "TWILIO_TWIML_APP_SID"] as const;
+
+  const withEnv = <T>(values: Partial<Record<(typeof KEYS)[number], string>>, fn: () => T): T => {
+    const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+    try {
+      for (const k of KEYS) {
+        if (values[k] === undefined) delete process.env[k];
+        else process.env[k] = values[k];
+      }
+      return fn();
+    } finally {
+      for (const k of KEYS) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k]!;
+      }
+    }
+  };
+
+  const full = {
+    TWILIO_ACCOUNT_SID: "AC0",
+    TWILIO_API_KEY_SID: "SK0",
+    TWILIO_API_KEY_SECRET: "secret",
+    TWILIO_TWIML_APP_SID: "AP0",
+  };
+
+  it("reads all four and attaches the identity", () => {
+    expect(withEnv(full, () => accessTokenInputFromEnv("me"))).toEqual({
+      accountSid: "AC0",
+      apiKeySid: "SK0",
+      apiKeySecret: "secret",
+      twimlAppSid: "AP0",
+      identity: "me",
+    });
+  });
+
+  // An operator staring at a 503 needs the variable's name. Its value must never appear — this
+  // error is logged, and one of these four is a secret.
+  it("names the missing variables and nothing else", () => {
+    const missing = withEnv({ ...full, TWILIO_API_KEY_SECRET: undefined }, () => {
+      try {
+        accessTokenInputFromEnv("me");
+        return null;
+      } catch (e) {
+        return e as Error;
+      }
+    });
+    expect(missing).toBeInstanceOf(TwilioNotConfiguredError);
+    expect(missing!.message).toContain("TWILIO_API_KEY_SECRET");
+    expect(missing!.message).not.toContain("AC0");
+    expect(missing!.message).not.toContain("secret");
+  });
+});
+
+describe("readSignedWebhook", () => {
+  const PATH_TOKEN = "path-token-that-is-long-and-random";
+  const URL_ = "https://chat.stayful.co.uk/api/twilio/status/" + PATH_TOKEN;
+  const BODY = "CallSid=CA1&CallStatus=completed&CallDuration=42";
+
+  const signedRequest = (over: { body?: string; signature?: string; url?: string } = {}) => {
+    const url = over.url ?? URL_;
+    const body = over.body ?? BODY;
+    const signature = over.signature ?? twilioSignature(url, formParams(body), TOKEN);
+    return new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-twilio-signature": signature },
+      body,
+    });
+  };
+
+  const withTwilioEnv = async <T>(values: { token?: string; auth?: string }, fn: () => Promise<T>): Promise<T> => {
+    const saved = [process.env.TWILIO_WEBHOOK_TOKEN, process.env.TWILIO_AUTH_TOKEN];
+    try {
+      if (values.token === undefined) delete process.env.TWILIO_WEBHOOK_TOKEN;
+      else process.env.TWILIO_WEBHOOK_TOKEN = values.token;
+      if (values.auth === undefined) delete process.env.TWILIO_AUTH_TOKEN;
+      else process.env.TWILIO_AUTH_TOKEN = values.auth;
+      return await fn();
+    } finally {
+      for (const [i, name] of (["TWILIO_WEBHOOK_TOKEN", "TWILIO_AUTH_TOKEN"] as const).entries()) {
+        if (saved[i] === undefined) delete process.env[name];
+        else process.env[name] = saved[i]!;
+      }
+    }
+  };
+
+  const configured = { token: PATH_TOKEN, auth: TOKEN };
+
+  it("accepts a request with the right path token and a valid signature", async () => {
+    const read = await withTwilioEnv(configured, () => readSignedWebhook(signedRequest(), PATH_TOKEN));
+    expect(read.ok).toBe(true);
+    if (read.ok) expect(read.params).toEqual({ CallSid: "CA1", CallStatus: "completed", CallDuration: "42" });
+  });
+
+  it("refuses a valid signature behind the wrong path token", async () => {
+    // Both factors, always. A signature proves the request came from a Twilio account; the path
+    // token proves it came from *ours*.
+    const read = await withTwilioEnv(configured, () => readSignedWebhook(signedRequest(), "not-the-token"));
+    expect(read).toEqual({ ok: false, status: 401, error: "unauthorised" });
+  });
+
+  it("refuses the right path token with no signature", async () => {
+    const request = new Request(URL_, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: BODY,
+    });
+    const read = await withTwilioEnv(configured, () => readSignedWebhook(request, PATH_TOKEN));
+    expect(read).toEqual({ ok: false, status: 401, error: "unauthorised" });
+  });
+
+  it("refuses a body that was altered after signing", async () => {
+    // The whole point: a status callback whose CallStatus someone edited in flight would mark a
+    // call completed that is still ringing, and write a summary for it.
+    const signature = twilioSignature(URL_, formParams(BODY), TOKEN);
+    const tampered = signedRequest({ body: "CallSid=CA1&CallStatus=failed&CallDuration=42", signature });
+    const read = await withTwilioEnv(configured, () => readSignedWebhook(tampered, PATH_TOKEN));
+    expect(read.ok).toBe(false);
+  });
+
+  it("refuses a signature made for a different URL", async () => {
+    const signature = twilioSignature(
+      "https://chat.stayful.co.uk/api/twilio/recording/" + PATH_TOKEN,
+      formParams(BODY),
+      TOKEN,
+    );
+    const read = await withTwilioEnv(configured, () => readSignedWebhook(signedRequest({ signature }), PATH_TOKEN));
+    expect(read.ok).toBe(false);
+  });
+
+  // Not "set means required", the rule the WhatsApp webhook's optional header secret follows.
+  // Twilio always signs, so a missing auth token is a deployment that cannot verify anything —
+  // failing open here would leave every webhook in the feature unauthenticated.
+  it("fails closed, and says which variable is missing, when it cannot verify", async () => {
+    expect(await withTwilioEnv({ token: PATH_TOKEN }, () => readSignedWebhook(signedRequest(), PATH_TOKEN))).toEqual({
+      ok: false,
+      status: 503,
+      error: "TWILIO_AUTH_TOKEN is not set",
+    });
+    expect(await withTwilioEnv({ auth: TOKEN }, () => readSignedWebhook(signedRequest(), PATH_TOKEN))).toEqual({
+      ok: false,
+      status: 503,
+      error: "TWILIO_WEBHOOK_TOKEN is not set",
+    });
+  });
+
+  it("verifies against the forwarded host, which is what Twilio signed", async () => {
+    // Vercel terminates TLS and rewrites the host, so the request object says one thing and
+    // Twilio signed another. Getting this wrong rejects every real webhook in production while
+    // passing every test that uses a direct URL.
+    const signature = twilioSignature(URL_, formParams(BODY), TOKEN);
+    const proxied = new Request("http://10.0.0.7/api/twilio/status/" + PATH_TOKEN, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-twilio-signature": signature,
+        "x-forwarded-host": "chat.stayful.co.uk",
+        "x-forwarded-proto": "https",
+      },
+      body: BODY,
+    });
+    const read = await withTwilioEnv(configured, () => readSignedWebhook(proxied, PATH_TOKEN));
+    expect(read.ok).toBe(true);
+  });
+
+  it("hands back the callback origin from the URL it verified", () => {
+    expect(callbackOrigin(URL_)).toBe("https://chat.stayful.co.uk");
   });
 });
