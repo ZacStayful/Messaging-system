@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBlocks, parseInline, plainText, previewableLink } from "@/lib/richtext";
+import { parseBlocks, parseInline, plainText, previewableLink, previewMentions } from "@/lib/richtext";
 
 describe("richtext inline", () => {
   it("parses bold, italic, strike and code", () => {
@@ -52,5 +52,38 @@ describe("plainText and previewableLink", () => {
       "https://b.com/page",
     );
     expect(previewableLink("nothing here")).toBeNull();
+  });
+});
+
+describe("previewMentions", () => {
+  it("matches both forms the composer writes", () => {
+    expect(previewMentions("morning @Zac, all set?", "Zac")).toBe(true);
+    expect(previewMentions("cc @[Zac Stayful] please", "Zac Stayful")).toBe(true);
+    expect(previewMentions("@zac lower case", "Zac")).toBe(true);
+  });
+
+  it("does not match someone else", () => {
+    expect(previewMentions("morning @Dan", "Zac")).toBe(false);
+    expect(previewMentions("no mentions here", "Zac")).toBe(false);
+  });
+
+  // The crash this replaced: these names went straight into a RegExp, and the throw happened
+  // inside the realtime handler, before the state update that moves the sidebar.
+  it("survives names that are not valid regex", () => {
+    for (const name of ["Zac (Stayful", "Ops )", "Dan [", "*Ops", "Zac ++", "a|b", "\\"]) {
+      expect(() => previewMentions("@someone said hello", name), name).not.toThrow();
+      expect(previewMentions("@someone said hello", name), name).toBe(false);
+    }
+  });
+
+  it("does not treat a full stop in a name as a wildcard", () => {
+    // "@JX Smith" matched /@\[?J. Smith\b/ and badged a false mention.
+    expect(previewMentions("@JX Smith", "J. Smith")).toBe(false);
+    expect(previewMentions("@[J. Smith] hello", "J. Smith")).toBe(true);
+  });
+
+  it("ignores an empty name rather than matching everything", () => {
+    expect(previewMentions("@Zac hello", "")).toBe(false);
+    expect(previewMentions("@Zac hello", "   ")).toBe(false);
   });
 });

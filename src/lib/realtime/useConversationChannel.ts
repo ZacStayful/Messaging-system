@@ -22,6 +22,13 @@ export interface TypingEvent {
 
 interface Options {
   conversationId: string;
+  /**
+   * Also listen on `conversation-internal:<id>`, where 0029 sends internal notes. Pass the
+   * viewer's own team-ness: the topic's policy requires is_team() anyway, so a customer who
+   * passed true would simply never be subscribed — but asking for it here keeps the client
+   * honest about what it expects to receive.
+   */
+  internal?: boolean;
   onInsert: (row: Message) => void;
   onUpdate: (row: Message) => void;
   onReaction?: (change: Change<Reaction>) => void;
@@ -50,11 +57,12 @@ function asChange<T>(payload: unknown): Change<T> {
 }
 
 /**
- * Subscribes to the private `conversation:<id>` topic fed by the database broadcast triggers.
+ * Subscribes to the private `conversation:<id>` topic fed by the database broadcast triggers,
+ * and — for the team — to `conversation-internal:<id>`, where internal notes go.
  * Returns `sendTyping` for the client-only typing indicator.
  */
 export function useConversationChannel(opts: Options) {
-  const { conversationId } = opts;
+  const { conversationId, internal = false } = opts;
   const handlers = useRef(opts);
   const channelRef = useRef<RealtimeChannel | null>(null);
   useEffect(() => {
@@ -67,6 +75,21 @@ export function useConversationChannel(opts: Options) {
     let needsBackfill = false;
     const channel = supabase.channel(`conversation:${conversationId}`, { config: { private: true } });
     channelRef.current = channel;
+
+    // Internal notes are broadcast on their own topic so that the policy authorising it can
+    // require is_team() — a topic policy cannot see a row's visibility, only the topic name.
+    const internalChannel = internal
+      ? supabase.channel(`conversation-internal:${conversationId}`, { config: { private: true } })
+      : null;
+    internalChannel
+      ?.on("broadcast", { event: "INSERT" }, ({ payload }) => {
+        const c = asChange<Message>(payload);
+        if (c.record) handlers.current.onInsert(c.record);
+      })
+      .on("broadcast", { event: "UPDATE" }, ({ payload }) => {
+        const c = asChange<Message>(payload);
+        if (c.record) handlers.current.onUpdate(c.record);
+      });
 
     channel
       .on("broadcast", { event: "INSERT" }, ({ payload }) => {
@@ -85,6 +108,7 @@ export function useConversationChannel(opts: Options) {
 
     supabase.realtime.setAuth().then(() => {
       if (cancelled) return;
+      internalChannel?.subscribe();
       channel.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           // After a reconnect, or after a failed first attempt (new projects can briefly report
@@ -101,8 +125,9 @@ export function useConversationChannel(opts: Options) {
       cancelled = true;
       channelRef.current = null;
       supabase.removeChannel(channel);
+      if (internalChannel) supabase.removeChannel(internalChannel);
     };
-  }, [conversationId]);
+  }, [conversationId, internal]);
 
   const sendTyping = useCallback((evt: Omit<TypingEvent, "at">) => {
     const ch = channelRef.current;

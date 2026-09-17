@@ -508,6 +508,7 @@ export type Database = {
         Row: {
           conversation_id: string;
           created_at: string;
+          expires_at: string;
           last_used_at: string | null;
           org_id: string;
           token: string;
@@ -516,6 +517,7 @@ export type Database = {
         Insert: {
           conversation_id: string;
           created_at?: string;
+          expires_at?: string;
           last_used_at?: string | null;
           org_id: string;
           token: string;
@@ -524,6 +526,7 @@ export type Database = {
         Update: {
           conversation_id?: string;
           created_at?: string;
+          expires_at?: string;
           last_used_at?: string | null;
           org_id?: string;
           token?: string;
@@ -561,6 +564,7 @@ export type Database = {
           external_ref: string | null;
           from_identifier: string;
           id: number;
+          org_id: string | null;
           payload: Json;
           reason: string;
           resolved_at: string | null;
@@ -572,6 +576,7 @@ export type Database = {
           external_ref?: string | null;
           from_identifier: string;
           id?: never;
+          org_id?: string | null;
           payload?: Json;
           reason: string;
           resolved_at?: string | null;
@@ -583,6 +588,7 @@ export type Database = {
           external_ref?: string | null;
           from_identifier?: string;
           id?: never;
+          org_id?: string | null;
           payload?: Json;
           reason?: string;
           resolved_at?: string | null;
@@ -640,6 +646,7 @@ export type Database = {
           fetched_at: string;
           image_url: string | null;
           ok: boolean;
+          org_id: string;
           site_name: string | null;
           title: string | null;
           url: string;
@@ -649,6 +656,7 @@ export type Database = {
           fetched_at?: string;
           image_url?: string | null;
           ok?: boolean;
+          org_id: string;
           site_name?: string | null;
           title?: string | null;
           url: string;
@@ -658,6 +666,7 @@ export type Database = {
           fetched_at?: string;
           image_url?: string | null;
           ok?: boolean;
+          org_id?: string;
           site_name?: string | null;
           title?: string | null;
           url?: string;
@@ -819,6 +828,7 @@ export type Database = {
           event_type: string | null;
           id: number;
           item_id: string | null;
+          org_id: string | null;
           outcome: string;
           payload: Json;
         };
@@ -830,6 +840,7 @@ export type Database = {
           event_type?: string | null;
           id?: never;
           item_id?: string | null;
+          org_id?: string | null;
           outcome: string;
           payload?: Json;
         };
@@ -841,6 +852,7 @@ export type Database = {
           event_type?: string | null;
           id?: never;
           item_id?: string | null;
+          org_id?: string | null;
           outcome?: string;
           payload?: Json;
         };
@@ -909,6 +921,7 @@ export type Database = {
         Row: {
           attempts: number;
           channel: string;
+          claimed_at: string | null;
           created_at: string;
           fallback_from: string | null;
           id: number;
@@ -926,6 +939,7 @@ export type Database = {
         Insert: {
           attempts?: number;
           channel?: string;
+          claimed_at?: string | null;
           created_at?: string;
           fallback_from?: string | null;
           id?: never;
@@ -943,6 +957,7 @@ export type Database = {
         Update: {
           attempts?: number;
           channel?: string;
+          claimed_at?: string | null;
           created_at?: string;
           fallback_from?: string | null;
           id?: never;
@@ -1441,6 +1456,7 @@ export type Database = {
         Row: {
           body: string;
           cancelled_at: string | null;
+          claimed_at: string | null;
           conversation_id: string;
           created_at: string;
           id: string;
@@ -1454,6 +1470,7 @@ export type Database = {
         Insert: {
           body: string;
           cancelled_at?: string | null;
+          claimed_at?: string | null;
           conversation_id: string;
           created_at?: string;
           id?: string;
@@ -1467,6 +1484,7 @@ export type Database = {
         Update: {
           body?: string;
           cancelled_at?: string | null;
+          claimed_at?: string | null;
           conversation_id?: string;
           created_at?: string;
           id?: string;

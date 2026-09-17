@@ -510,4 +510,61 @@ suite("api keys", () => {
     });
     expect(error).not.toBeNull();
   });
+
+  // 0029. Each of these was possible until that migration; they are here so the fix has to stay
+  // fixed, because every one of them is a one-request PATCH against an ordinary column.
+  describe("0029: an update cannot move a row somewhere the insert would have been refused", () => {
+    it("a customer cannot move their membership into a channel they are not in", async () => {
+      const { error } = await customer
+        .from("conversation_members")
+        .update({ conversation_id: TEAM_ONLY })
+        .eq("user_id", CUSTOMER_ID)
+        .eq("conversation_id", CUSTOMER_GROUP);
+      expect(error).not.toBeNull();
+
+      const { data } = await customer.from("conversation_members").select("conversation_id").eq("user_id", CUSTOMER_ID);
+      expect(data?.map((m) => m.conversation_id)).not.toContain(TEAM_ONLY);
+    });
+
+    it("a customer can still mark their own conversation read", async () => {
+      const { error } = await customer
+        .from("conversation_members")
+        .update({ last_read_at: new Date().toISOString() })
+        .eq("user_id", CUSTOMER_ID)
+        .eq("conversation_id", CUSTOMER_GROUP);
+      expect(error).toBeNull();
+    });
+
+    it("a customer cannot redirect a scheduled message into another conversation", async () => {
+      const { data: row } = await customer
+        .from("scheduled_messages")
+        .insert({
+          org_id: ORG,
+          conversation_id: CUSTOMER_GROUP,
+          sender_id: CUSTOMER_ID,
+          body: "scheduled from a test",
+          send_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        })
+        .select("id")
+        .single();
+      expect(row?.id).toBeTruthy();
+
+      // The cron posts these with the service role and re-validates nothing, so the policy is
+      // the only thing standing between this and a message in a channel they cannot read.
+      const { error } = await customer
+        .from("scheduled_messages")
+        .update({ conversation_id: TEAM_ONLY, visibility: "internal" })
+        .eq("id", row!.id);
+      expect(error).not.toBeNull();
+
+      // ...while editing what they actually scheduled still works.
+      const { error: bodyError } = await customer
+        .from("scheduled_messages")
+        .update({ body: "edited" })
+        .eq("id", row!.id);
+      expect(bodyError).toBeNull();
+
+      await customer.from("scheduled_messages").delete().eq("id", row!.id);
+    });
+  });
 });

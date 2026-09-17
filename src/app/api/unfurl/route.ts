@@ -2,8 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { safeHttpUrl } from "@/lib/urls";
+import { fetchPublicUrl } from "@/lib/net/fetchPublicUrl";
 
 export const dynamic = "force-dynamic";
+// node:dns and node:https, for the address check that happens inside the connect path.
+export const runtime = "nodejs";
 
 export interface UnfurlResult {
   url: string;
@@ -44,31 +47,17 @@ function decode(s: string): string {
 
 async function fetchPreview(url: string): Promise<UnfurlResult> {
   const empty: UnfurlResult = { url, title: null, description: null, image_url: null, site_name: null, ok: false };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: {
-        "user-agent": "Mozilla/5.0 (compatible; StayfulBot/1.0; +https://stayful.co.uk)",
-        accept: "text/html",
-      },
+    // fetchPublicUrl, not fetch: it validates the resolved address inside the connect path and
+    // re-checks every redirect hop, so neither a hostname that resolves inwards nor a 302 into
+    // the private network gets a socket. See src/lib/net/fetchPublicUrl.ts.
+    const res = await fetchPublicUrl(url, {
+      maxBytes: MAX_BYTES,
+      accept: "text/html",
+      userAgent: "Mozilla/5.0 (compatible; StayfulBot/1.0; +https://stayful.co.uk)",
     });
-    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("html")) return empty;
-    const reader = res.body?.getReader();
-    if (!reader) return empty;
-    let received = 0;
-    const chunks: Uint8Array[] = [];
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done || !value) break;
-      chunks.push(value);
-      received += value.length;
-      if (received > MAX_BYTES) break;
-    }
-    void reader.cancel().catch(() => undefined);
-    const html = new TextDecoder("utf-8", { fatal: false }).decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+    if (!res || res.status < 200 || res.status >= 300 || !res.contentType.includes("html")) return empty;
+    const html = res.body;
     const titleTag = /<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1];
     const title = meta(html, "og:title") ?? meta(html, "twitter:title") ?? (titleTag ? decode(titleTag).trim() : null);
     const description = meta(html, "og:description") ?? meta(html, "twitter:description") ?? meta(html, "description");
@@ -91,8 +80,6 @@ async function fetchPreview(url: string): Promise<UnfurlResult> {
     };
   } catch {
     return empty;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -114,6 +101,12 @@ export async function GET(request: NextRequest) {
   if (blocked(target)) return NextResponse.json({ error: "not allowed" }, { status: 400 });
   const url = target.toString();
 
+  // The cache is per organisation (0030). It used to be one global table readable by every
+  // signed-in account, which made it a list of the links other tenants post, with titles.
+  const { data: me } = await supabase.from("profiles").select("org_id").eq("id", user.id).maybeSingle();
+  if (!me?.org_id) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
+
+  // The select goes through RLS as the caller, so it can only ever see their own org's row.
   const { data: cached } = await supabase.from("link_previews").select("*").eq("url", url).maybeSingle();
   if (cached && Date.now() - new Date(cached.fetched_at).getTime() < CACHE_MS) {
     return NextResponse.json(cached, { headers: { "cache-control": "private, max-age=3600" } });
@@ -124,7 +117,7 @@ export async function GET(request: NextRequest) {
   if (admin) {
     await admin
       .from("link_previews")
-      .upsert({ ...result, fetched_at: new Date().toISOString() }, { onConflict: "url" });
+      .upsert({ ...result, org_id: me.org_id, fetched_at: new Date().toISOString() }, { onConflict: "org_id,url" });
   }
   return NextResponse.json(result, { headers: { "cache-control": "private, max-age=3600" } });
 }

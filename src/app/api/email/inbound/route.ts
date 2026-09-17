@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { htmlToText, stripQuotedReply, tokenFromRecipients, verifySvixSignature } from "@/lib/email/inbound";
+import {
+  htmlToText,
+  REPLY_TOKEN_TTL_MS,
+  stripQuotedReply,
+  tokenFromRecipients,
+  verifySvixSignature,
+} from "@/lib/email/inbound";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +108,12 @@ export async function POST(request: NextRequest) {
 
   const { data: thread } = await admin.from("email_reply_threads").select("*").eq("token", token).maybeSingle();
   if (!thread) return unmatched(admin, "unknown_token", emailId, from ?? "", null, event);
+  // A reply token is a bearer credential sitting in the Reply-To of every notification that
+  // person has ever had for this conversation, and the sender check below cannot make up for
+  // that on its own. Thirty days from last use, refreshed at both ends (0031).
+  if (new Date(thread.expires_at).getTime() < Date.now()) {
+    return unmatched(admin, "expired_token", emailId, from ?? "", null, event);
+  }
 
   // The sender must still be a member; a forwarded email from someone else is dropped.
   const [{ data: profile }, { data: membership }] = await Promise.all([
@@ -116,9 +128,18 @@ export async function POST(request: NextRequest) {
   if (!profile || profile.deactivated_at || !membership) {
     return unmatched(admin, profile?.deactivated_at ? "deactivated" : "not_a_member", emailId, from ?? "", null, event);
   }
+  // The sender check is the only thing standing between a leaked reply token and a message
+  // posted as someone else, so it fails closed. It used to be skipped whenever `From` could not
+  // be parsed or the profile carried no email — exactly the two cases an attacker controls, by
+  // sending a bracket-less or absent From header.
+  //
+  // It is still only a string compare against an unauthenticated RFC 5322 header: nothing here
+  // sees SPF, DKIM or DMARC results, because the webhook payload does not carry them. That is
+  // why the token above is treated as the real credential and given an expiry (0031), rather
+  // than this line being relied on to tell a forgery from a reply.
   const fromAddr = (from?.match(/<([^>]+)>/)?.[1] ?? from ?? "").trim().toLowerCase();
-  if (profile.email && fromAddr && fromAddr !== profile.email.toLowerCase()) {
-    return unmatched(admin, "sender_mismatch", emailId, fromAddr, null, event);
+  if (!fromAddr || !profile.email || fromAddr !== profile.email.toLowerCase()) {
+    return unmatched(admin, "sender_mismatch", emailId, fromAddr || "unknown", null, event);
   }
 
   // A reply to an old notification for a group that has since been archived would land where
@@ -149,6 +170,14 @@ export async function POST(request: NextRequest) {
     if (error.code === "23505") return NextResponse.json({ ok: true, duplicate: true });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  await admin.from("email_reply_threads").update({ last_used_at: new Date().toISOString() }).eq("token", token);
+  const now = new Date();
+  await admin
+    .from("email_reply_threads")
+    .update({
+      last_used_at: now.toISOString(),
+      // Someone replying is the clearest evidence the token is still wanted.
+      expires_at: new Date(now.getTime() + REPLY_TOKEN_TTL_MS).toISOString(),
+    })
+    .eq("token", token);
   return NextResponse.json({ ok: true });
 }

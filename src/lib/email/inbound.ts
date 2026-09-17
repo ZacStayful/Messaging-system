@@ -10,6 +10,16 @@ export function replyAddress(token: string): string | null {
   return domain ? `reply+${token}@${domain}` : null;
 }
 
+/**
+ * How long a reply token stays valid after it was last used, in either direction.
+ *
+ * The token sits in the Reply-To of every notification for its conversation, and the inbound
+ * webhook carries no SPF or DKIM result, so the From line beside it proves nothing. Treating
+ * the token as the credential means it cannot be valid for ever. Mirrors the default on
+ * email_reply_threads.expires_at (0031) — change one, change both.
+ */
+export const REPLY_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
+
 /** 20-char URL-safe token for a customer + conversation pair. */
 export function newReplyToken(): string {
   return randomBytes(15)

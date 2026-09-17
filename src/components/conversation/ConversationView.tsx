@@ -411,6 +411,8 @@ export function ConversationView({
 
   const { sendTyping } = useConversationChannel({
     conversationId,
+    // Internal notes ride their own topic (0029); only the team is authorised to hear it.
+    internal: me.account_type === "team",
     onTyping: onTypingEvent,
     onInsert: (row) => {
       upsert(row);
@@ -825,8 +827,20 @@ export function ConversationView({
   };
 
   const cancelScheduled = async (id: string) => {
+    const snapshot = scheduled;
     setScheduled((prev) => prev.filter((s) => s.id !== id));
-    await supabase.from("scheduled_messages").update({ cancelled_at: new Date().toISOString() }).eq("id", id);
+    // A row the cron has already claimed cannot be cancelled (0031), and the update simply
+    // matches nothing. Saying so beats hiding the chip and leaving someone certain they
+    // stopped a message that is on its way out.
+    const { data } = await supabase
+      .from("scheduled_messages")
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("id");
+    if (!data?.length) {
+      setScheduled(snapshot);
+      setFlash("That message is already being sent.");
+    }
   };
 
   const sendScheduledNow = async (s: ScheduledMessage) => {

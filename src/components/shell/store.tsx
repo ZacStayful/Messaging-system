@@ -13,6 +13,7 @@ import type {
   ThreadSummary,
 } from "@/lib/database.types";
 import { previewOf } from "@/lib/format";
+import { previewMentions } from "@/lib/richtext";
 import { isNav, type Nav } from "@/lib/nav";
 import { AWAY_AFTER_MS, manualAway, type PresenceStatus } from "@/lib/presence";
 
@@ -478,8 +479,7 @@ export function StoreProvider({
       const isMine = evt.sender_id === me.id;
       const isActive = activeRef.current === evt.conversation_id;
       const isReply = !!evt.parent_id;
-      const mentionsMe =
-        (evt.mentions ?? []).includes(me.id) || new RegExp(`@\\[?${me.display_name}\\b`, "i").test(evt.preview);
+      const mentionsMe = (evt.mentions ?? []).includes(me.id) || previewMentions(evt.preview, me.display_name);
       let known = false;
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.id === evt.conversation_id);

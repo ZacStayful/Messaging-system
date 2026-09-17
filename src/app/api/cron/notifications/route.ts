@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailConfigured } from "@/lib/email/resend";
 import { messageEmail, welcomeEmail } from "@/lib/email/templates";
 import { unsubscribeUrl } from "@/lib/email/unsubscribe";
-import { newReplyToken, replyAddress, replyDomain } from "@/lib/email/inbound";
+import { newReplyToken, replyAddress, replyDomain, REPLY_TOKEN_TTL_MS } from "@/lib/email/inbound";
 import { sendWhatsApp, whatsappConfigured } from "@/lib/whatsapp/timelines";
 import { messageWhatsApp } from "@/lib/whatsapp/templates";
 import { siteUrl } from "@/lib/site";
@@ -64,20 +64,46 @@ async function chunked<T>(items: T[], size: number, run: (item: T) => Promise<vo
 }
 
 /**
- * Posts scheduled messages whose time has come, as their sender. Rows are claimed by setting
- * sent_message_id in one update after the insert; a failure leaves the row for the next minute.
+ * Posts scheduled messages whose time has come, as their sender.
+ *
+ * Claimed before posting, not after: the old version selected, inserted, and only then wrote
+ * sent_message_id, so two overlapping runs both posted the same row and a Cancel pressed inside
+ * that window set cancelled_at on a message already on its way out — the chip vanished and it
+ * went anyway. A failure now hands the row back rather than leaving it claimed.
  */
 async function postScheduledMessages(admin: NonNullable<ReturnType<typeof createAdminClient>>): Promise<number> {
-  const { data: due } = await admin
+  const { data: candidates } = await admin
     .from("scheduled_messages")
-    .select("*")
+    .select("id")
     .is("sent_message_id", null)
     .is("cancelled_at", null)
+    .is("claimed_at", null)
     .lte("send_at", new Date().toISOString())
     .order("send_at", { ascending: true })
     .limit(50);
+  if (!candidates?.length) return 0;
+
+  // Claim before posting. Re-asserting all three conditions inside the update is what makes it
+  // a claim rather than a hopeful select: a second overlapping run takes nothing, and a Cancel
+  // that lands first wins outright instead of arriving after the message has gone.
+  const { data: due } = await admin
+    .from("scheduled_messages")
+    .update({ claimed_at: new Date().toISOString() })
+    .in(
+      "id",
+      candidates.map((c) => c.id),
+    )
+    .is("sent_message_id", null)
+    .is("cancelled_at", null)
+    .is("claimed_at", null)
+    .select("*");
+
   let posted = 0;
   for (const row of due ?? []) {
+    // client_id makes the insert idempotent: messages_client_id_idx (0016) is unique on
+    // (conversation_id, meta->>'client_id'), so if this row was posted but its sent_message_id
+    // write did not land, the retry hits 23505 instead of posting a second copy. Messages from
+    // the app have always had one; these did not, which is why nothing caught the duplicate.
     const { data: msg, error } = await admin
       .from("messages")
       .insert({
@@ -88,12 +114,29 @@ async function postScheduledMessages(admin: NonNullable<ReturnType<typeof create
         body: row.body,
         visibility: row.visibility,
         sent_via: "app",
-        meta: { scheduled_id: row.id },
+        meta: { scheduled_id: row.id, client_id: row.id },
       })
       .select("id")
       .single();
-    if (error || !msg) continue;
-    await admin.from("scheduled_messages").update({ sent_message_id: msg.id }).eq("id", row.id);
+
+    let messageId = msg?.id ?? null;
+    if (error) {
+      if (error.code !== "23505") {
+        // Hand it back so the next run can try again, rather than stranding it as claimed.
+        await admin.from("scheduled_messages").update({ claimed_at: null }).eq("id", row.id);
+        continue;
+      }
+      // Already posted by a run that died before recording it. Find it and finish the job.
+      const { data: existing } = await admin
+        .from("messages")
+        .select("id")
+        .eq("conversation_id", row.conversation_id)
+        .eq("meta->>client_id", row.id)
+        .maybeSingle();
+      messageId = existing?.id ?? null;
+    }
+    if (!messageId) continue;
+    await admin.from("scheduled_messages").update({ sent_message_id: messageId }).eq("id", row.id);
     posted++;
   }
   return posted;
@@ -117,11 +160,16 @@ export async function GET(request: NextRequest) {
   const posted = await postScheduledMessages(admin);
 
   // Rescue anything a previous run claimed and never finished (see STRANDED_CLAIM_MS).
+  //
+  // Keyed on claimed_at, never created_at: created_at is when the row was queued, so asking for
+  // rows older than the timeout returned every row that had merely *waited* — which is all of
+  // them after an unconfigured provider or a WhatsApp burst — and handed them to the next run
+  // while this one was still sending. That is how a queue double-sends everything.
   const { data: rescued } = await admin
     .from("notification_outbox")
-    .update({ status: "pending" })
+    .update({ status: "pending", claimed_at: null })
     .eq("status", "sending")
-    .lt("created_at", new Date(Date.now() - STRANDED_CLAIM_MS).toISOString())
+    .lt("claimed_at", new Date(Date.now() - STRANDED_CLAIM_MS).toISOString())
     .select("id");
   if (rescued?.length) console.warn(`notifications: requeued ${rescued.length} stranded row(s)`);
 
@@ -150,9 +198,25 @@ export async function GET(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!rows?.length) return NextResponse.json({ sent: 0, failed: 0, skipped: 0, posted });
 
-  // Claim
-  const ids = rows.map((r) => r.id);
-  await admin.from("notification_outbox").update({ status: "sending" }).in("id", ids);
+  // Claim.
+  //
+  // One conditional statement, not a select followed by a blind update: this cron is scheduled
+  // every minute and may run for sixty seconds, so two runs overlap by design. Both used to
+  // select the same rows and both wrote `sending` unconditionally, so both sent. Re-asserting
+  // the status the select saw means Postgres locks each row and the loser updates nothing;
+  // `select("id")` then returns only what this run actually took.
+  const { data: claimed } = await admin
+    .from("notification_outbox")
+    .update({ status: "sending", claimed_at: new Date().toISOString() })
+    .in(
+      "id",
+      rows.map((r) => r.id),
+    )
+    .in("status", ["pending", "failed"])
+    .select("id");
+  const mine = new Set((claimed ?? []).map((r) => r.id));
+  const claimedRows = rows.filter((r) => mine.has(r.id));
+  if (!claimedRows.length) return NextResponse.json({ sent: 0, failed: 0, skipped: 0, posted });
 
   const base = siteUrl();
   let sent = 0;
@@ -184,14 +248,14 @@ export async function GET(request: NextRequest) {
   // Drop message notifications for recipients who turned a channel off, went away or paused
   // notifications since queuing. The trigger checks this too, but a minute passes in between
   // and going quiet the moment you set yourself away is the entire point of the feature.
-  const recipientIds = Array.from(new Set(rows.map((r) => r.recipient_user_id).filter((x): x is string => !!x)));
+  const recipientIds = Array.from(new Set(claimedRows.map((r) => r.recipient_user_id).filter((x): x is string => !!x)));
   const { data: prefs } = await admin
     .from("profiles")
     .select("id, email_notifications, whatsapp_notifications, email, phone, presence_mode, away_until, dnd_until")
     .in("id", recipientIds);
   const prefById = new Map((prefs ?? []).map((p) => [p.id, p]));
 
-  const messageRows = rows.filter((r) => r.kind === "message");
+  const messageRows = claimedRows.filter((r) => r.kind === "message");
   const live: NotificationOutbox[] = [];
   for (const r of messageRows) {
     const reason = skipReason(r, r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined);
@@ -214,7 +278,16 @@ export async function GET(request: NextRequest) {
       .eq("user_id", userId)
       .eq("conversation_id", conversationId)
       .maybeSingle();
-    if (existing) return replyAddress(existing.token) ?? undefined;
+    if (existing) {
+      // Every notification that carries the token pushes its expiry out, so a conversation
+      // people are actually using never goes cold, and one nobody has touched for a month
+      // stops being a way in (0031).
+      await admin
+        .from("email_reply_threads")
+        .update({ expires_at: new Date(Date.now() + REPLY_TOKEN_TTL_MS).toISOString() })
+        .eq("token", existing.token);
+      return replyAddress(existing.token) ?? undefined;
+    }
     const token = newReplyToken();
     const { error } = await admin
       .from("email_reply_threads")
@@ -285,7 +358,7 @@ export async function GET(request: NextRequest) {
   if (waDeferred.length) {
     await admin
       .from("notification_outbox")
-      .update({ status: "pending" })
+      .update({ status: "pending", claimed_at: null })
       .in(
         "id",
         waDeferred.map((r) => r.id),
@@ -382,7 +455,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Welcome emails that the app could not send synchronously
-  for (const r of rows.filter((x) => x.kind === "welcome")) {
+  for (const r of claimedRows.filter((x) => x.kind === "welcome")) {
     const p = r.payload as {
       email?: string;
       login_url?: string;

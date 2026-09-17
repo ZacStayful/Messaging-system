@@ -250,6 +250,25 @@ Migrations live in `supabase/migrations` and are applied in order:
     (every delivery, deduped on Monday's own event id) and `monday_links` (what an item produced)
 27. `0027_move_message.sql` `move_message` and `file_message_to_property`, and the narrowing of
     `messages_guard_update` that lets `parent_id` change inside them and nowhere else
+28. `0028_tenant_guards.sql` the org guard on the three `security definer` functions that took a
+    `p_org` and believed it (`render_message_template`, `next_available_slug`,
+    `ensure_maintenance_channel`)
+29. `0029_security_fixes.sql` sign-up metadata is only honoured behind `app.trusted_signup`;
+    `conversation_id` pinned in the `conversation_members` update policy and the scheduled-message
+    update policy given the same predicates as its insert; internal notes broadcast on
+    `conversation-internal:<id>`, which requires `is_team()`; `notification_outbox.claimed_at` so
+    the stranded-row rescue keys on the claim rather than on when the row was queued
+30. `0030_tenant_and_audit_fixes.sql` `link_previews` scoped to an organisation (it was
+    `using (true)`, so one tenant could read every link another had posted); the org check
+    `remove_member` was missing on its `is_admin()` branch; `edited_at`, `sent_via` and
+    `external_ref` added to `messages_guard_update`, so the "(edited)" marker cannot be erased
+    on its own; `org_id` on `monday_events` and `inbound_messages_unmatched`, whose policies
+    asked only "are you team?"
+31. `0031_reply_expiry_and_scheduled_claim.sql` `email_reply_threads.expires_at` (30 days from
+    last use, refreshed at both ends — the token is a bearer credential printed in every
+    notification, and the inbound webhook carries no DKIM result to check instead);
+    `scheduled_messages.claimed_at`, so the cron claims a message before posting it rather than
+    after, and a claimed row can no longer be edited or cancelled underneath the send
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
