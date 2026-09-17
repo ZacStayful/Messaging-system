@@ -44,6 +44,8 @@ interface MessageItemProps {
   onOpenThread?: () => void;
   /** Rendered inside the thread panel: no reply summary, no "reply in thread" action. */
   inThread?: boolean;
+  /** Files this message into a property's Cleaning or Maintenance thread (team). */
+  onFile?: () => void;
   /** Saved for later (team). Absent hides the action. */
   saved?: boolean;
   onToggleSave?: () => void;
@@ -84,6 +86,7 @@ export function MessageItem({
   onEdit,
   onDelete,
   onOpenThread,
+  onFile,
   inThread = false,
   saved,
   onToggleSave,
@@ -387,6 +390,17 @@ export function MessageItem({
               title="Reply in thread"
             >
               <Icon name="messages" size={18} />
+            </button>
+          )}
+          {onFile && (
+            <button
+              type="button"
+              onClick={onFile}
+              className={actionBtn}
+              aria-label="File in a property thread"
+              title="File in a property thread"
+            >
+              <Icon name="hash" size={18} />
             </button>
           )}
           {onToggleSave && (

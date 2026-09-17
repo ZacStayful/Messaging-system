@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normaliseInboundPayload, verifyWebhookToken, type InboundWhatsApp } from "@/lib/whatsapp/inbound";
 import { normaliseUkMobile } from "@/lib/phone";
+import { chooseRoute, type ContactRegistration, type RecentThread } from "@/lib/whatsapp/routing";
 
 export const dynamic = "force-dynamic";
 // TimelinesAI wants a 2xx within about five seconds, so nothing here calls out to anything.
@@ -112,6 +113,73 @@ async function resolveAccount(admin: Admin, orgId: string, m: InboundWhatsApp): 
   return created?.id ?? null;
 }
 
+/**
+ * Everything the routing decision needs, read in one place.
+ *
+ * `property_contacts` is joined to `property_threads` so a registration arrives with the thread
+ * anchor already attached — the decision has no business issuing queries.
+ */
+async function gather(admin: Admin, userId: string, orgId: string) {
+  const [{ data: contactRows }, { data: threadRows }] = await Promise.all([
+    admin
+      .from("property_contacts")
+      .select("conversation_id, kind, conversations!inner(archived_at)")
+      .eq("user_id", userId),
+    admin.from("whatsapp_threads").select("conversation_id, parent_message_id, last_outbound_at").eq("user_id", userId),
+  ]);
+
+  const anchors = new Map<string, string>();
+  const conversationIds = [...new Set((contactRows ?? []).map((c) => c.conversation_id))];
+  if (conversationIds.length) {
+    const { data: threads } = await admin
+      .from("property_threads")
+      .select("conversation_id, kind, root_message_id")
+      .in("conversation_id", conversationIds);
+    for (const t of threads ?? []) anchors.set(`${t.conversation_id}:${t.kind}`, t.root_message_id);
+  }
+
+  const contacts: ContactRegistration[] = [];
+  for (const c of contactRows ?? []) {
+    const root = anchors.get(`${c.conversation_id}:${c.kind}`);
+    // A registration whose thread has gone is not a routable destination.
+    if (!root) continue;
+    const conversation = c.conversations as unknown as { archived_at: string | null } | null;
+    contacts.push({
+      conversationId: c.conversation_id,
+      kind: c.kind === "maintenance" ? "maintenance" : "cleaning",
+      rootMessageId: root,
+      archived: Boolean(conversation?.archived_at),
+    });
+  }
+
+  const recentThreads: RecentThread[] = (threadRows ?? []).map((t) => ({
+    conversationId: t.conversation_id,
+    parentMessageId: t.parent_message_id ?? null,
+    lastOutboundAt: t.last_outbound_at ?? null,
+  }));
+
+  // Their customer group, for the unchanged customer path.
+  const { data: membership } = await admin
+    .from("conversation_members")
+    .select("conversation_id, conversations!inner(type, archived_at)")
+    .eq("user_id", userId)
+    .eq("member_side", "external")
+    .eq("conversations.type", "owner")
+    .is("conversations.archived_at", null)
+    .limit(1)
+    .maybeSingle();
+
+  // Only resolved when there is a maintenance contact to need it — ensure_maintenance_channel
+  // creates the channel on first use, and a customer's reply should not conjure one.
+  let maintenanceChannelId: string | null = null;
+  if (contacts.some((c) => !c.archived && c.kind === "maintenance")) {
+    const { data } = await admin.rpc("ensure_maintenance_channel", { p_org: orgId });
+    maintenanceChannelId = data ?? null;
+  }
+
+  return { contacts, recentThreads, ownerGroupId: membership?.conversation_id ?? null, maintenanceChannelId };
+}
+
 async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
   const parsed = normaliseUkMobile(m.fromPhone);
   if (!parsed.ok) return unmatched(admin, m, "bad_number", raw);
@@ -124,38 +192,25 @@ async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
   if (!profile) return unmatched(admin, m, "unknown_sender", raw);
   if (profile.deactivated_at) return unmatched(admin, m, "deactivated", raw);
 
-  // Where we last WhatsApped them from. 0018 guarantees one customer group per external member,
-  // so the fallback below cannot be ambiguous either.
-  const { data: thread } = await admin
-    .from("whatsapp_threads")
-    .select("conversation_id")
-    .eq("user_id", profile.id)
-    .maybeSingle();
+  const decision = chooseRoute(await gather(admin, profile.id, profile.org_id));
+  if (decision.kind === "unmatched") return unmatched(admin, m, decision.reason, raw);
+  const { conversationId, parentMessageId, via } = decision;
 
-  let conversationId = thread?.conversation_id ?? null;
-  if (!conversationId) {
-    const { data: membership } = await admin
+  // Re-check membership even when a route pointed us somewhere: they may have been removed
+  // since, and the service role would happily write anyway.
+  //
+  // The one exception is the central maintenance inbox, which contractors are deliberately not
+  // members of — that is what stops each of them reading the others' quotes — so a membership
+  // check there would reject every message it is meant to receive.
+  if (via !== "maintenance_inbox") {
+    const { data: stillIn } = await admin
       .from("conversation_members")
-      .select("conversation_id, conversations!inner(type, archived_at)")
+      .select("user_id")
+      .eq("conversation_id", conversationId)
       .eq("user_id", profile.id)
-      .eq("member_side", "external")
-      .eq("conversations.type", "owner")
-      .is("conversations.archived_at", null)
-      .limit(1)
       .maybeSingle();
-    conversationId = membership?.conversation_id ?? null;
+    if (!stillIn) return unmatched(admin, m, "not_a_member", raw);
   }
-  if (!conversationId) return unmatched(admin, m, "no_group", raw);
-
-  // Re-check membership even when whatsapp_threads pointed us somewhere: they may have been
-  // removed from the group since, and the service role would happily write anyway.
-  const { data: stillIn } = await admin
-    .from("conversation_members")
-    .select("user_id")
-    .eq("conversation_id", conversationId)
-    .eq("user_id", profile.id)
-    .maybeSingle();
-  if (!stillIn) return unmatched(admin, m, "not_a_member", raw);
 
   const { data: conv } = await admin
     .from("conversations")
@@ -186,6 +241,7 @@ async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
     visibility: "public",
     sent_via: "whatsapp",
     external_ref: m.externalRef,
+    parent_id: parentMessageId,
     meta: {
       whatsapp_chat_id: m.chatId,
       whatsapp_from: parsed.e164,
@@ -193,6 +249,10 @@ async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
       // group's own and so a mis-sent reply is traceable.
       whatsapp_received_on: m.receivedOn ?? null,
       whatsapp_media_url: m.mediaUrl ?? null,
+      // How it got here, so a message filed in the wrong place can be argued with rather than
+      // just re-filed. Load-bearing for the maintenance inbox, where every message is waiting
+      // for someone to decide which property it belongs to.
+      routed_via: via,
     },
   });
   if (error) {
@@ -201,16 +261,19 @@ async function route(admin: Admin, m: InboundWhatsApp, raw: unknown) {
     return { error: error.message, ref: m.externalRef };
   }
 
+  // One row per (person, conversation) since 0025, so a cleaner accumulates one per property
+  // rather than the newest overwriting the last.
   await admin.from("whatsapp_threads").upsert(
     {
       user_id: profile.id,
       org_id: profile.org_id,
       conversation_id: conversationId,
       phone: parsed.e164!,
+      parent_message_id: parentMessageId,
       last_inbound_at: new Date().toISOString(),
     },
-    { onConflict: "user_id" },
+    { onConflict: "user_id,conversation_id" },
   );
 
-  return { ok: true, ref: m.externalRef, conversation_id: conversationId };
+  return { ok: true, ref: m.externalRef, conversation_id: conversationId, via };
 }

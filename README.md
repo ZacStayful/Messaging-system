@@ -123,9 +123,25 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   invite people, post messages and manage bookmarks. Both act as a real team member, so nothing
   an integration does escapes that person's own access. See "Public API" below.
 
+- Monday.com sync: a new Contact on the Clients board becomes two groups — the customer's own
+  group, opening with the standard welcome message, and a property group carrying a **Cleaning**
+  and a **Maintenance** thread. It ships **switched off**: deliveries are received and logged with
+  no side effects until an admin turns it on at `/settings/integrations`. See "Monday.com" below.
+- Message templates (`0023_message_templates.sql`): the welcome message lives in
+  `message_templates` and is edited at `/settings/templates`, with `{{customer_name}}`-style
+  placeholders and a live preview. Editing it changes what the next group opens with; it never
+  rewrites what a customer has already read.
+- Service contacts: a cleaner or contractor registered on a property thread (Details → Service
+  contacts) gets an account, their login details by email, and — with a UK mobile on file — their
+  WhatsApp filed into that property's thread. Their replies reach the team, and the team's replies
+  in the thread reach them.
+- Filing: any message can be moved into a thread in the same conversation, or filed into a
+  property's Cleaning or Maintenance thread from elsewhere (a copy, credited to whoever sent it,
+  linked back to the original).
+
 Out of scope for this pass (next passes): staff inbox with SLA, email attachments,
-huddles/calls, canvases, digest emails, Monday and Uplisting sync, outgoing webhooks, Slack
-import.
+huddles/calls, canvases, digest emails, Uplisting sync, per-property routing of inbound
+maintenance WhatsApp, outgoing webhooks, Slack import.
 
 ## Stack
 
@@ -162,6 +178,10 @@ Environment variables (`.env.local`, also set in Vercel):
 | `WHATSAPP_WEBHOOK_SECRET`              | Optional second factor: when set, an `x-stayful-token` header must match too                                          |
 | `WHATSAPP_MAX_PER_RUN`                 | Optional. Caps WhatsApp sends per cron run (default 60), since WhatsApp does not batch                                |
 | `SUPABASE_JWT_SECRET`                  | Server only. Required by the REST API and MCP server: each request is signed as the key's user (see below)            |
+| `MONDAY_WEBHOOK_TOKEN`                 | Secret path segment of the Monday webhook URL. Monday's board-level recipes send an unsigned POST                     |
+| `MONDAY_WEBHOOK_SECRET`                | Optional second factor: when set, an `x-stayful-token` header must match too                                          |
+| `MONDAY_API_TOKEN`                     | Monday API token, read-only use. Without it the webhook logs the delivery and does nothing else                       |
+| `MONDAY_CLIENTS_BOARD_ID`              | Optional. Defaults to `4972230367`; an event from any other board is logged and ignored                               |
 
 ## Database
 
@@ -216,6 +236,20 @@ Migrations live in `supabase/migrations` and are applied in order:
 22. `0022_whatsapp_accounts.sql` `whatsapp_accounts` (one per account manager's mobile) and
     `conversations.whatsapp_account_id`; a new customer group takes its creator's number, so a
     customer always sees the same one
+23. `0023_message_templates.sql` `message_templates` + `render_message_template`, seeded with the
+    customer welcome message; `default_message_templates()` is the single source of that text, and
+    a trigger seeds both catalogues for organisations created later (which `0021` did not, so a
+    fresh stack had no mandatory bookmarks either)
+24. `0024_properties_and_threads.sql` `properties` (and at last a foreign key for
+    `conversations.property_id`), `property_threads`, `property_contacts`, `create_property_group`,
+    `add_property_contact`, `ensure_maintenance_channel`, `next_available_slug`; widens
+    `create_customer_account` to accept the `cleaner` and `contractor` roles
+25. `0025_whatsapp_thread_routing.sql` `whatsapp_threads` is keyed on `(user_id, conversation_id)`
+    and records the thread, so one cleaner can serve several properties
+26. `0026_integrations.sql` `integrations` (the master switch, off by default), `monday_events`
+    (every delivery, deduped on Monday's own event id) and `monday_links` (what an item produced)
+27. `0027_move_message.sql` `move_message` and `file_message_to_property`, and the narrowing of
+    `messages_guard_update` that lets `parent_id` change inside them and nowhere else
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -286,6 +320,97 @@ voice notes). Downloads use one-hour signed URLs.
    `https://chat.stayful.co.uk/api/email/inbound`. Set `EMAIL_REPLY_DOMAIN` and
    `RESEND_WEBHOOK_SECRET`. Replies are stripped of quoted history, matched to the customer by
    the token in the To address, and rejected if the From address differs from the account email.
+
+## Monday.com
+
+A new Contact on the Clients board (`4972230367`) becomes two groups. **It ships switched off.**
+
+### What it creates
+
+|            | Customer group                                                                       | Property group                                      |
+| ---------- | ------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| Type       | `owner`                                                                              | `internal` — the customer never sees it             |
+| Name       | the client's name, slugified (`#rohana-bakhshi`), matching every group already there | the address, slugified and truncated                |
+| Topic      | the Property Address (`text_mm12z1ka`)                                               | the client's name                                   |
+| Opens with | the `customer_welcome` template, rendered                                            | a **Cleaning** and a **Maintenance** anchor, pinned |
+
+"Threads" are replies to those two anchors, and `property_threads` records which anchor is which.
+The customer group also picks up the two mandatory bookmarks from `0021` on the way in, because
+that happens on every `conversations` insert.
+
+No account is created and nobody is emailed: inviting the customer stays a deliberate, manual
+step at `/customers/new`. Nothing is written back to Monday, and no existing client is touched —
+the webhook only ever acts on items created after it is switched on.
+
+### Setting it up
+
+1. Set `MONDAY_WEBHOOK_TOKEN` and `MONDAY_API_TOKEN` (and optionally `MONDAY_WEBHOOK_SECRET`).
+2. On the Clients board: **Integrate → Webhooks → "When an item is created"**, sending a web
+   request to `https://chat.stayful.co.uk/api/monday/webhook/<MONDAY_WEBHOOK_TOKEN>`. Monday
+   verifies the URL with a one-off `{"challenge": "…"}` POST, which the route echoes back.
+3. At `/settings/integrations` (admin), choose the team member the integration **acts as**, tick
+   who should join every new group, and list any board groups to ignore — Dropped being the
+   obvious one.
+4. Watch **Recent deliveries** on that page. With the switch off, creating a test Contact in
+   Monday shows up there within seconds and creates nothing. That is the point: the wiring can be
+   proved before a real customer is involved.
+5. Turn the switch on.
+
+### Why it acts as a person
+
+Every RPC it needs (`create_channel`, `create_property_group`) gates on `is_team()` and
+`auth.uid()`, both null for the service role. Rather than a service-role bypass — a second copy
+of the authorisation rules, the thing the REST API exists to avoid — the webhook mints a token
+for `integrations.config.actor_user_id` with the same `mintUserToken` the API uses. Groups it
+creates have a real `created_by`, the welcome message has a real author, and `audit_log` names a
+person. The service role is used for exactly two things: writing `monday_events`, and posting a
+contractor's message into a channel they are deliberately not a member of.
+
+### Idempotency
+
+Monday retries, recipes get re-fired, and a replayed payload arrives with a fresh event id. Two
+things catch it: a unique index on `monday_events.event_id`, and `monday_links` keyed on the
+Monday item id, which is checked before anything is created. Re-delivering the same item is a
+no-op that returns the ids it made the first time.
+
+### Cleaners, contractors and where their WhatsApp lands
+
+A service contact is registered on a property thread from **Details → Service contacts**. That
+one action creates their account (role `cleaner` or `contractor`), emails their login details,
+adds them to the group as an external member, registers the routing row, and follows the thread
+on their behalf — all five, because missing any one of them leaves a contact who looks registered
+and never hears from us. WhatsApp routing needs a UK mobile (`profiles.phone` is `+447…` only).
+
+Inbound then routes like this (`src/lib/whatsapp/routing.ts`, tested exhaustively in
+`tests/routing.test.ts`):
+
+| Who                                         | Where it lands                                                    |
+| ------------------------------------------- | ----------------------------------------------------------------- |
+| A cleaner on one property                   | that property's Cleaning thread                                   |
+| A cleaner on several                        | whichever Cleaning thread we last messaged them from              |
+| A cleaner on several we have never messaged | `inbound_messages_unmatched`, reason `ambiguous_cleaner`          |
+| A maintenance contact                       | the central `#maintenance` channel, top level                     |
+| A customer                                  | unchanged: the thread we last used, else their one customer group |
+
+**Maintenance is deliberately not filed per property yet.** A contractor juggles several jobs at
+once, so "who did we last message" is not good enough evidence to file a real job against an
+address. Everything lands in one channel and a team member files it with the message action,
+which copies it into the property's Maintenance thread still credited to whoever sent it, and
+links the two together. Contractors are not members of that channel, so none of them can read
+another's quotes.
+
+Note that a contractor with an account **can see the property groups they are registered on**.
+That is what having a real account means. Team conversation about a contractor belongs in an
+internal note, which no customer-type account ever sees.
+
+### Verifying migrations without Docker
+
+`pnpm db:verify` applies the whole chain to a throwaway PostgreSQL cluster using
+`supabase/verify/supabase_stub.sql` — the smallest fake of `auth`, `realtime` and `storage` that
+lets the migrations run. It needs only the `postgresql-16` server package, which is why CI can
+run it and `supabase start` cannot. It proves the SQL parses, the plpgsql bodies compile, the
+constraints hold and the triggers fire; it is not a substitute for
+`supabase start && supabase db reset` against the real thing.
 
 ## Public API
 
@@ -395,6 +520,7 @@ whether Zapier's MCP client accepts a static bearer header before promising it t
 | `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint, TypeScript, Prettier                                                                                 |
 | `pnpm test`                                    | Vitest: unit tests; the RLS suite runs only when `SEED_TEST_PASSWORD` is set                                 |
 | `pnpm test:e2e`                                | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
+| `pnpm db:verify`                               | Applies every migration to a throwaway PostgreSQL cluster (no Docker, no Supabase CLI) — see below           |
 
 The RLS and sign-in tests expect the fixtures from `supabase/seed.sql` (test accounts and groups).
 Run them against a local stack (`supabase start && supabase db reset`) or a staging project, never

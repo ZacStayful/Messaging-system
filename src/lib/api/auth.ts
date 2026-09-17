@@ -64,13 +64,28 @@ export async function verifyApiKey(request: Request): Promise<ApiKeyContext | nu
  * we want — nothing here should be signing anyone in or out.
  */
 export function userClient(ctx: ApiKeyContext): ApiClient {
+  return actingUserClient(ctx.userId);
+}
+
+/**
+ * The same thing for a caller that has a user id but no API key behind it — today, the Monday
+ * webhook, which acts as the team member named in `integrations.config.actor_user_id`.
+ *
+ * Deliberately not the service-role client. Every RPC the integration calls
+ * (`create_channel`, `create_property_group`, `create_customer_account`) gates on `is_team()`
+ * and `auth.uid()`, so reaching them with the service role would mean either bypassing those
+ * checks or rewriting them in TypeScript — a second copy of the authorisation rules, which is
+ * the thing this file exists to avoid. Acting as a person also gives the created groups a real
+ * `created_by` and a real author on the messages they open with.
+ */
+export function actingUserClient(userId: string): ApiClient {
   return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     // With accessToken set, supabase-js ignores the auth options entirely and replaces
     // client.auth with a proxy that throws — which is what we want here. Nothing in an API
     // request should be signing anyone in or out.
-    { accessToken: async () => mintUserToken(ctx.userId) },
+    { accessToken: async () => mintUserToken(userId) },
   );
 }
 

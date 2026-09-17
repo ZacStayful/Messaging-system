@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:rls": "vitest run tests/rls.test.ts",
     "test:e2e": "playwright test",
+    "db:verify": "./scripts/verify-migrations.sh",
     "db:types": "supabase gen types typescript --project-id dqgdhmlgojhiidxlxzsr > src/lib/database.types.ts"
   },
   "dependencies": {

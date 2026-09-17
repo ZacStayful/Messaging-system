@@ -44,6 +44,8 @@ interface MessagePayload {
   body: string;
   created_at: string;
   sent_via?: string;
+  /** enqueue_message_notifications (0019) puts this on every payload; a reply carries its thread. */
+  parent_id?: string | null;
 }
 
 /**
@@ -316,8 +318,13 @@ export async function GET(request: NextRequest) {
     await finish([r], res.ok, res.id, res.error);
 
     if (res.ok) {
-      // Remember which group we last WhatsApped this person from, so an inbound reply has an
-      // authoritative conversation to land in without re-deriving it.
+      // Remember which group — and which thread — we last WhatsApped this person from, so an
+      // inbound reply has an authoritative place to land without re-deriving it.
+      //
+      // One row per (person, conversation) since 0025: a customer still has exactly one, because
+      // 0018 still allows them exactly one customer group, but a cleaner accumulates one per
+      // property they serve and the newest no longer overwrites the rest. parent_id is what makes
+      // a reply land back under the Cleaning thread it came out of rather than loose in the group.
       await admin.from("whatsapp_threads").upsert(
         {
           user_id: r.recipient_user_id!,
@@ -325,9 +332,10 @@ export async function GET(request: NextRequest) {
           conversation_id: p.conversation_id,
           phone: to,
           whatsapp_account_id: account?.id ?? null,
+          parent_message_id: p.parent_id ?? null,
           last_outbound_at: new Date().toISOString(),
         },
-        { onConflict: "user_id" },
+        { onConflict: "user_id,conversation_id" },
       );
       return;
     }
