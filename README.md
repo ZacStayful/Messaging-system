@@ -499,6 +499,28 @@ against the auth token (`src/lib/twilio/signature.ts`, pinned in tests against T
 published vector). Unlike TimelinesAI and Monday, which publish no signature scheme, the
 signature here is mandatory rather than an optional second factor.
 
+`readSignedWebhook()` in `src/lib/twilio/webhook.ts` does both checks in one place, and fails
+closed on a missing `TWILIO_AUTH_TOKEN` rather than following the "set means required" rule the
+WhatsApp webhook's optional header secret uses — there the second factor is optional because
+TimelinesAI's dashboard may not be able to send custom headers, whereas Twilio always signs.
+
+| Route                                | Called by   | Does                                                      |
+| ------------------------------------ | ----------- | --------------------------------------------------------- |
+| `POST /api/twilio/token`             | the browser | mints a 10-minute Voice access token for a team member    |
+| `POST /api/twilio/voice/{token}`     | Twilio      | the TwiML App's answer: notice, then `<Dial>` the contact |
+| `POST /api/twilio/status/{token}`    | Twilio      | records how the call went, writes the `call_summary`      |
+| `POST /api/twilio/recording/{token}` | Twilio      | stores the recording reference in `call_recordings`       |
+
+Two things the TwiML route deliberately does not take from the request: the number to dial and
+the caller ID. Both are read from the `calls` row `start_call()` created, because a `To` from the
+POST body would let anything that reached the endpoint place a call anywhere in the world on
+Stayful's account. It checks the dialling client's identity (`From=client:<profile id>`) against
+`calls.started_by`, and refuses a row that already has a different call SID, so a signed request
+cannot be replayed to ring someone twice.
+
+The `call_summary` message carries `meta.client_id = call:<id>`, which `messages_client_id_idx`
+makes unique per conversation — so a status callback Twilio retries writes one line, not two.
+
 ### Which number a call goes out from
 
 `voice_numbers`, not an env var. A caller ID cannot be invented — Twilio only accepts a `From` it
