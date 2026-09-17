@@ -404,6 +404,90 @@ export type Database = {
           },
         ];
       };
+      call_recordings: {
+        Row: {
+          call_id: string;
+          created_at: string;
+          duration_seconds: number | null;
+          org_id: string;
+          recording_sid: string;
+          url: string;
+        };
+        Insert: {
+          call_id: string;
+          created_at?: string;
+          duration_seconds?: number | null;
+          org_id: string;
+          recording_sid: string;
+          url: string;
+        };
+        Update: {
+          call_id?: string;
+          created_at?: string;
+          duration_seconds?: number | null;
+          org_id?: string;
+          recording_sid?: string;
+          url?: string;
+        };
+        Relationships: [];
+      };
+      calls: {
+        Row: {
+          answered_at: string | null;
+          conversation_id: string;
+          direction: string;
+          duration_seconds: number | null;
+          ended_at: string | null;
+          from_number: string;
+          id: string;
+          org_id: string;
+          parent_message_id: string | null;
+          started_at: string;
+          started_by: string | null;
+          status: string;
+          summary_message_id: string | null;
+          to_number: string;
+          to_user_id: string | null;
+          twilio_call_sid: string | null;
+        };
+        Insert: {
+          answered_at?: string | null;
+          conversation_id: string;
+          direction: string;
+          duration_seconds?: number | null;
+          ended_at?: string | null;
+          from_number: string;
+          id?: string;
+          org_id: string;
+          parent_message_id?: string | null;
+          started_at?: string;
+          started_by?: string | null;
+          status?: string;
+          summary_message_id?: string | null;
+          to_number: string;
+          to_user_id?: string | null;
+          twilio_call_sid?: string | null;
+        };
+        Update: {
+          answered_at?: string | null;
+          conversation_id?: string;
+          direction?: string;
+          duration_seconds?: number | null;
+          ended_at?: string | null;
+          from_number?: string;
+          id?: string;
+          org_id?: string;
+          parent_message_id?: string | null;
+          started_at?: string;
+          started_by?: string | null;
+          status?: string;
+          summary_message_id?: string | null;
+          to_number?: string;
+          to_user_id?: string | null;
+          twilio_call_sid?: string | null;
+        };
+        Relationships: [];
+      };
       conversations: {
         Row: {
           archived_at: string | null;
@@ -1579,6 +1663,36 @@ export type Database = {
           },
         ];
       };
+      voice_numbers: {
+        Row: {
+          created_at: string;
+          id: string;
+          is_default: boolean;
+          label: string | null;
+          org_id: string;
+          owner_user_id: string | null;
+          phone: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          is_default?: boolean;
+          label?: string | null;
+          org_id: string;
+          owner_user_id?: string | null;
+          phone: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          is_default?: boolean;
+          label?: string | null;
+          org_id?: string;
+          owner_user_id?: string | null;
+          phone?: string;
+        };
+        Relationships: [];
+      };
       whatsapp_accounts: {
         Row: {
           account_name: string | null;
@@ -1985,6 +2099,10 @@ export type Database = {
         Returns: undefined;
       };
       shares_conversation_with: { Args: { other: string }; Returns: boolean };
+      start_call: {
+        Args: { p_conversation_id: string; p_parent_message_id?: string | null; p_to_user_id: string };
+        Returns: Database["public"]["Tables"]["calls"]["Row"];
+      };
       start_phone_verification: { Args: { p_phone: string }; Returns: string };
       storage_path_conversation_id: { Args: { name: string }; Returns: string };
       topic_conversation_id: { Args: { topic: string }; Returns: string };
@@ -2137,5 +2255,8 @@ export type LinkPreview = Tables<"link_previews">;
 export type ThreadSummary = Database["public"]["Functions"]["my_threads"]["Returns"][number];
 export type SearchHit = Database["public"]["Functions"]["search_messages"]["Returns"][number];
 export type NotificationOutbox = Tables<"notification_outbox">;
+export type Call = Tables<"calls">;
+export type CallRecording = Tables<"call_recordings">;
+export type VoiceNumber = Tables<"voice_numbers">;
 export type ConversationSummary = Database["public"]["Functions"]["my_conversations"]["Returns"][number];
 export type ActivityItem = Database["public"]["Functions"]["my_activity"]["Returns"][number];
