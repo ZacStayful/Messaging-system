@@ -508,6 +508,7 @@ export type Database = {
         Row: {
           conversation_id: string;
           created_at: string;
+          expires_at: string;
           last_used_at: string | null;
           org_id: string;
           token: string;
@@ -516,6 +517,7 @@ export type Database = {
         Insert: {
           conversation_id: string;
           created_at?: string;
+          expires_at?: string;
           last_used_at?: string | null;
           org_id: string;
           token: string;
@@ -524,6 +526,7 @@ export type Database = {
         Update: {
           conversation_id?: string;
           created_at?: string;
+          expires_at?: string;
           last_used_at?: string | null;
           org_id?: string;
           token?: string;
@@ -1453,6 +1456,7 @@ export type Database = {
         Row: {
           body: string;
           cancelled_at: string | null;
+          claimed_at: string | null;
           conversation_id: string;
           created_at: string;
           id: string;
@@ -1466,6 +1470,7 @@ export type Database = {
         Insert: {
           body: string;
           cancelled_at?: string | null;
+          claimed_at?: string | null;
           conversation_id: string;
           created_at?: string;
           id?: string;
@@ -1479,6 +1484,7 @@ export type Database = {
         Update: {
           body?: string;
           cancelled_at?: string | null;
+          claimed_at?: string | null;
           conversation_id?: string;
           created_at?: string;
           id?: string;

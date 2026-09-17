@@ -264,6 +264,11 @@ Migrations live in `supabase/migrations` and are applied in order:
     `external_ref` added to `messages_guard_update`, so the "(edited)" marker cannot be erased
     on its own; `org_id` on `monday_events` and `inbound_messages_unmatched`, whose policies
     asked only "are you team?"
+31. `0031_reply_expiry_and_scheduled_claim.sql` `email_reply_threads.expires_at` (30 days from
+    last use, refreshed at both ends — the token is a bearer credential printed in every
+    notification, and the inbound webhook carries no DKIM result to check instead);
+    `scheduled_messages.claimed_at`, so the cron claims a message before posting it rather than
+    after, and a claimed row can no longer be edited or cancelled underneath the send
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
