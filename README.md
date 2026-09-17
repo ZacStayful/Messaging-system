@@ -281,6 +281,11 @@ Migrations live in `supabase/migrations` and are applied in order:
     can see that a call happened without being able to play back the team discussing them),
     `voice_numbers` (which of our numbers a call goes out from — one row today, one per account
     manager later without a migration), and `start_call`
+33. `0033_voice_inbound.sql` `inbound_messages_unmatched.channel` widened to accept `'voice'`
+    (it is a plain CHECK from 0020 that knew only the two channels existing then),
+    `messages_external_ref_voice_idx` so a redelivered voicemail is one message rather than two
+    — the third of these after email (0007) and WhatsApp (0020) — and a fixed `search_path` on
+    `topic_internal_conversation_id`, which the linter had flagged since 0029
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -570,6 +575,30 @@ Because the caller ID must be dialable, people will ring it back — so the numb
 greeting and takes a voicemail, which is routed into the right thread by the same `chooseRoute()`
 that files inbound WhatsApp. A number that rings out forever looks like a real line and behaves
 like a disconnected one.
+
+`/api/twilio/incoming/{token}` answers the ring and `/api/twilio/voicemail/{token}` files what was
+left. **Which organisation a ring-back belongs to is read from `To`, never from the caller**: at
+that moment the caller is very often a stranger, while the number they dialled is one we bought,
+which is what `voice_numbers` is for.
+
+`gather()` lives in `src/lib/whatsapp/gather.ts` and is called by both inbound webhooks. WhatsApp
+and voice ask the identical question — this number reached us, which thread does it belong to —
+so they ask it once. An unroutable voicemail goes to `inbound_messages_unmatched` with
+`channel = 'voice'` and the `RecordingSid` in `external_ref`, which the existing
+`inbound_unmatched_ref_idx` turns into idempotency for nothing.
+
+**A voicemail is the one case that inverts the recording rule above.** A call recording stays at
+Twilio and is team-only, because it is a recording of the team. A voicemail is from the contact
+and addressed to us, so it is copied into the `attachments` bucket and plays inline exactly like
+the voice notes the composer produces. That is the first server-side write to storage in this
+codebase (`src/lib/storage/ingest.ts`): the service role bypasses the storage policies, so the
+object key is not a naming convention but the access rule itself — `storagePath()` puts the org in
+segment 1 and the conversation in segment 2, and `0004_storage.sql` reads both back out. A wrong
+path still uploads; the audio is simply unreadable by everyone in the thread, with no error.
+
+**Who can be attributed.** `profiles.phone` is `+447…` only, so a UK landline or an overseas
+caller can never be matched to an account however well we know them — a contractor ringing from
+the office is always unmatched. Widening that means the four places named in `0018:26`.
 
 ### Recording
 
