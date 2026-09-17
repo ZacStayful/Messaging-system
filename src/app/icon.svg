@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Stayful">
+  <rect width="64" height="64" rx="15" fill="#5d8156" />
+  <path
+    d="M44.5 20.5c-1-7-13.5-8.5-18-2.8-3.8 4.9 2 9.2 6.6 11.9 5.4 3.1 10.8 6.4 7 12.3-4.3 6.6-17.1 5.3-20.1-1.4"
+    fill="none"
+    stroke="#cfd5b9"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

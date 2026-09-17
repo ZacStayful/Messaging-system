@@ -182,6 +182,13 @@ Environment variables (`.env.local`, also set in Vercel):
 | `MONDAY_WEBHOOK_SECRET`                | Optional second factor: when set, an `x-stayful-token` header must match too                                          |
 | `MONDAY_API_TOKEN`                     | Monday API token, read-only use. Without it the webhook logs the delivery and does nothing else                       |
 | `MONDAY_CLIENTS_BOARD_ID`              | Optional. Defaults to `4972230367`; an event from any other board is logged and ignored                               |
+| `TWILIO_ACCOUNT_SID`                   | Twilio account. All six Twilio variables are required or the Call button does not render                              |
+| `TWILIO_AUTH_TOKEN`                    | Signs Twilio's webhooks. The only thing that can verify one really came from Twilio                                   |
+| `TWILIO_API_KEY_SID`                   | Signs the browser's short-lived Voice access token. The auth token cannot do this                                     |
+| `TWILIO_API_KEY_SECRET`                | The other half of the API key. Shown once at creation; a lost secret means a new key                                  |
+| `TWILIO_TWIML_APP_SID`                 | The TwiML App the browser SDK dials through                                                                           |
+| `TWILIO_WEBHOOK_TOKEN`                 | Secret path segment of the Twilio webhook URLs. Invent it — Twilio issues no such token                               |
+| `TWILIO_DRY_RUN`                       | Optional. `1` composes every call and places none                                                                     |
 
 ## Database
 
@@ -269,6 +276,11 @@ Migrations live in `supabase/migrations` and are applied in order:
     notification, and the inbound webhook carries no DKIM result to check instead);
     `scheduled_messages.claimed_at`, so the cron claims a message before posting it rather than
     after, and a claimed row can no longer be edited or cancelled underneath the send
+
+32. `0032_calls.sql` `calls` and `call_recordings` (a separate table, not a column, so a customer
+    can see that a call happened without being able to play back the team discussing them),
+    `voice_numbers` (which of our numbers a call goes out from — one row today, one per account
+    manager later without a migration), and `start_call`
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -430,6 +442,89 @@ lets the migrations run. It needs only the `postgresql-16` server package, which
 run it and `supabase start` cannot. It proves the SQL parses, the plpgsql bodies compile, the
 constraints hold and the triggers fire; it is not a substitute for
 `supabase start && supabase db reset` against the real thing.
+
+## Calling (Twilio)
+
+A team member presses Call on a trade contact's thread, talks in the browser, and Twilio rings
+that person's mobile. It is deliberately not the huddle: a huddle is team-to-team video and can
+assume both sides have the app open, whereas a cleaner mid-changeover will never open anything.
+Their phone has to ring like a phone.
+
+TimelinesAI cannot do this. Its API sends and receives messages; there is no endpoint that places
+a call, and the only call-shaped thing in it is a _read_ of calls that already happened on the
+connected handset.
+
+### Setting it up in the Twilio console
+
+In this order — the first two gate everything else, and the bundle is not instant.
+
+1. **Upgrade off trial.** A trial account only calls numbers verified one at a time.
+2. **UK Regulatory Compliance bundle.** Phone Numbers → Regulatory Compliance → Bundles.
+   Mandatory since 30 September 2024 before any UK number carries voice.
+3. **Geo Permissions.** Voice → Settings → Geo Permissions → enable the United Kingdom. Twilio
+   restricts outbound to the signup home country by default, and splits each country into low
+   and higher risk ranges — UK mobile may be in the group that is off.
+4. **Buy a number** with the Voice capability, and attach an **emergency address** to it on the
+   number's own page. Still required for outbound even though the bundle no longer asks for it
+   at creation; calls fail without it and the error does not say so.
+5. **API key.** Account → API keys & tokens → Create → Standard. The secret is shown once.
+6. **TwiML App.** Voice → Manage → TwiML Apps → Create. Copy the `AP…` SID.
+7. Insert the number into `voice_numbers` with `is_default = true`.
+
+### The two webhook URLs
+
+There is no "create a webhook" step in Twilio and no key to collect from one: a webhook here is a
+text box you paste a URL into. Twilio signs its requests with the **auth token** you already
+have, so nothing is issued in exchange. Two fields, in two different places, because they are two
+different directions of call:
+
+| Where                         | Field             | URL                                           |
+| ----------------------------- | ----------------- | --------------------------------------------- |
+| Voice → TwiML Apps → your app | Voice Request URL | `/api/twilio/voice/<TWILIO_WEBHOOK_TOKEN>`    |
+| Phone Numbers → your number   | A call comes in   | `/api/twilio/incoming/<TWILIO_WEBHOOK_TOKEN>` |
+
+The status and recording callbacks are _not_ console settings — they are parameters the code
+sends with each call, so they can carry the id of the call they belong to.
+
+### How a call actually runs
+
+Twilio does not know what to do with a call; it stops and asks. Outbound: the browser connects,
+Twilio fetches TwiML from the Voice Request URL, our answer says the recording notice and dials
+the contact, and afterwards Twilio posts what happened to the status callback, which writes a
+`call_summary` message into the thread. Inbound is the same shape against the number's own URL:
+greeting, record, and the finished voicemail is filed into the contact's thread.
+
+Every webhook is checked twice: the secret path segment, and `X-Twilio-Signature` verified
+against the auth token (`src/lib/twilio/signature.ts`, pinned in tests against Twilio's own
+published vector). Unlike TimelinesAI and Monday, which publish no signature scheme, the
+signature here is mandatory rather than an optional second factor.
+
+### Which number a call goes out from
+
+`voice_numbers`, not an env var. A caller ID cannot be invented — Twilio only accepts a `From` it
+sold you or that you verified, and since May 2023 Ofcom requires UK networks to block caller IDs
+that are not valid, dialable and uniquely identifying. One row today; giving each account manager
+their own number is then a row rather than a migration, exactly as `whatsapp_accounts` already
+does for messaging. `calls.from_number` records the number used, so the history survives the
+table changing.
+
+Because the caller ID must be dialable, people will ring it back — so the number answers, plays a
+greeting and takes a voicemail, which is routed into the right thread by the same `chooseRoute()`
+that files inbound WhatsApp. A number that rings out forever looks like a real line and behaves
+like a disconnected one.
+
+### Recording
+
+Both parties hear "This call is recorded for quality and record keeping" before they are
+connected — UK law requires participants be informed, and an automated line is the only way that
+happens on every call rather than when someone remembers. Recordings live in `call_recordings`,
+which is a separate table from `calls` on purpose: a customer may see in their group that a call
+happened without being able to play back the team discussing them. RLS is row-level, so a
+stricter rule needs its own row.
+
+**Retention is not yet decided.** Recordings of conversations about named people are personal
+data and "keep for ever" is not defensible under UK GDPR. A scheduled deletion after a fixed
+window is the obvious shape; the window is a business decision.
 
 ## Public API
 
