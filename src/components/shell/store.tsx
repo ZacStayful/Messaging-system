@@ -10,6 +10,8 @@ import type {
   Message,
   Profile,
   SavedItem,
+  SidebarSection,
+  SidebarSectionItem,
   ThreadSummary,
 } from "@/lib/database.types";
 import { previewOf } from "@/lib/format";
@@ -147,6 +149,15 @@ interface StoreValue {
   markThreadRead: (messageId: string) => Promise<void>;
   refreshThreads: () => Promise<void>;
   toggleStar: (conversationId: string) => Promise<void>;
+  /** The sidebar sections this person has made for themselves, in display order. */
+  sections: SidebarSection[];
+  /** Which of my sections a conversation is filed in, or null when it is not filed. */
+  sectionOf: (conversationId: string) => string | null;
+  /** File a conversation into one of my sections, or pass null to take it back out. */
+  moveToSection: (conversationId: string, sectionId: string | null) => Promise<void>;
+  createSection: (name: string) => Promise<string | null>;
+  renameSection: (sectionId: string, name: string) => Promise<void>;
+  deleteSection: (sectionId: string) => Promise<void>;
   toggleMute: (conversationId: string) => Promise<void>;
   setNotifyLevel: (conversationId: string, level: NotifyLevel) => Promise<void>;
   openDm: (userId: string) => Promise<string | null>;
@@ -167,6 +178,8 @@ interface StoreProviderProps {
   activity: ActivityItem[];
   threads: ThreadSummary[];
   saved: SavedRow[];
+  sections: SidebarSection[];
+  sectionItems: SidebarSectionItem[];
   children: ReactNode;
 }
 
@@ -179,6 +192,8 @@ export function StoreProvider({
   activity: initialActivity,
   threads: initialThreads,
   saved: initialSaved,
+  sections: initialSections,
+  sectionItems: initialSectionItems,
   children,
 }: StoreProviderProps) {
   const router = useRouter();
@@ -189,6 +204,8 @@ export function StoreProvider({
   const [activity, setActivity] = useState(initialActivity);
   const [threads, setThreads] = useState(initialThreads);
   const [saved, setSaved] = useState(initialSaved);
+  const [sections, setSections] = useState(initialSections);
+  const [sectionItems, setSectionItems] = useState(initialSectionItems);
   const [seenSaved, setSeenSaved] = useState(initialSaved);
   if (seenSaved !== initialSaved) {
     setSeenSaved(initialSaved);
@@ -220,6 +237,16 @@ export function StoreProvider({
   if (seenThreads !== initialThreads) {
     setSeenThreads(initialThreads);
     setThreads(initialThreads);
+  }
+  const [seenSections, setSeenSections] = useState(initialSections);
+  if (seenSections !== initialSections) {
+    setSeenSections(initialSections);
+    setSections(initialSections);
+  }
+  const [seenSectionItems, setSeenSectionItems] = useState(initialSectionItems);
+  if (seenSectionItems !== initialSectionItems) {
+    setSeenSectionItems(initialSectionItems);
+    setSectionItems(initialSectionItems);
   }
 
   const [profiles, setProfiles] = useState<Record<string, Profile>>(() =>
@@ -437,6 +464,107 @@ export function StoreProvider({
   );
 
   const refresh = useCallback(() => router.refresh(), [router]);
+
+  // ---- sidebar sections -----------------------------------------------------
+  // Private to this person, like starring: optimistic state and a direct write, with RLS on
+  // sidebar_sections / sidebar_section_items (0039) doing the authorisation. No broadcast, for the
+  // same reason starring has none — nobody else can see these, and a second tab of my own picks
+  // them up on its next router.refresh().
+  const sectionById = useMemo(
+    () => new Map(sectionItems.map((i) => [i.conversation_id, i.section_id])),
+    [sectionItems],
+  );
+  const sectionOf = useCallback((conversationId: string) => sectionById.get(conversationId) ?? null, [sectionById]);
+
+  const moveToSection = useCallback(
+    async (conversationId: string, sectionId: string | null) => {
+      const previous = sectionItems;
+      setSectionItems((prev) => {
+        const rest = prev.filter((i) => i.conversation_id !== conversationId);
+        if (!sectionId) return rest;
+        return [
+          ...rest,
+          {
+            org_id: me.org_id,
+            user_id: me.id,
+            conversation_id: conversationId,
+            section_id: sectionId,
+            created_at: new Date().toISOString(),
+          },
+        ];
+      });
+      const { error } = sectionId
+        ? await supabase.from("sidebar_section_items").upsert(
+            {
+              org_id: me.org_id,
+              user_id: me.id,
+              conversation_id: conversationId,
+              section_id: sectionId,
+            },
+            { onConflict: "user_id,conversation_id" },
+          )
+        : await supabase
+            .from("sidebar_section_items")
+            .delete()
+            .eq("user_id", me.id)
+            .eq("conversation_id", conversationId);
+      // Put the row back rather than leave the sidebar showing a move that did not happen.
+      if (error) setSectionItems(previous);
+    },
+    [supabase, me.id, me.org_id, sectionItems],
+  );
+
+  const createSection = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim().slice(0, 60);
+      if (!trimmed) return null;
+      const { data, error } = await supabase
+        .from("sidebar_sections")
+        .insert({
+          org_id: me.org_id,
+          user_id: me.id,
+          name: trimmed,
+          // Spaced by 1000 to match conversation_bookmarks, so a later reorder can slot between.
+          position: sections.reduce((max, s) => Math.max(max, s.position), 0) + 1000,
+        })
+        .select()
+        .single();
+      if (error || !data) return null;
+      setSections((prev) => [...prev, data]);
+      return data.id;
+    },
+    [supabase, me.id, me.org_id, sections],
+  );
+
+  const renameSection = useCallback(
+    async (sectionId: string, name: string) => {
+      const trimmed = name.trim().slice(0, 60);
+      if (!trimmed) return;
+      const previous = sections;
+      setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, name: trimmed } : s)));
+      const { error } = await supabase.from("sidebar_sections").update({ name: trimmed }).eq("id", sectionId);
+      if (error) setSections(previous);
+    },
+    [supabase, sections],
+  );
+
+  const deleteSection = useCallback(
+    async (sectionId: string) => {
+      const previousSections = sections;
+      const previousItems = sectionItems;
+      // Drop the memberships locally too, so the groups reappear under the section they are
+      // computed into rather than vanishing until the next refresh. The FK cascade does the same
+      // thing in the database.
+      setSections((prev) => prev.filter((s) => s.id !== sectionId));
+      setSectionItems((prev) => prev.filter((i) => i.section_id !== sectionId));
+      const { error } = await supabase.from("sidebar_sections").delete().eq("id", sectionId);
+      if (error) {
+        setSections(previousSections);
+        setSectionItems(previousItems);
+      }
+    },
+    [supabase, sections, sectionItems],
+  );
 
   const leaveConversation = useCallback(
     async (conversationId: string) => {
@@ -696,6 +824,12 @@ export function StoreProvider({
       markThreadRead,
       refreshThreads,
       toggleStar,
+      sections,
+      sectionOf,
+      moveToSection,
+      createSection,
+      renameSection,
+      deleteSection,
       toggleMute,
       setNotifyLevel,
       openDm,
@@ -742,6 +876,12 @@ export function StoreProvider({
       markThreadRead,
       refreshThreads,
       toggleStar,
+      sections,
+      sectionOf,
+      moveToSection,
+      createSection,
+      renameSection,
+      deleteSection,
       toggleMute,
       setNotifyLevel,
       openDm,

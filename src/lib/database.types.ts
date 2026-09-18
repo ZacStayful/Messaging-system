@@ -1629,6 +1629,104 @@ export type Database = {
           },
         ];
       };
+      sidebar_section_items: {
+        Row: {
+          conversation_id: string;
+          created_at: string;
+          org_id: string;
+          section_id: string;
+          user_id: string;
+        };
+        Insert: {
+          conversation_id: string;
+          created_at?: string;
+          org_id: string;
+          section_id: string;
+          user_id: string;
+        };
+        Update: {
+          conversation_id?: string;
+          created_at?: string;
+          org_id?: string;
+          section_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sidebar_section_items_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sidebar_section_items_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sidebar_section_items_section_id_fkey";
+            columns: ["section_id"];
+            isOneToOne: false;
+            referencedRelation: "sidebar_sections";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sidebar_section_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      sidebar_sections: {
+        Row: {
+          created_at: string;
+          id: string;
+          name: string;
+          org_id: string;
+          position: number;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          name: string;
+          org_id: string;
+          position?: number;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          name?: string;
+          org_id?: string;
+          position?: number;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sidebar_sections_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sidebar_sections_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       thread_follows: {
         Row: {
           created_at: string;
@@ -2272,6 +2370,8 @@ export type Pin = Tables<"pins">;
 export type Attachment = Tables<"attachments">;
 export type Reaction = Tables<"reactions">;
 export type SavedItem = Tables<"saved_items">;
+export type SidebarSection = Tables<"sidebar_sections">;
+export type SidebarSectionItem = Tables<"sidebar_section_items">;
 export type ConversationBookmark = Tables<"conversation_bookmarks">;
 export type ApiKey = Tables<"api_keys">;
 export type ScheduledMessage = Tables<"scheduled_messages">;
