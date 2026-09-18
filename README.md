@@ -760,6 +760,7 @@ Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
 | `GET`            | `/api/v1/search?q=`                           | `messages:read`                              |
 | `GET` `POST`     | `/api/v1/users`                               | `users:read` / `users:invite`                |
 | `GET` `POST`     | `/api/email/capture`                          | `users:read` / `messages:write` (team key)   |
+| `POST`           | `/api/whatsapp/capture`                       | `messages:write` (team key)                  |
 
 Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
 `forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,
@@ -777,6 +778,22 @@ address). `direction` may be left out, in which case a From that belongs to a te
 outbound. The Message-ID is the dedupe key, so the same mail arriving by forward and by this
 route is stored once. Everything else answers `{"ignored": reason}` and is recorded in
 `inbound_messages_unmatched`.
+
+Both capture routes take a history as well as a live feed. `sent_at` (ISO 8601, or an epoch in
+seconds or milliseconds) dates the stored row when the message was actually sent, so a backfill
+reads in order and never lifts a thread to the top of the sidebar; `backfill: true` marks the
+row (`meta.backfill`) so an import can be told apart from live capture later. The `GET` also
+returns `contacts` — each lead-database customer's `user_id`, `name`, `email`, `phone`,
+`monday_item_id` and `lead_category` — which is what a backfill needs to read their chat and
+their enquiry date.
+
+`POST /api/whatsapp/capture` is the WhatsApp side of the same thing: an automation reading a
+chat's history out of TimelinesAI posts each message as
+`{"message_uid", "chat_id", "phone", "direction": "inbound"|"outbound", "text", "media_url", "sent_at", "sent_from"}`,
+and the ones with a lead-database customer land in their group, as them (inbound) or as the
+owner of the number in `sent_from` (outbound; the key's own user when that number is not on
+file). The uid is the dedupe key it shares with the live webhook, so a message stored by both is
+stored once. Nothing captured this way is ever sent back out (`meta.mirrored`).
 
 Not covered in this pass: attachments and uploads, reactions, pins, editing and deleting
 messages, scheduled messages, saved items, outgoing webhooks, pagination beyond

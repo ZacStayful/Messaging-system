@@ -85,7 +85,27 @@ const QUOTE_MARKERS = [
   /^_{5,}$/,
   /^-{5,}$/,
   /^Le .+ a écrit\s*:$/i,
+  // RFC 3676 signature separator ("-- "; the line is trimmed before matching, and many clients
+  // drop the trailing space anyway). Everything under it is a signature.
+  /^--$/,
 ];
+
+/**
+ * Mail clients wrap a long "On <date>, <name> <address> wrote:" header onto two or three lines,
+ * breaking wherever the width runs out: Gmail after the address, others after the date's comma.
+ * True when `lines[i]` opens such a header and "wrote:" arrives on its own within two lines.
+ */
+function opensWrappedAttribution(lines: string[], i: number): boolean {
+  const first = lines[i].trim();
+  if (!/^(On|Le) .+/.test(first) || /wrote:\s*$/i.test(first)) return false;
+  for (let j = i + 1; j <= i + 2 && j < lines.length; j++) {
+    const next = lines[j].trim();
+    if (/^(wrote|a écrit)\s*:\s*$/i.test(next)) return true;
+    // A blank line, quote marker or anything long enough to be prose means it was not a header.
+    if (!next || next.startsWith(">") || next.length > 80) return false;
+  }
+  return false;
+}
 
 /** Keeps only the customer's new text: drops quoted history, signatures and "On … wrote:" blocks. */
 export function stripQuotedReply(text: string): string {
@@ -95,8 +115,7 @@ export function stripQuotedReply(text: string): string {
     const line = lines[i];
     if (line.trimStart().startsWith(">")) break;
     if (QUOTE_MARKERS.some((re) => re.test(line.trim()))) break;
-    // "On Mon, 15 Sep 2026 at 09:00, Stayful <x@y>" sometimes wraps onto two lines before "wrote:"
-    if (/^On .+,$/.test(line.trim()) && /wrote:\s*$/i.test(lines[i + 1] ?? "")) break;
+    if (opensWrappedAttribution(lines, i)) break;
     kept.push(line);
   }
   return kept
