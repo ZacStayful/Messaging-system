@@ -32,7 +32,8 @@ create table auth.users (
   raw_app_meta_data jsonb, raw_user_meta_data jsonb,
   created_at timestamptz, updated_at timestamptz,
   confirmation_token text, recovery_token text, email_change_token_new text,
-  email_change text, is_sso_user boolean default false
+  email_change text, is_sso_user boolean default false,
+  banned_until timestamptz
 );
 create table auth.identities (
   id uuid primary key, user_id uuid references auth.users(id) on delete cascade,

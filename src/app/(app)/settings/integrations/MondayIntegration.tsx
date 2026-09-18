@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { useStore } from "@/components/shell/store";
 import { saveMondaySettings } from "./actions";
+import { LeadDatabase, type LeadEventRow } from "./LeadDatabase";
 
 /** The same three class constants as the API and account screens, so the pages match. */
 const input =
@@ -31,6 +32,8 @@ interface Props {
   skipGroupIds: string[];
   team: { id: string; display_name: string }[];
   events: EventRow[];
+  leadEvents: LeadEventRow[];
+  leadBoardId: string;
   boardId: string;
   webhookBase: string;
   tokenSet: boolean;
@@ -192,6 +195,8 @@ export function MondayIntegration(props: Props) {
           <span className="text-ink-dim">&lt;MONDAY_WEBHOOK_TOKEN&gt;</span>
         </code>
       </div>
+
+      <LeadDatabase boardId={props.leadBoardId} events={props.leadEvents} apiTokenSet={props.apiTokenSet} />
 
       <div className={card}>
         <h2 className="mb-3 text-[15px] font-semibold text-ink">Recent deliveries</h2>

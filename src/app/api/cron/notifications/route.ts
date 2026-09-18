@@ -251,7 +251,9 @@ export async function GET(request: NextRequest) {
   const recipientIds = Array.from(new Set(claimedRows.map((r) => r.recipient_user_id).filter((x): x is string => !!x)));
   const { data: prefs } = await admin
     .from("profiles")
-    .select("id, email_notifications, whatsapp_notifications, email, phone, presence_mode, away_until, dnd_until")
+    .select(
+      "id, email_notifications, whatsapp_notifications, email, phone, presence_mode, away_until, dnd_until, lead_category",
+    )
     .in("id", recipientIds);
   const prefById = new Map((prefs ?? []).map((p) => [p.id, p]));
 
@@ -373,12 +375,16 @@ export async function GET(request: NextRequest) {
       return;
     }
     const isDm = p.conversation_type === "dm" || p.conversation_type === "group_dm";
+    const pref = r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined;
     const { text } = messageWhatsApp({
       senderName: p.sender_name,
       body: p.body,
       conversationTitle: `#${p.conversation_name ?? "your group"}`,
       isGroup: !isDm,
       viewUrl: `${base}/home/${p.conversation_id}`,
+      // A lead-database customer is not using the app and must not be pointed at it: they get
+      // the message as it was typed, from the number they already know.
+      plain: Boolean(pref?.lead_category),
     });
     const account = accountByConv.get(p.conversation_id);
     const res = await sendWhatsApp({
@@ -426,7 +432,10 @@ export async function GET(request: NextRequest) {
    */
   async function fallbackToEmail(r: NotificationOutbox, p: MessagePayload) {
     const pref = r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined;
-    if (pref?.email) {
+    // Only for someone who takes email at all. This used to fall back regardless, which sent a
+    // notification — login link and all — to a customer who had switched email off.
+    const canEmail = Boolean(pref?.email && pref.email_notifications === "instant");
+    if (canEmail) {
       // A plain insert, not an upsert: the dedupe index is on an expression
       // ((payload->>'message_id')) that PostgREST cannot name in on_conflict. A duplicate means
       // they already had an email row for this message, which is exactly the no-op we want.
@@ -435,7 +444,7 @@ export async function GET(request: NextRequest) {
         kind: "message",
         channel: "email",
         recipient_user_id: r.recipient_user_id,
-        recipient_email: pref.email,
+        recipient_email: pref!.email,
         payload: r.payload,
         fallback_from: "whatsapp",
       });
@@ -449,7 +458,7 @@ export async function GET(request: NextRequest) {
       sender_id: null,
       kind: "system",
       visibility: "internal",
-      body: `WhatsApp to ${p.recipient_name} failed${pref?.email ? " — sent by email instead" : ""}. Check their mobile number.`,
+      body: `WhatsApp to ${p.recipient_name} failed${canEmail ? " — sent by email instead" : ""}. Check their mobile number.`,
       meta: { event: "whatsapp_failed", user_id: r.recipient_user_id, error: r.last_error ?? null },
     });
   }

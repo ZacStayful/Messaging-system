@@ -1208,11 +1208,13 @@ export type Database = {
           full_name: string | null;
           id: string;
           last_active_at: string | null;
+          lead_category: string | null;
           monday_person_id: string | null;
           org_id: string;
           phone: string | null;
           phone_prompt_skipped_at: string | null;
           phone_verified_at: string | null;
+          portal_access: boolean;
           presence: Database["public"]["Enums"]["presence_status"];
           presence_mode: string;
           role: Database["public"]["Enums"]["user_role"];
@@ -1239,11 +1241,13 @@ export type Database = {
           full_name?: string | null;
           id: string;
           last_active_at?: string | null;
+          lead_category?: string | null;
           monday_person_id?: string | null;
           org_id: string;
           phone?: string | null;
           phone_prompt_skipped_at?: string | null;
           phone_verified_at?: string | null;
+          portal_access?: boolean;
           presence?: Database["public"]["Enums"]["presence_status"];
           presence_mode?: string;
           role?: Database["public"]["Enums"]["user_role"];
@@ -1270,11 +1274,13 @@ export type Database = {
           full_name?: string | null;
           id?: string;
           last_active_at?: string | null;
+          lead_category?: string | null;
           monday_person_id?: string | null;
           org_id?: string;
           phone?: string | null;
           phone_prompt_skipped_at?: string | null;
           phone_verified_at?: string | null;
+          portal_access?: boolean;
           presence?: Database["public"]["Enums"]["presence_status"];
           presence_mode?: string;
           role?: Database["public"]["Enums"]["user_role"];
@@ -1959,6 +1965,17 @@ export type Database = {
       };
       is_admin: { Args: never; Returns: boolean };
       is_member: { Args: { cid: string }; Returns: boolean };
+      import_lead_customer: {
+        Args: {
+          p_conversation_id: string;
+          p_email: string;
+          p_full_name: string;
+          p_lead_category: string;
+          p_monday_item_id: string;
+          p_phone: string | null;
+        };
+        Returns: string;
+      };
       is_team: { Args: never; Returns: boolean };
       mark_outbox: {
         Args: {
@@ -2006,6 +2023,7 @@ export type Database = {
           last_message_kind: Database["public"]["Enums"]["message_kind"] | null;
           last_message_sender_id: string | null;
           last_read_at: string | null;
+          lead_category: string | null;
           member_count: number;
           member_ids: string[];
           mention_count: number;
