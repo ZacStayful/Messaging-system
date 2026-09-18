@@ -314,6 +314,12 @@ conversation_id)` dropped so there is one token per notification email rather th
     be left as `failed`, indistinguishable from one that will be retried next minute — plus the
     missing index on `org_id`
 
+38. `0038_outbox_dispatched_at.sql` `notification_outbox.dispatched_at`, written immediately
+    before every provider call. The claim (0029) stops two runs sending the same row; this is what
+    survives one run dying between the provider accepting a message and the UPDATE recording it.
+    Email then retries under a Resend `Idempotency-Key`; WhatsApp, which has no such mechanism,
+    reads the chat's recent outbound history before it resends
+
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
 
