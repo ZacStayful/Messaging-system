@@ -48,6 +48,13 @@ describe("messageWhatsApp", () => {
     expect(text).toContain(base.viewUrl);
   });
 
+  it("sends just the message for a lead-database customer, who is not using the app", () => {
+    const { text } = messageWhatsApp({ ...base, plain: true });
+    expect(text).toBe("The photos are booked for Tuesday.");
+    expect(text).not.toContain(base.viewUrl);
+    expect(text).not.toContain("Sarah Hill");
+  });
+
   it("does not leave ragged blank lines when the body has its own spacing", () => {
     const { text } = messageWhatsApp({ ...base, body: "\n\n  Hello  \n\n" });
     expect(text).not.toMatch(/\n{3,}/);

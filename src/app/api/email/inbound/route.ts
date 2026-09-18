@@ -7,6 +7,7 @@ import {
   tokenFromRecipients,
   verifySvixSignature,
 } from "@/lib/email/inbound";
+import { captureEmail, isCaptureRecipient, normaliseMessageId } from "@/lib/email/capture";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ interface ReceivedEvent {
     id?: string;
     from?: string;
     to?: string[];
+    cc?: string[];
     subject?: string;
     text?: string;
     html?: string;
@@ -104,7 +106,28 @@ export async function POST(request: NextRequest) {
   }
 
   const token = tokenFromRecipients(to ?? []);
-  if (!token) return unmatched(admin, "no_reply_token", emailId, from ?? "", null, event);
+  if (!token) {
+    // No token, but addressed to the capture address: mail Gmail forwarded from a lead-database
+    // customer (see src/lib/email/capture.ts). Anything else with no token is still unroutable.
+    if (isCaptureRecipient([...(to ?? []), ...(event.data.cc ?? [])])) {
+      const result = await captureEmail(
+        admin,
+        {
+          messageId: normaliseMessageId(event.data.message_id) ?? emailId,
+          from: from ?? null,
+          to: to ?? [],
+          cc: event.data.cc ?? [],
+          subject: subject ?? null,
+          text: text ?? null,
+          html: html ?? null,
+          direction: "inbound",
+        },
+        { raw: event },
+      );
+      return NextResponse.json(result, { status: result.ok ? 200 : 500 });
+    }
+    return unmatched(admin, "no_reply_token", emailId, from ?? "", null, event);
+  }
 
   const { data: thread } = await admin.from("email_reply_threads").select("*").eq("token", token).maybeSingle();
   if (!thread) return unmatched(admin, "unknown_token", emailId, from ?? "", null, event);

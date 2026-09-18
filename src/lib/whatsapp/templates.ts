@@ -20,6 +20,11 @@ export interface WhatsAppMessageInput {
   /** null for a direct message, where the sender's name is the title. */
   isGroup: boolean;
   viewUrl: string;
+  /**
+   * Just the message, as if typed on a phone: no author line, no link. For lead-database
+   * customers, who are not using the app yet and must not be pointed at it.
+   */
+  plain?: boolean;
 }
 
 function trim(body: string): string {
@@ -29,6 +34,7 @@ function trim(body: string): string {
 }
 
 export function messageWhatsApp(input: WhatsAppMessageInput): { text: string } {
+  if (input.plain) return { text: trim(input.body) };
   const where = input.isGroup ? ` in ${input.conversationTitle}` : "";
   const text = [`*${input.senderName}*${where}`, "", trim(input.body), "", `Reply here, or open it: ${input.viewUrl}`]
     .join("\n")

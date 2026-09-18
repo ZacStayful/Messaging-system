@@ -10,6 +10,7 @@ import { UnreadBadge } from "@/components/ui/UnreadBadge";
 import { Icon } from "@/components/ui/Icon";
 import { presenceLook } from "@/lib/presence";
 import { useBoolPref } from "@/lib/prefs";
+import { LEAD_CATEGORIES, LEAD_CATEGORY_KEYS } from "@/lib/leadCategories";
 import { SearchLink, SectionHeader, SidebarHeader, SidebarSearch, iconBtn } from "./SidebarBits";
 import { ThreadsRow } from "./ThreadsRow";
 import { PeopleRow } from "./PeopleRow";
@@ -22,11 +23,28 @@ function byUnreadThenName(a: ConversationSummary, b: ConversationSummary) {
 }
 
 export function HomeSidebar() {
-  const { conversations, org, me, otherMember, conversationName, presenceOf, activeConversationId, openNewMessage } =
-    useStore();
+  const {
+    conversations,
+    org,
+    me,
+    isAdmin,
+    otherMember,
+    conversationName,
+    presenceOf,
+    activeConversationId,
+    openNewMessage,
+  } = useStore();
   const [filter, setFilter] = useState("");
   const [showArchived, setShowArchived] = useBoolPref("home.showArchived", false);
   const [customersCollapsed, setCustomersCollapsed] = useBoolPref("home.customers.collapsed", false);
+  const [leadsCollapsed, setLeadsCollapsed] = useBoolPref("home.leads.collapsed", false);
+  // One pref per category; hooks cannot sit in a loop, and there are exactly two.
+  const [managementCollapsed, setManagementCollapsed] = useBoolPref("home.leads.airbnb_management.collapsed", false);
+  const [r2rCollapsed, setR2rCollapsed] = useBoolPref("home.leads.r2r.collapsed", false);
+  const leadPrefs = {
+    airbnb_management: [managementCollapsed, setManagementCollapsed] as const,
+    r2r: [r2rCollapsed, setR2rCollapsed] as const,
+  };
   const [channelsCollapsed, setChannelsCollapsed] = useBoolPref("home.channels.collapsed", false);
   const [dmsCollapsed, setDmsCollapsed] = useBoolPref("home.dms.collapsed", false);
   const [starredCollapsed, setStarredCollapsed] = useBoolPref("home.starred.collapsed", false);
@@ -37,7 +55,16 @@ export function HomeSidebar() {
   const archivedCount = conversations.filter((c) => c.archived_at).length;
   const starred = useMemo(() => live.filter((c) => c.starred), [live]);
   const customers = useMemo(
-    () => live.filter((c) => (c.type === "owner" || c.type === "job") && !c.starred).sort(byUnreadThenName),
+    () =>
+      live
+        .filter((c) => (c.type === "owner" || c.type === "job") && !c.starred && !c.lead_category)
+        .sort(byUnreadThenName),
+    [live],
+  );
+  // Lead-database customers: on file, not yet invited, filed apart so the Customers list stays
+  // the list of people actually using the app.
+  const leads = useMemo(
+    () => live.filter((c) => c.type === "owner" && !!c.lead_category && !c.starred).sort(byUnreadThenName),
     [live],
   );
   const channels = useMemo(
@@ -181,6 +208,59 @@ export function HomeSidebar() {
           </p>
         )}
         {!customersCollapsed && customers.filter(matches).map(channelRow)}
+
+        {(leads.length > 0 || me.account_type === "team") && (
+          <>
+            <SectionHeader
+              label="Lead database customers"
+              collapsed={leadsCollapsed}
+              onToggle={() => setLeadsCollapsed(!leadsCollapsed)}
+              count={leads.length}
+            />
+            {!leadsCollapsed && leads.length === 0 && (
+              <p className="px-3 py-2 text-[14px] text-sb-dim">
+                No lead database customers yet.
+                {isAdmin ? (
+                  <>
+                    {" "}
+                    Import them from{" "}
+                    <Link href="/settings/integrations" className="text-sb-text underline">
+                      Settings → Integrations
+                    </Link>
+                    .
+                  </>
+                ) : null}
+              </p>
+            )}
+            {!leadsCollapsed &&
+              LEAD_CATEGORY_KEYS.map((key) => {
+                const rows = leads.filter((c) => c.lead_category === key);
+                const [collapsed, setCollapsed] = leadPrefs[key];
+                if (rows.length === 0) return null;
+                const shown = rows.filter(matches);
+                return (
+                  <div key={key}>
+                    <button
+                      type="button"
+                      onClick={() => setCollapsed(!collapsed)}
+                      aria-expanded={!collapsed}
+                      className="flex w-full items-center gap-1.5 rounded-md border-0 bg-transparent px-3 pt-2 pb-1 text-left text-[13px] font-semibold text-sb-dim hover:bg-sb-hover"
+                    >
+                      <Icon
+                        name="chevronDown"
+                        size={12}
+                        strokeWidth={2}
+                        style={{ transform: collapsed ? "rotate(-90deg)" : undefined, transition: "transform .12s" }}
+                      />
+                      <span className="truncate">{LEAD_CATEGORIES[key].label}</span>
+                      <span className="opacity-80">{rows.length}</span>
+                    </button>
+                    {!collapsed && shown.map(channelRow)}
+                  </div>
+                );
+              })}
+          </>
+        )}
 
         <SectionHeader
           label="Channels"
