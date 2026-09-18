@@ -467,7 +467,7 @@ export function StoreProvider({
 
   // ---- sidebar sections -----------------------------------------------------
   // Private to this person, like starring: optimistic state and a direct write, with RLS on
-  // sidebar_sections / sidebar_section_items (0038) doing the authorisation. No broadcast, for the
+  // sidebar_sections / sidebar_section_items (0039) doing the authorisation. No broadcast, for the
   // same reason starring has none — nobody else can see these, and a second tab of my own picks
   // them up on its next router.refresh().
   const sectionById = useMemo(

@@ -53,7 +53,7 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 - Sidebar row menus (right-click or the hover "⋯"): mark as read, star, mute, notification
   level, move to section, copy link, leave and archive (team), on every conversation list
   including the customer view.
-- Sidebar sections you make yourself (`0038_sidebar_sections.sql`): every other heading in the
+- Sidebar sections you make yourself (`0039_sidebar_sections.sql`): every other heading in the
   sidebar is computed — Starred from the membership row, Customers and Channels from the
   conversation type, the lead sub-lists from `profiles.lead_category` — so none of them can say
   "these six are what I am working on this week". **New section** names one, and a group is filed
@@ -325,7 +325,7 @@ conversation_id)` dropped so there is one token per notification email rather th
     be left as `failed`, indistinguishable from one that will be retried next minute — plus the
     missing index on `org_id`
 
-38. `0038_sidebar_sections.sql` `sidebar_sections` and `sidebar_section_items`, the sidebar
+38. `0039_sidebar_sections.sql` `sidebar_sections` and `sidebar_section_items`, the sidebar
     sections a person makes for themselves and what they have filed into them. Both are private to
     one user and shaped after `saved_items` (0010): plain `user_id = auth.uid()` policies, with the
     insert and update `WITH CHECK` on the items proving the section is yours and that you are in

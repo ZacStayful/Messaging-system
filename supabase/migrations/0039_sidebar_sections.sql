@@ -1,4 +1,4 @@
--- 0038_sidebar_sections.sql
+-- 0039_sidebar_sections.sql
 -- Sections of the sidebar that a person makes for themselves.
 --
 -- Every heading in the sidebar today is computed: Starred from conversation_members.starred,
