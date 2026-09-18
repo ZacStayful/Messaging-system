@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { StoreProvider, type Org, type SavedRow } from "@/components/shell/store";
+import type { SidebarSection, SidebarSectionItem } from "@/lib/database.types";
 import { AppShell } from "@/components/shell/AppShell";
 import { PhoneGate } from "@/components/onboarding/PhoneGate";
 import { shouldAskForPhone } from "@/lib/phone";
@@ -49,6 +50,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { data: activity },
     { data: threads },
     { data: saved },
+    { data: sections },
+    { data: sectionItems },
   ] = await Promise.all([
     supabase.from("organisations").select("id, name, slug, settings").eq("id", me.org_id).single(),
     supabase.rpc("my_conversations"),
@@ -58,6 +61,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     isTeam
       ? supabase.from("saved_items").select("*, message:messages(*)").order("saved_at", { ascending: false }).limit(200)
       : Promise.resolve({ data: [] as SavedRow[] }),
+    // Sidebar sections are a team sidebar feature: CustomerSidebar has no section headings for
+    // them to sit between. Gated the same way my_threads and saved_items are.
+    isTeam
+      ? supabase.from("sidebar_sections").select("*").order("position").order("created_at")
+      : Promise.resolve({ data: [] as SidebarSection[] }),
+    isTeam ? supabase.from("sidebar_section_items").select("*") : Promise.resolve({ data: [] as SidebarSectionItem[] }),
   ]);
 
   return (
@@ -70,6 +79,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       activity={activity ?? []}
       threads={threads ?? []}
       saved={(saved ?? []) as SavedRow[]}
+      sections={sections ?? []}
+      sectionItems={sectionItems ?? []}
     >
       <AppShell>{children}</AppShell>
     </StoreProvider>

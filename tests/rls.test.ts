@@ -567,4 +567,91 @@ suite("api keys", () => {
       await customer.from("scheduled_messages").delete().eq("id", row!.id);
     });
   });
+
+  describe("sidebar sections", () => {
+    // Sections are the one thing in the app that is private to a single person rather than shared
+    // with an organisation, so "another team member cannot see it" is the whole feature.
+    it("a section is invisible to everyone but the person who made it", async () => {
+      const { data: mine, error } = await staff
+        .from("sidebar_sections")
+        .insert({ org_id: ORG, user_id: STAFF_ID, name: `rls test ${Date.now()}` })
+        .select("id")
+        .single();
+      expect(error).toBeNull();
+      expect(mine?.id).toBeTruthy();
+
+      const { data: theirs } = await customer.from("sidebar_sections").select("id").eq("id", mine!.id);
+      expect(theirs).toEqual([]);
+
+      // ...and they cannot rename or delete what they cannot see.
+      const { data: renamed } = await customer
+        .from("sidebar_sections")
+        .update({ name: "taken over" })
+        .eq("id", mine!.id)
+        .select("id");
+      expect(renamed ?? []).toEqual([]);
+
+      await staff.from("sidebar_sections").delete().eq("id", mine!.id);
+    });
+
+    it("a section cannot be made in someone else's name", async () => {
+      const { error } = await customer
+        .from("sidebar_sections")
+        .insert({ org_id: ORG, user_id: STAFF_ID, name: `not mine ${Date.now()}` });
+      expect(error).not.toBeNull();
+    });
+
+    it("a conversation cannot be filed into someone else's section", async () => {
+      const { data: mine } = await staff
+        .from("sidebar_sections")
+        .insert({ org_id: ORG, user_id: STAFF_ID, name: `rls target ${Date.now()}` })
+        .select("id")
+        .single();
+      expect(mine?.id).toBeTruthy();
+
+      // Both of these are in CUSTOMER_GROUP, so membership is not what stops this one.
+      const { error } = await customer.from("sidebar_section_items").insert({
+        org_id: ORG,
+        user_id: CUSTOMER_ID,
+        conversation_id: CUSTOMER_GROUP,
+        section_id: mine!.id,
+      });
+      expect(error).not.toBeNull();
+
+      await staff.from("sidebar_sections").delete().eq("id", mine!.id);
+    });
+
+    it("a conversation you are not in cannot be filed at all", async () => {
+      const { data: section } = await customer
+        .from("sidebar_sections")
+        .insert({ org_id: ORG, user_id: CUSTOMER_ID, name: `customer section ${Date.now()}` })
+        .select("id")
+        .single();
+      expect(section?.id).toBeTruthy();
+
+      const { error } = await customer.from("sidebar_section_items").insert({
+        org_id: ORG,
+        user_id: CUSTOMER_ID,
+        conversation_id: TEAM_ONLY,
+        section_id: section!.id,
+      });
+      expect(error).not.toBeNull();
+
+      // ...while filing a group they are actually in works, and deleting the section clears it.
+      const { error: allowed } = await customer.from("sidebar_section_items").insert({
+        org_id: ORG,
+        user_id: CUSTOMER_ID,
+        conversation_id: CUSTOMER_GROUP,
+        section_id: section!.id,
+      });
+      expect(allowed).toBeNull();
+
+      await customer.from("sidebar_sections").delete().eq("id", section!.id);
+      const { data: left } = await customer
+        .from("sidebar_section_items")
+        .select("conversation_id")
+        .eq("section_id", section!.id);
+      expect(left ?? []).toEqual([]);
+    });
+  });
 });

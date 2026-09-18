@@ -51,8 +51,19 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   sidebar sections; archived groups hidden behind a toggle and read-only.
 - Activity filters: Mentions, Threads (replies), Reactions, plus mark-all-read.
 - Sidebar row menus (right-click or the hover "⋯"): mark as read, star, mute, notification
-  level, copy link, leave and archive (team), on every conversation list including the
-  customer view.
+  level, move to section, copy link, leave and archive (team), on every conversation list
+  including the customer view.
+- Sidebar sections you make yourself (`0039_sidebar_sections.sql`): every other heading in the
+  sidebar is computed — Starred from the membership row, Customers and Channels from the
+  conversation type, the lead sub-lists from `profiles.lead_category` — so none of them can say
+  "these six are what I am working on this week". **New section** names one, and a group is filed
+  into it by dragging the row onto it with the mouse; dropping it back on Customers or Channels
+  takes it out again. Filed groups leave the computed list they came from so nothing appears
+  twice, and starring still wins, because starring means "keep this where I can see it". Sections
+  are private to one person, like starring and muting: organising your own sidebar never moves
+  anyone else's. Dragging is mouse-only, so the row menu's **Move to section** is the same action
+  by keyboard and on a phone. Deleting a section never hides a group — its contents fall back to
+  the section they are computed into.
 - People and presence: profile cards on any avatar or name (role, custom status, local time,
   Message / Copy email), a People directory for the team (`/people`), profile editing (names,
   photo to the public `avatars` bucket, time zone), custom status with an expiry, pause
@@ -313,6 +324,13 @@ conversation_id)` dropped so there is one token per notification email rather th
     notification given up on after five attempts is a state rather than an absence — it used to
     be left as `failed`, indistinguishable from one that will be retried next minute — plus the
     missing index on `org_id`
+
+38. `0039_sidebar_sections.sql` `sidebar_sections` and `sidebar_section_items`, the sidebar
+    sections a person makes for themselves and what they have filed into them. Both are private to
+    one user and shaped after `saved_items` (0010): plain `user_id = auth.uid()` policies, with the
+    insert and update `WITH CHECK` on the items proving the section is yours and that you are in
+    the conversation. No column on `conversation_members`, whose update policy does not restrict
+    which columns move (which is what 0029 was about), and so no change to `my_conversations()`
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -764,6 +782,7 @@ Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
 | `GET`            | `/api/v1/search?q=`                           | `messages:read`                              |
 | `GET` `POST`     | `/api/v1/users`                               | `users:read` / `users:invite`                |
 | `GET` `POST`     | `/api/email/capture`                          | `users:read` / `messages:write` (team key)   |
+| `POST`           | `/api/whatsapp/capture`                       | `messages:write` (team key)                  |
 
 Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
 `forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,
@@ -781,6 +800,22 @@ address). `direction` may be left out, in which case a From that belongs to a te
 outbound. The Message-ID is the dedupe key, so the same mail arriving by forward and by this
 route is stored once. Everything else answers `{"ignored": reason}` and is recorded in
 `inbound_messages_unmatched`.
+
+Both capture routes take a history as well as a live feed. `sent_at` (ISO 8601, or an epoch in
+seconds or milliseconds) dates the stored row when the message was actually sent, so a backfill
+reads in order and never lifts a thread to the top of the sidebar; `backfill: true` marks the
+row (`meta.backfill`) so an import can be told apart from live capture later. The `GET` also
+returns `contacts` — each lead-database customer's `user_id`, `name`, `email`, `phone`,
+`monday_item_id` and `lead_category` — which is what a backfill needs to read their chat and
+their enquiry date.
+
+`POST /api/whatsapp/capture` is the WhatsApp side of the same thing: an automation reading a
+chat's history out of TimelinesAI posts each message as
+`{"message_uid", "chat_id", "phone", "direction": "inbound"|"outbound", "text", "media_url", "sent_at", "sent_from"}`,
+and the ones with a lead-database customer land in their group, as them (inbound) or as the
+owner of the number in `sent_from` (outbound; the key's own user when that number is not on
+file). The uid is the dedupe key it shares with the live webhook, so a message stored by both is
+stored once. Nothing captured this way is ever sent back out (`meta.mirrored`).
 
 Not covered in this pass: attachments and uploads, reactions, pins, editing and deleting
 messages, scheduled messages, saved items, outgoing webhooks, pagination beyond
