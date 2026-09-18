@@ -1,16 +1,13 @@
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyApiKey } from "@/lib/api/auth";
 import { jwtConfigured } from "@/lib/api/jwt";
+import { checkRateLimit } from "@/lib/api/rateLimit";
 import { registerTools, type McpAuthExtra } from "@/lib/mcp/tools";
 
 // The SDK uses Node crypto and stream APIs, so this cannot run on the edge runtime.
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
-
-const RATE_LIMIT = 600;
-const RATE_WINDOW_SECONDS = 60;
 
 /**
  * Remote MCP server over Streamable HTTP, so Claude, n8n, Zapier or anything else speaking MCP
@@ -51,17 +48,13 @@ const authed = withMcpAuth(
     const ctx = await verifyApiKey(request);
     if (!ctx) return undefined;
 
-    const admin = createAdminClient();
-    if (admin) {
-      const { data: withinLimit } = await admin.rpc("api_rate_hit", {
-        p_key_id: ctx.keyId,
-        p_limit: RATE_LIMIT,
-        p_window_seconds: RATE_WINDOW_SECONDS,
-      });
-      if (withinLimit === false) return undefined;
-      // last_used_at is stamped inside api_rate_hit (0017); the old separate call was an
-      // un-awaited promise that serverless dropped before it ran.
-    }
+    // last_used_at is stamped inside api_rate_hit (0017); the old separate call was an
+    // un-awaited promise that serverless dropped before it ran.
+    //
+    // Refusing on "unavailable" as well as "over": the MCP transport has no way to say 429, so
+    // both come back as a refused session, which is the same answer it already gave for a key
+    // over its limit.
+    if ((await checkRateLimit(ctx.keyId)) !== "ok") return undefined;
 
     const extra: McpAuthExtra = { ctx };
     return {

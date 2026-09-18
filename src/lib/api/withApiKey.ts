@@ -3,12 +3,8 @@ import type { Scope } from "./keys";
 import { NotConfiguredError, jwtConfigured } from "./jwt";
 import { verifyApiKey, userClient, type ApiClient, type ApiKeyContext } from "./auth";
 import { ApiError, fail } from "./respond";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { logApiCall } from "./audit";
-
-/** Requests per key per minute. Generous for real use, low enough to notice a runaway loop. */
-const RATE_LIMIT = 600;
-const RATE_WINDOW_SECONDS = 60;
+import { checkRateLimit, RATE_LIMITED_MESSAGE, RATE_UNAVAILABLE_MESSAGE, RATE_WINDOW_SECONDS } from "./rateLimit";
 
 export interface ApiHandlerArgs {
   request: Request;
@@ -56,20 +52,17 @@ export function withApiKey(handler: Handler, options: Options) {
       return fail("forbidden", "This endpoint is only available to keys acting as a Stayful team member.");
     }
 
-    const admin = createAdminClient();
-    if (admin) {
-      const { data: withinLimit } = await admin.rpc("api_rate_hit", {
-        p_key_id: ctx.keyId,
-        p_limit: RATE_LIMIT,
-        p_window_seconds: RATE_WINDOW_SECONDS,
+    // last_used_at is stamped inside api_rate_hit (0017). It used to be a separate
+    // `void admin.rpc(...)`, which serverless dropped before it ever ran.
+    const verdict = await checkRateLimit(ctx.keyId);
+    if (verdict !== "ok") {
+      // "unavailable" is answered with 429 rather than letting the request through. A limiter
+      // that switches itself off when the database is busy is worse than none, because it is
+      // trusted; and 429 with retry-after is a client's cue to back off, which is the behaviour
+      // that helps a struggling database recover.
+      return fail("rate_limited", verdict === "over" ? RATE_LIMITED_MESSAGE : RATE_UNAVAILABLE_MESSAGE, undefined, {
+        headers: { "retry-after": String(RATE_WINDOW_SECONDS) },
       });
-      if (withinLimit === false) {
-        return fail("rate_limited", `More than ${RATE_LIMIT} requests in a minute. Slow down and retry.`, undefined, {
-          headers: { "retry-after": String(RATE_WINDOW_SECONDS) },
-        });
-      }
-      // last_used_at is stamped inside api_rate_hit (0017). It used to be a separate
-      // `void admin.rpc(...)`, which serverless dropped before it ever ran.
     }
 
     // Checked up front rather than caught: supabase-js invokes the accessToken callback inside
