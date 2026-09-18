@@ -5,6 +5,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { PhoneGate } from "@/components/onboarding/PhoneGate";
 import { shouldAskForPhone } from "@/lib/phone";
 import { whatsappConfigured } from "@/lib/whatsapp/timelines";
+import { callsConfigured } from "@/lib/twilio/config";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -63,6 +64,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <StoreProvider
       me={me}
       org={(org ?? { id: me.org_id, name: "Stayful", slug: "stayful", settings: {} }) as Org}
+      callsEnabled={callsConfigured()}
       profiles={profiles ?? []}
       conversations={conversations ?? []}
       activity={activity ?? []}

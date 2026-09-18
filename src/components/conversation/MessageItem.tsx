@@ -11,13 +11,14 @@ import { LinkPreview } from "./LinkPreview";
 import { previewableLink } from "@/lib/richtext";
 import { EmojiPicker } from "./EmojiPicker";
 import { AttachmentView, isPending, type AnyAttachment } from "./AttachmentView";
+import { CallSummary, type CallMeta } from "./CallSummary";
 import { useStore } from "@/components/shell/store";
 
 export type LocalMessage = Message & { _status?: "sending" | "failed" };
 
 /** Customers may edit or delete their own messages for 15 minutes; team accounts any time. */
 export function canModify(message: Message, me: Profile): boolean {
-  if (message.sender_id !== me.id || message.kind === "system") return false;
+  if (message.sender_id !== me.id || message.kind === "system" || message.kind === "call_summary") return false;
   if (me.account_type === "team") return true;
   return Date.now() - new Date(message.created_at).getTime() < 15 * 60_000;
 }
@@ -255,9 +256,24 @@ export function MessageItem({
           </div>
         ) : (
           <div style={{ opacity: message._status === "sending" ? 0.6 : 1 }}>
-            {message.body && <MessageBody body={message.body} query={query} />}
+            {message.kind === "call_summary" ? (
+              <CallSummary body={message.body} meta={(message.meta ?? {}) as CallMeta} />
+            ) : (
+              message.body && <MessageBody body={message.body} query={query} />
+            )}
             {message.body && !message._status && previewableLink(message.body) && (
               <LinkPreview url={previewableLink(message.body)!} />
+            )}
+            {/*
+              A voicemail whose audio has aged out of the retention window. The line stays — that
+              somebody rang, and for how long, is business record — but the player is gone, and a
+              missing player with no explanation reads as a bug rather than as a policy.
+            */}
+            {(message.meta as { audio_expired?: boolean } | null)?.audio_expired && (
+              <div className="mt-0.5 text-[13px] text-muted">
+                Audio deleted after{" "}
+                {(message.meta as { audio_expired_after_days?: number } | null)?.audio_expired_after_days ?? 180} days.
+              </div>
             )}
             {attachments.length > 0 && (
               <div className="mt-1 mb-2 flex flex-wrap gap-2">

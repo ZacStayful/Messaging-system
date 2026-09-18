@@ -289,7 +289,12 @@ Migrations live in `supabase/migrations` and are applied in order:
     can see that a call happened without being able to play back the team discussing them),
     `voice_numbers` (which of our numbers a call goes out from — one row today, one per account
     manager later without a migration), and `start_call`
-33. `0034_lead_database_customers.sql` `profiles.lead_category` and `profiles.portal_access`,
+33. `0033_voice_inbound.sql` `inbound_messages_unmatched.channel` widened to accept `'voice'`
+    (it is a plain CHECK from 0020 that knew only the two channels existing then),
+    `messages_external_ref_voice_idx` so a redelivered voicemail is one message rather than two
+    — the third of these after email (0007) and WhatsApp (0020) — and a fixed `search_path` on
+    `topic_internal_conversation_id`, which the linter had flagged since 0029
+34. `0034_lead_database_customers.sql` `profiles.lead_category` and `profiles.portal_access`,
     `import_lead_customer` (an account with no known password and `auth.users.banned_until` far
     in the future, so nobody can sign in; email off, WhatsApp on), `my_conversations` gains
     `lead_category`, and `enqueue_message_notifications` ignores a message with
@@ -600,6 +605,42 @@ cannot be replayed to ring someone twice.
 The `call_summary` message carries `meta.client_id = call:<id>`, which `messages_client_id_idx`
 makes unique per conversation — so a status callback Twilio retries writes one line, not two.
 
+### Pressing Call
+
+`@twilio/voice-sdk` is the only new production dependency in the feature; everything server-side
+stays hand-rolled `fetch`. It lives behind `src/lib/twilio/device.ts`, so no component imports it
+or knows a `Device` has a lifecycle — which matters because the SDK holds a WebSocket and a
+microphone, and a component that forgets to destroy it leaves the mic light on.
+
+Two settings are pinned rather than defaulted:
+
+- **`edge: "dublin"`.** Twilio's public edges are `sydney, sao-paulo, dublin, frankfurt, tokyo,
+singapore, ashburn, umatilla, roaming`. **There is no public London edge** — `london-ix` is a
+  private Interconnect. The default `roaming` uses Global Low Latency routing and would usually
+  pick Dublin for a browser in Britain, but a VPN or a bad geolocation silently anchors the media
+  in Ashburn instead, which sounds like the other person keeps interrupting. Pinning it makes a
+  latency complaint something that can be reasoned about.
+- **`codecPreferences: ["opus", "pcmu"]`.** The SDK default is the other way round; opus first is
+  audibly better on the laptop microphones these calls are actually made from.
+
+**Who the button offers to call** is `callablePeople()` in `src/lib/calls/callable.ts`: members of
+the thread other than you, with a mobile on file, who are not deactivated — and nobody at all
+unless calling is configured and you are on the team. Membership rather than `property_contacts`,
+because a cleaner is a member of the property group and a customer of their own, while a rule
+written against `property_contacts` would refuse to call anyone in a DM. One callable person gets
+one press; more than one opens a menu, because guessing between a cleaner and a contractor is the
+kind of wrong that is only noticed once a stranger's phone is ringing.
+
+`CallBar` docks above the composer rather than opening a modal, so the thread stays readable —
+the last message is usually the reason for the call. It shows **the number as dialled**, not just
+the name: contractor numbers are set by `set_customer_phone`, which leaves `phone_verified_at`
+null, so a transposed digit calls a stranger from a number they can ring back.
+
+Recordings are played through `/api/calls/[id]/recording`, which reads `call_recordings` on the
+listener's own session so the `call recordings: team reads` policy decides, then streams from
+Twilio with the account credentials attached. A customer in the group sees the summary line and
+gets a 404. Twilio's own URL never reaches a browser, because anyone holding it can read it.
+
 ### Which number a call goes out from
 
 `voice_numbers`, not an env var. A caller ID cannot be invented — Twilio only accepts a `From` it
@@ -614,6 +655,30 @@ greeting and takes a voicemail, which is routed into the right thread by the sam
 that files inbound WhatsApp. A number that rings out forever looks like a real line and behaves
 like a disconnected one.
 
+`/api/twilio/incoming/{token}` answers the ring and `/api/twilio/voicemail/{token}` files what was
+left. **Which organisation a ring-back belongs to is read from `To`, never from the caller**: at
+that moment the caller is very often a stranger, while the number they dialled is one we bought,
+which is what `voice_numbers` is for.
+
+`gather()` lives in `src/lib/whatsapp/gather.ts` and is called by both inbound webhooks. WhatsApp
+and voice ask the identical question — this number reached us, which thread does it belong to —
+so they ask it once. An unroutable voicemail goes to `inbound_messages_unmatched` with
+`channel = 'voice'` and the `RecordingSid` in `external_ref`, which the existing
+`inbound_unmatched_ref_idx` turns into idempotency for nothing.
+
+**A voicemail is the one case that inverts the recording rule above.** A call recording stays at
+Twilio and is team-only, because it is a recording of the team. A voicemail is from the contact
+and addressed to us, so it is copied into the `attachments` bucket and plays inline exactly like
+the voice notes the composer produces. That is the first server-side write to storage in this
+codebase (`src/lib/storage/ingest.ts`): the service role bypasses the storage policies, so the
+object key is not a naming convention but the access rule itself — `storagePath()` puts the org in
+segment 1 and the conversation in segment 2, and `0004_storage.sql` reads both back out. A wrong
+path still uploads; the audio is simply unreadable by everyone in the thread, with no error.
+
+**Who can be attributed.** `profiles.phone` is `+447…` only, so a UK landline or an overseas
+caller can never be matched to an account however well we know them — a contractor ringing from
+the office is always unmatched. Widening that means the four places named in `0018:26`.
+
 ### Recording
 
 Both parties hear "This call is recorded for quality and record keeping" before they are
@@ -623,9 +688,23 @@ which is a separate table from `calls` on purpose: a customer may see in their g
 happened without being able to play back the team discussing them. RLS is row-level, so a
 stricter rule needs its own row.
 
-**Retention is not yet decided.** Recordings of conversations about named people are personal
-data and "keep for ever" is not defensible under UK GDPR. A scheduled deletion after a fixed
-window is the obvious shape; the window is a business decision.
+**Retention is six months.** Recordings of conversations about named people are personal data,
+and "keep for ever" is not defensible under UK GDPR. `/api/cron/retention` runs nightly at 03:00
+(`vercel.json`) and deletes audio past the window: for a call recording, a `DELETE` to Twilio
+followed by the `call_recordings` row; for a voicemail, the storage object and its attachment row.
+The window is `RECORDING_RETENTION_DAYS` (default 180), so changing it is a setting rather than a
+deploy, and an unreadable value falls back to the default rather than to zero — this job deletes
+things and should never fail toward deleting more.
+
+**The line in the thread survives the audio.** That a call happened, with whom and for how long,
+is business record; the recording is the personal data. An expired voicemail keeps its message and
+gains `meta.audio_expired`, which renders "Audio deleted after 180 days" where the player was — a
+player that has quietly become a dead control reads as a bug rather than as a policy. Deleting the
+message too would rewrite the history of a conversation six months after the fact, which is a
+bigger thing than this job is for.
+
+A recording Twilio refuses to delete keeps its row, because dropping it would lose the only handle
+we have on audio that is still sitting in Twilio's account. The sweep runs again tomorrow.
 
 ## Public API
 
