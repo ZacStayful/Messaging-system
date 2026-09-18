@@ -666,7 +666,7 @@ Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
 | `GET`            | `/api/v1/messages/{id}/replies`               | `messages:read`                              |
 | `GET`            | `/api/v1/search?q=`                           | `messages:read`                              |
 | `GET` `POST`     | `/api/v1/users`                               | `users:read` / `users:invite`                |
-| `POST`           | `/api/email/capture`                          | `messages:write` (team key)                  |
+| `GET` `POST`     | `/api/email/capture`                          | `users:read` / `messages:write` (team key)   |
 
 Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
 `forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,

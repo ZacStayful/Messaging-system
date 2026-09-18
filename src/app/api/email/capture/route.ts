@@ -1,10 +1,28 @@
 import { withApiKey } from "@/lib/api/withApiKey";
 import { ApiError, ok } from "@/lib/api/respond";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { captureEmail, type CaptureDirection } from "@/lib/email/capture";
+import { captureEmail, loadCaptureDirectory, type CaptureDirection } from "@/lib/email/capture";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * GET /api/email/capture — the addresses a POST here would match: every lead-database customer's
+ * email. An automation reading a mailbox uses this to ask Gmail only for mail to or from these
+ * people, rather than posting everything and filling inbound_messages_unmatched with the rest.
+ */
+export const GET = withApiKey(
+  async () => {
+    const admin = createAdminClient();
+    if (!admin) throw new ApiError("not_configured", "SUPABASE_SERVICE_ROLE_KEY is not set.");
+    const directory = await loadCaptureDirectory(admin, null);
+    const addresses: string[] = [];
+    directory.leadsByEmail.forEach((_lead, email) => addresses.push(email));
+    addresses.sort();
+    return ok({ addresses });
+  },
+  { scopes: ["users:read"], team: true },
+);
 
 /** Enough for any email a person wrote; a newsletter's HTML is not worth storing. */
 const MAX_BODY = 50_000;
