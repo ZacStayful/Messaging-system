@@ -9,7 +9,9 @@ type Mode = "password" | "link";
 type Status = "idle" | "busy" | "sent" | "error";
 
 function safeNext(next?: string) {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dms";
+  // "/\\evil.com" is normalised to a same-host path by the URL parser, so this was never a
+  // live open redirect, but rejecting the backslash forms outright costs nothing.
+  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/dms";
 }
 
 const inputClass =
@@ -113,6 +115,17 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
         </div>
       ) : (
         <form onSubmit={mode === "password" ? signInWithPassword : sendLink} className="flex flex-col gap-3.5">
+          {/* Google first. The team signs in with Workspace accounts, and a password typed here
+              is a password that can be reused from somewhere else — which is what sets off
+              Chrome's "you entered your password into a deceptive site" warning. */}
+          <button type="button" onClick={google} className={primaryBtn}>
+            Continue with Google
+          </button>
+          <div className="flex items-center gap-2.5 text-[13px] text-muted">
+            <div className="h-px flex-1 bg-line" />
+            or
+            <div className="h-px flex-1 bg-line" />
+          </div>
           <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
             Email address
             <input
@@ -160,7 +173,7 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
             </p>
           )}
 
-          <button type="submit" disabled={status === "busy"} className={`mt-1 ${primaryBtn}`}>
+          <button type="submit" disabled={status === "busy"} className={`mt-1 ${secondaryBtn}`}>
             {mode === "password"
               ? status === "busy"
                 ? "Signing in…"
@@ -187,15 +200,6 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
               Sign in with a password instead
             </button>
           )}
-
-          <div className="flex items-center gap-2.5 text-[13px] text-muted">
-            <div className="h-px flex-1 bg-line" />
-            or
-            <div className="h-px flex-1 bg-line" />
-          </div>
-          <button type="button" onClick={google} className={secondaryBtn}>
-            Continue with Google
-          </button>
         </form>
       )}
     </div>
