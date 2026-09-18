@@ -881,15 +881,23 @@ on such a host draws Chrome's "you entered your password into a deceptive site" 
 whenever the password typed is one Chrome protects (for example a Google Workspace password).
 `chat.stayful.co.uk` itself is not flagged; the preview hostnames are the problem.
 
+Vercel Deployment Protection is already enabled, so previews sit behind Vercel SSO and are not
+publicly reachable. That matters for the diagnosis: an unreachable host is not one Safe
+Browsing has crawled and classified, so this is the Chrome/Workspace **password-reuse** policy
+warning on a non-allow-listed domain, not a phishing verdict on the deployment.
+
 To stop it recurring:
 
+- Never reuse a Google Workspace password for a Stayful Messaging account. This is the whole
+  arming condition, and no change in this repo can override it. Prefer "Continue with Google",
+  which is now the first option on the sign-in page.
 - Give previews a **stable** host — a Vercel branch-alias domain, or better a subdomain you
-  own such as `preview.stayful.co.uk` — so reputation can accumulate and an allow-list entry
-  can actually hold.
-- Keep **Vercel Deployment Protection** on for previews, so a sign-in form is never publicly
-  reachable on `vercel.app`.
-- Never reuse a Google Workspace password for a Stayful Messaging account. Prefer "Continue
-  with Google", which is now the first option on the sign-in page.
+  own such as `preview.stayful.co.uk` — so an allow-list entry can actually hold. Per-deploy
+  hostnames defeat any allow-list by design.
+- Then add that host (and `chat.stayful.co.uk`) to `SafeBrowsingAllowlistDomains` in the
+  Google Admin console, under Chrome > Settings > Users.
+- Keep Deployment Protection on, so a sign-in form never becomes publicly reachable on
+  `vercel.app`.
 
 The sign-in page renders the host it is actually served from (`src/app/login/page.tsx`); it
 must never hardcode a domain, because a page naming a domain it is not on is precisely what a
