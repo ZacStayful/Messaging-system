@@ -38,6 +38,12 @@ export interface InboundWhatsApp {
   direction: "received" | "sent";
   /** Set when the message carried media we are not ingesting yet. */
   mediaUrl?: string | null;
+  /**
+   * The other party's number, whichever way the message went. For a "sent" message `fromPhone`
+   * is one of OUR numbers, so a mirror needs these to know who it was sent to.
+   */
+  chatPhone: string | null;
+  recipientPhone: string | null;
 }
 
 type Unknown = Record<string, unknown>;
@@ -86,6 +92,8 @@ export function normaliseInboundPayload(raw: unknown): InboundWhatsApp[] {
           receivedOn: str(obj(m.recipient).phone) ?? str(obj(body.whatsapp_account).phone),
           receivedByEmail: str(obj(body.whatsapp_account).email),
           mediaUrl: str(m.attachment_url) ?? str(m.media_url),
+          chatPhone,
+          recipientPhone: str(obj(m.recipient).phone),
         };
       })
       .filter((x): x is InboundWhatsApp => x !== null);
@@ -121,6 +129,8 @@ export function normaliseInboundPayload(raw: unknown): InboundWhatsApp[] {
       receivedOn: str(account.phone) ?? str(obj(data.recipient).phone),
       receivedByEmail: str(account.email),
       mediaUrl: str(attachments[0] && obj(attachments[0]).url) ?? str(data.attachment_url) ?? str(data.media_url),
+      chatPhone: str(chat.phone) ?? null,
+      recipientPhone: str(obj(data.recipient).phone),
     },
   ];
 }

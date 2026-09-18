@@ -70,12 +70,13 @@ type Unknown = Record<string, unknown>;
 const text = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /**
- * Fetches one Clients item.
+ * Runs one GraphQL query against Monday and hands back its `data`.
  *
- * Returns null when the item does not exist or has since been deleted — a webhook can outlive
- * its item, and that is not an error worth retrying.
+ * Shared by the Clients webhook (one item by id) and the lead database import (a board's groups
+ * by page). Monday answers 200 with an `errors` array for a bad query or a revoked token, so the
+ * status code alone is not enough to know the call worked.
  */
-export async function getClientItem(itemId: string): Promise<MondayClientItem | null> {
+export async function mondayQuery<T = Unknown>(query: string, variables: Record<string, unknown>): Promise<T> {
   const token = process.env.MONDAY_API_TOKEN;
   if (!token) throw new MondayNotConfiguredError();
 
@@ -86,20 +87,27 @@ export async function getClientItem(itemId: string): Promise<MondayClientItem | 
       authorization: token,
       "API-Version": API_VERSION,
     },
-    body: JSON.stringify({ query: ITEM_QUERY, variables: { ids: [itemId] } }),
+    body: JSON.stringify({ query, variables }),
   });
 
   const payload = (await res.json().catch(() => null)) as Unknown | null;
   if (!res.ok) {
     throw new Error(`Monday API ${res.status}: ${JSON.stringify(payload ?? {}).slice(0, 300)}`);
   }
-  // Monday answers 200 with an `errors` array for a bad query or a revoked token, so the status
-  // code alone is not enough to know the call worked.
   if (Array.isArray(payload?.errors) && payload.errors.length) {
     throw new Error(`Monday API error: ${JSON.stringify(payload.errors).slice(0, 300)}`);
   }
+  return (payload?.data ?? {}) as T;
+}
 
-  const data = (payload?.data ?? {}) as Unknown;
+/**
+ * Fetches one Clients item.
+ *
+ * Returns null when the item does not exist or has since been deleted — a webhook can outlive
+ * its item, and that is not an error worth retrying.
+ */
+export async function getClientItem(itemId: string): Promise<MondayClientItem | null> {
+  const data = await mondayQuery(ITEM_QUERY, { ids: [itemId] });
   const items = Array.isArray(data.items) ? (data.items as Unknown[]) : [];
   const item = items[0];
   if (!item) return null;

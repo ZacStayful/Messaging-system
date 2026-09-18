@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mirrorSentMessage } from "@/lib/whatsapp/mirror";
 import { normaliseInboundPayload, verifyWebhookToken, type InboundWhatsApp } from "@/lib/whatsapp/inbound";
 import { normaliseUkMobile } from "@/lib/phone";
 import { chooseRoute } from "@/lib/whatsapp/routing";
@@ -64,9 +65,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const results: unknown[] = [];
   for (const m of normaliseInboundPayload(raw)) {
     // Our own outbound coming back. Storing one would post it as if the customer had written it,
-    // which notifies them, which arrives back here. This is the echo loop.
+    // which notifies them, which arrives back here. This is the echo loop, and the app's sends
+    // are still dropped — but a reply typed on the phone to a lead-database customer is mirrored
+    // into their group, because for them the phone is where the conversation happens.
     if (m.direction === "sent") {
-      results.push({ ignored: "our own outbound", ref: m.externalRef });
+      results.push(await mirrorSentMessage(admin, m, raw));
       continue;
     }
     if (m.isGroup) {

@@ -127,6 +127,12 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   group, opening with the standard welcome message, and a property group carrying a **Cleaning**
   and a **Maintenance** thread. It ships **switched off**: deliveries are received and logged with
   no side effects until an admin turns it on at `/settings/integrations`. See "Monday.com" below.
+- Lead database customers (`0034_lead_database_customers.sql`): the people on the "Stayful Lead
+  database enquiries" board are put on file — one group each, an account that cannot sign in,
+  nothing sent — so their WhatsApp messages, the replies typed to them on the phone, and their
+  emails are kept in one thread per person. Filed under **Lead database customers** in the
+  sidebar, split into **Airbnb management leads** and **R2R leads**. See "Lead database
+  customers" under Monday.com below.
 - Message templates (`0023_message_templates.sql`): the welcome message lives in
   `message_templates` and is edited at `/settings/templates`, with `{{customer_name}}`-style
   placeholders and a live preview. Editing it changes what the next group opens with; it never
@@ -170,6 +176,7 @@ Environment variables (`.env.local`, also set in Vercel):
 | `CRON_SECRET`                          | Random string. Vercel sends it to the cron route; it also signs unsubscribe links                                     |
 | `EMAIL_REPLY_DOMAIN`                   | Optional. Subdomain receiving replies (MX at Resend), e.g. `reply.stayful.co.uk`                                      |
 | `RESEND_WEBHOOK_SECRET`                | Optional. `whsec_…` secret of the Resend webhook for `email.received`                                                 |
+| `EMAIL_CAPTURE_ADDRESS`                | Optional. Address on the receiving domain Gmail forwards to; mail there is filed for lead-database customers          |
 | `TIMELINES_API_TOKEN`                  | TimelinesAI public API token. Also sends the first-login verification code, so sign-in degrades without it            |
 | `TIMELINES_WHATSAPP_ACCOUNT_ID`        | Optional fallback only. The sending number comes from the group's `whatsapp_accounts` row (0022)                      |
 | `TIMELINES_API_BASE`                   | Optional. Overrides the API base, e.g. a local stub in tests                                                          |
@@ -182,6 +189,7 @@ Environment variables (`.env.local`, also set in Vercel):
 | `MONDAY_WEBHOOK_SECRET`                | Optional second factor: when set, an `x-stayful-token` header must match too                                          |
 | `MONDAY_API_TOKEN`                     | Monday API token, read-only use. Without it the webhook logs the delivery and does nothing else                       |
 | `MONDAY_CLIENTS_BOARD_ID`              | Optional. Defaults to `4972230367`; an event from any other board is logged and ignored                               |
+| `MONDAY_LEADS_BOARD_ID`                | Optional. Defaults to `18420649520`, the lead database board the import reads                                         |
 | `TWILIO_ACCOUNT_SID`                   | Twilio account. All six Twilio variables are required or the Call button does not render                              |
 | `TWILIO_AUTH_TOKEN`                    | Signs Twilio's webhooks. The only thing that can verify one really came from Twilio                                   |
 | `TWILIO_API_KEY_SID`                   | Signs the browser's short-lived Voice access token. The auth token cannot do this                                     |
@@ -286,6 +294,11 @@ Migrations live in `supabase/migrations` and are applied in order:
     `messages_external_ref_voice_idx` so a redelivered voicemail is one message rather than two
     — the third of these after email (0007) and WhatsApp (0020) — and a fixed `search_path` on
     `topic_internal_conversation_id`, which the linter had flagged since 0029
+34. `0034_lead_database_customers.sql` `profiles.lead_category` and `profiles.portal_access`,
+    `import_lead_customer` (an account with no known password and `auth.users.banned_until` far
+    in the future, so nobody can sign in; email off, WhatsApp on), `my_conversations` gains
+    `lead_category`, and `enqueue_message_notifications` ignores a message with
+    `meta.mirrored = true` — one captured from a channel, which the other party already has
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -356,6 +369,13 @@ voice notes). Downloads use one-hour signed URLs.
    `https://chat.stayful.co.uk/api/email/inbound`. Set `EMAIL_REPLY_DOMAIN` and
    `RESEND_WEBHOOK_SECRET`. Replies are stripped of quoted history, matched to the customer by
    the token in the To address, and rejected if the From address differs from the account email.
+4. Lead-database customers get no notification emails, so nothing they send carries a token.
+   Create a second address on the same receiving domain (say `capture@reply.stayful.co.uk`),
+   set it as `EMAIL_CAPTURE_ADDRESS`, and in Gmail add a filter that forwards mail from those
+   contacts to it. Mail arriving there with no token is filed by sender into the lead's group
+   (`src/lib/email/capture.ts`). Replies sent from Gmail are not seen by a forward; an
+   automation reading the mailbox can post both directions to `POST /api/email/capture` (see
+   "Public API").
 
 ## Monday.com
 
@@ -408,6 +428,65 @@ Monday retries, recipes get re-fired, and a replayed payload arrives with a fres
 things catch it: a unique index on `monday_events.event_id`, and `monday_links` keyed on the
 Monday item id, which is checked before anything is created. Re-delivering the same item is a
 no-op that returns the ids it made the first time.
+
+### Lead database customers
+
+The other board, "Stayful Lead database enquiries" (`18420649520`), holds the people who signed
+up to the lead resale service. Two of its groups are paying customers, and those two are what
+**Settings → Integrations → Lead database → Import now** reads:
+
+| Monday group                              | Filed as                | `profiles.lead_category` |
+| ----------------------------------------- | ----------------------- | ------------------------ |
+| `group_mm5f9by1` Management customer      | Airbnb management leads | `airbnb_management`      |
+| `group_mm64kqtg` Guaranteed rent customer | R2R leads               | `r2r`                    |
+
+For each person the import creates a customer group named after them (topic: category,
+properties, plan, enquiry date, website) and an account — and that is where it stops. **Nobody
+is emailed, WhatsApped or given a way in.** Specifically (`import_lead_customer`, 0034):
+
+- the password is random and discarded, and `auth.users.banned_until` is set to 2999, which
+  Supabase Auth honours for every sign-in method (password, magic link, Google);
+  `profiles.portal_access = false` is the readable version of the same fact;
+- `email_notifications = 'off'`: a notification email carries the login link;
+- `whatsapp_notifications = 'instant'`: a reply typed in the app reaches them as a **plain**
+  WhatsApp — just the text, no author line, no link — from the number the group was created
+  with, which is the admin's own;
+- the mobile comes from Monday (the phone column, else the free-text one, both run through the
+  same UK-mobile rule as everywhere else) and is not verified; the first-login gate is marked
+  skipped in case access is granted later;
+- no welcome message is posted.
+
+They appear in the sidebar under **Lead database customers**, split by category, and not under
+Customers. Their group behaves like any other: WhatsApp from their number routes into it
+(`customer_group`), and see the next section for what they are sent.
+
+The import is safe to repeat. `monday_links` remembers the group and `profiles.monday_person_id`
+the person, so a second run refreshes name, email and mobile. Each person produces a
+`monday_events` row (`event_type = lead_import`) with one of: `created`, `updated`,
+`skipped_no_email` (an account needs an address), `bad_phone` (imported, but the number on the
+item is not a UK mobile — fix it in Monday and run again), `phone_conflict` / `email_conflict`
+(already on another account) or `error`. A second address in the Email column is not kept;
+mail from it shows up in `inbound_messages_unmatched`.
+
+There is no "grant access" action yet. When one of them is ready to use the app, that means
+clearing `banned_until`, setting `portal_access`, and sending login details — a small follow-up.
+
+### Mirroring what the team types on the phone
+
+The WhatsApp webhook drops every `direction = "sent"` message: the app's own notifications
+come back through it, and storing one would post it, which notifies, which comes back. For a
+lead-database customer, though, the conversation is happening on a phone, and a thread with
+only their half is not a record of anything. So a sent message **to a lead-database customer**
+is mirrored into their group (`src/lib/whatsapp/mirror.ts`, tested in `tests/mirror.test.ts`)
+when it was not the app that sent it — decided by the TimelinesAI `message_uid` on the outbox
+row, or failing that (the webhook can beat the drain to the database) an outbox row to that
+number in the last ten minutes with the same text. It is posted as the team member whose
+number it went from, carries `meta.mirrored = true` so it is never sent back out, and updates
+`whatsapp_threads` so their next reply lands in the same place. Sent messages to anyone else
+are dropped exactly as before.
+
+For this to work the TimelinesAI webhook has to be subscribed to **sent** messages as well as
+received ones, and the sending number has to be connected in the workspace.
 
 ### Cleaners, contractors and where their WhatsApp lands
 
@@ -666,6 +745,7 @@ Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
 | `GET`            | `/api/v1/messages/{id}/replies`               | `messages:read`                              |
 | `GET`            | `/api/v1/search?q=`                           | `messages:read`                              |
 | `GET` `POST`     | `/api/v1/users`                               | `users:read` / `users:invite`                |
+| `GET` `POST`     | `/api/email/capture`                          | `users:read` / `messages:write` (team key)   |
 
 Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
 `forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,
@@ -673,6 +753,16 @@ Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `u
 window — coarse, but the only stateful option without adding Redis; a token bucket is a
 follow-up). Posting a message with the same `client_id` twice returns the original rather than
 a duplicate, enforced by a unique index.
+
+`POST /api/email/capture` is the mailbox side of "Lead database customers": an automation that
+reads Gmail (an n8n Gmail trigger, say) posts each email as
+`{"message_id", "from", "to": [], "cc": [], "subject", "text", "html", "direction": "inbound"|"outbound"}`,
+and the ones to or from a lead-database customer land in their group, as them (inbound) or as
+the team member who wrote it (outbound; the key's own user when the From is not a team
+address). `direction` may be left out, in which case a From that belongs to a team member is
+outbound. The Message-ID is the dedupe key, so the same mail arriving by forward and by this
+route is stored once. Everything else answers `{"ignored": reason}` and is recorded in
+`inbound_messages_unmatched`.
 
 Not covered in this pass: attachments and uploads, reactions, pins, editing and deleting
 messages, scheduled messages, saved items, outgoing webhooks, pagination beyond
