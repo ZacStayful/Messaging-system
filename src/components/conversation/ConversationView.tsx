@@ -13,6 +13,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { dayKey, dayLabel } from "@/lib/format";
 import { mentionedNames } from "@/lib/richtext";
 import { useConversationChannel, type Change, type TypingEvent } from "@/lib/realtime/useConversationChannel";
+import { serverHighWaterMark } from "@/lib/realtime/highWaterMark";
 import { BUCKET, categoryFor, imageDimensions, storagePath, toJson } from "@/lib/storage/attachments";
 import { useSignedUrls } from "@/lib/storage/useSignedUrls";
 import { Header } from "./Header";
@@ -185,7 +186,10 @@ export function ConversationView({
 
   const latestCreatedAt = useRef<string | undefined>(undefined);
   useEffect(() => {
-    latestCreatedAt.current = messages.at(-1)?.created_at;
+    // Never an optimistic row: see serverHighWaterMark. `replies` below has always done this;
+    // the main timeline had not, and a failed send there pinned the catch-up bound to the
+    // browser's clock for the life of the component.
+    latestCreatedAt.current = serverHighWaterMark(messages);
   }, [messages]);
 
   const backfill = async () => {
@@ -196,7 +200,10 @@ export function ConversationView({
       .eq("conversation_id", conversationId)
       .is("deleted_at", null)
       .is("parent_id", null)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      // Capped like loadReplies. Without it a client with no high-water mark — or a flapping
+      // connection — re-pulls the whole conversation on every reconnect.
+      .limit(500);
     const { data } = await (since ? base.gt("created_at", since) : base);
     data?.forEach(upsert);
     if (data && data.length) await loadExtras(data.map((m) => m.id));
@@ -217,7 +224,7 @@ export function ConversationView({
   // ---- threads --------------------------------------------------------------
   const latestReplyAt = useRef<string | undefined>(undefined);
   useEffect(() => {
-    latestReplyAt.current = replies.filter((r) => !r._status).at(-1)?.created_at;
+    latestReplyAt.current = serverHighWaterMark(replies);
   }, [replies]);
 
   const loadReplies = async (parentId: string, since?: string) => {

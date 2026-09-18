@@ -216,19 +216,35 @@ export async function GET(request: NextRequest) {
   let sent = 0;
   let failed = 0;
   let skipped = 0;
+  let dead = 0;
 
   const finish = async (batch: NotificationOutbox[], ok: boolean, providerId?: string, err?: string) => {
     for (const r of batch) {
+      const attempts = r.attempts + 1;
+      // At the cap the row used to be left as 'failed', which is indistinguishable from a row
+      // that failed once and will be retried next minute — the only thing separating "will be
+      // retried" from "abandoned" was an integer nobody queries. 'dead' (0037) makes the
+      // give-up a thing that happened rather than an absence.
+      const giveUp = !ok && attempts >= MAX_ATTEMPTS;
       await admin
         .from("notification_outbox")
         .update({
-          status: ok ? "sent" : "failed",
-          attempts: r.attempts + 1,
+          status: ok ? "sent" : giveUp ? "dead" : "failed",
+          attempts,
           provider_message_id: providerId ?? r.provider_message_id,
           last_error: err ?? null,
           sent_at: ok ? new Date().toISOString() : r.sent_at,
         })
         .eq("id", r.id);
+      if (giveUp) {
+        dead++;
+        // Said out loud as well as recorded, because nothing reads this table: its only policy
+        // is an admin SELECT for debugging.
+        console.error(
+          `notifications: giving up on outbox row ${r.id} (${r.channel}) after ${attempts} attempts: ${err ?? "no error recorded"}`,
+        );
+        await noteGiveUp(r, err);
+      }
     }
     if (ok) sent += batch.length;
     else failed += batch.length;
@@ -290,7 +306,12 @@ export async function GET(request: NextRequest) {
     return error ? undefined : (replyAddress(token) ?? undefined);
   };
 
-  for (const batch of groups) {
+  // Concurrent, like WhatsApp already was. SEND_CONCURRENCY has been declared since this file
+  // was written and only ever applied to WhatsApp (chunked, below); email was a plain sequential
+  // loop, with an `await replyTo(...)` inline in the arguments costing another round trip per
+  // batch before the send even started. Two hundred batches at a few hundred milliseconds each
+  // is the whole 60-second budget on its own.
+  await chunked(groups, SEND_CONCURRENCY, async (batch) => {
     const first = batch[0].payload as unknown as MessagePayload;
     const to = batch[0].recipient_email;
     if (!to) {
@@ -298,7 +319,7 @@ export async function GET(request: NextRequest) {
       // with a claim, invisible to a drain that selects pending and failed — rescued ten
       // minutes later without burning an attempt, so they could never age out either.
       for (const row of batch) await skip(row, "no email address");
-      continue;
+      return;
     }
     // A batch is addressed once, to batch[0]. groupKey() already makes a mixed batch
     // impossible; this is the assertion that keeps it impossible if the key ever changes,
@@ -309,7 +330,7 @@ export async function GET(request: NextRequest) {
     );
     if (mixed) {
       for (const row of batch) await skip(row, "batch addressed to more than one recipient");
-      continue;
+      return;
     }
     const isDm = first.conversation_type === "dm" || first.conversation_type === "group_dm";
     const title = isDm ? first.sender_name : `#${first.conversation_name ?? "conversation"}`;
@@ -335,7 +356,7 @@ export async function GET(request: NextRequest) {
       headers: { "List-Unsubscribe": `<${unsubscribeUrl(base, batch[0].recipient_user_id ?? "")}>` },
     });
     await finish(batch, res.ok, res.id, res.error);
-  }
+  });
 
   // ---- whatsapp --------------------------------------------------------------
   const waRows = live.filter((x) => x.channel === "whatsapp");
@@ -428,7 +449,7 @@ export async function GET(request: NextRequest) {
 
     // Out of retries: fall back to email rather than letting the message go undelivered, and
     // tell the team, because a number that no longer works is theirs to fix.
-    if (r.attempts + 1 >= MAX_ATTEMPTS) await fallbackToEmail(r, p);
+    if (r.attempts + 1 >= MAX_ATTEMPTS) await fallbackToEmail(r, p, res.error);
   });
 
   /**
@@ -437,7 +458,10 @@ export async function GET(request: NextRequest) {
    * Realtime or in sidebar previews — so this reaches the team where the problem is without the
    * customer seeing that we failed to reach them.
    */
-  async function fallbackToEmail(r: NotificationOutbox, p: MessagePayload) {
+  // `lastError` is this attempt's error, passed in. It used to read r.last_error off the
+  // in-memory row, which holds the *previous* run's error — null on a first failure — because
+  // finish() writes the new one to the database and never back onto the object.
+  async function fallbackToEmail(r: NotificationOutbox, p: MessagePayload, lastError?: string) {
     const pref = r.recipient_user_id ? prefById.get(r.recipient_user_id) : undefined;
     // Only for someone who takes email at all. This used to fall back regardless, which sent a
     // notification — login link and all — to a customer who had switched email off.
@@ -466,7 +490,37 @@ export async function GET(request: NextRequest) {
       kind: "system",
       visibility: "internal",
       body: `WhatsApp to ${p.recipient_name} failed${canEmail ? " — sent by email instead" : ""}. Check their mobile number.`,
-      meta: { event: "whatsapp_failed", user_id: r.recipient_user_id, error: r.last_error ?? null },
+      meta: { event: "whatsapp_failed", user_id: r.recipient_user_id, error: lastError ?? r.last_error ?? null },
+    });
+  }
+
+  /**
+   * Tells the team that somebody was never reached.
+   *
+   * Only for a message notification, and only once — at the give-up, not on each retry. The
+   * WhatsApp channel already had this via fallbackToEmail; email had nothing at all, so five
+   * failed attempts to reach a customer left no trace anywhere a person looks.
+   */
+  async function noteGiveUp(r: NotificationOutbox, err?: string) {
+    if (r.kind !== "message") return;
+    const p = r.payload as unknown as MessagePayload;
+    if (!p?.conversation_id) return;
+    // WhatsApp announces its own give-up through fallbackToEmail, including whether the email
+    // fallback went out. Two notes for one failure would read like two failures.
+    if (r.channel === "whatsapp") return;
+    await admin!.from("messages").insert({
+      org_id: r.org_id,
+      conversation_id: p.conversation_id,
+      sender_id: null,
+      kind: "system",
+      visibility: "internal",
+      body: `Could not email ${p.recipient_name} after ${MAX_ATTEMPTS} attempts. They have not seen this conversation.`,
+      meta: {
+        event: "notification_gave_up",
+        channel: r.channel,
+        user_id: r.recipient_user_id,
+        error: err ?? r.last_error ?? null,
+      },
     });
   }
 
@@ -503,5 +557,7 @@ export async function GET(request: NextRequest) {
     await finish([r], res.ok, res.id, res.error);
   }
 
-  return NextResponse.json({ sent, failed, skipped, posted, deferred: waDeferred.length });
+  // dead is reported separately from failed: "will be retried" and "given up on" are different
+  // facts, and the run summary was the one place that conflated them.
+  return NextResponse.json({ sent, failed, dead, skipped, posted, deferred: waDeferred.length });
 }

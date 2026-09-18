@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "@/lib/net/withTimeout";
 /**
  * Thin TimelinesAI client (https://timelines.ai/docs/guides/sending-messages). Server-only.
  *
@@ -57,7 +58,7 @@ export async function sendWhatsApp(message: WhatsAppMessage): Promise<SendResult
   if (!token) return { ok: false, skipped: true, error: "TIMELINES_API_TOKEN is not set" };
 
   try {
-    const res = await fetch(`${whatsappApiBase()}/messages`, {
+    const res = await fetchWithTimeout(`${whatsappApiBase()}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({

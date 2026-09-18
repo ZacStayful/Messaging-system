@@ -309,6 +309,11 @@ conversation_id)` dropped so there is one token per notification email rather th
     pair, `used_at` added for single use, and the expiry cut to seven days **from issue** and no
     longer refreshed — a forwarded notification used to be a working way in indefinitely
 
+37. `0037_outbox_dead_status.sql` `'dead'` joins the `notification_outbox` status CHECK, so a
+    notification given up on after five attempts is a state rather than an absence — it used to
+    be left as `failed`, indistinguishable from one that will be retried next minute — plus the
+    missing index on `org_id`
+
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
 
