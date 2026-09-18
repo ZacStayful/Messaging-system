@@ -62,6 +62,14 @@ export interface CaptureMessage {
   html: string | null;
   /** Known when an automation says so; inferred from who the sender is otherwise. */
   direction?: CaptureDirection | null;
+  /**
+   * When the email was actually sent, for a backfill: the row is stored at that time rather than
+   * now, so old mail reads in order and never lifts a thread to the top of the sidebar
+   * (last_message_at only ever moves forward). Left out, the database stamps the row.
+   */
+  sentAt?: string | null;
+  /** Marks a row written by a history import rather than the live capture. */
+  backfill?: boolean;
 }
 
 export interface LeadRecord {
@@ -263,6 +271,7 @@ export async function captureEmail(
       kind: "text",
       visibility: "public",
       sent_via: "email",
+      ...(msg.sentAt ? { created_at: msg.sentAt } : {}),
       // One email to two leads is two rows, so the key carries the conversation.
       external_ref: decision.posts.length > 1 ? `${messageId}#${post.conversationId}` : messageId,
       meta: {
@@ -273,6 +282,7 @@ export async function captureEmail(
         email_to: msg.to.map(emailAddressOf).filter(Boolean),
         email_message_id: messageId,
         captured_for: post.leadUserId,
+        ...(msg.backfill ? { backfill: true } : {}),
       },
     });
     if (error) {
