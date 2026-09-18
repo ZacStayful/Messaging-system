@@ -57,8 +57,11 @@ export function ConversationMenu({ menu, onClose }: { menu: RowMenuState | null;
     leaveConversation,
     setArchived,
     nav,
+    sections,
+    sectionOf,
+    moveToSection,
   } = useStore();
-  const [view, setView] = useState<"main" | "notify">("main");
+  const [view, setView] = useState<"main" | "notify" | "section">("main");
   const c = menu ? conversationById(menu.id) : undefined;
   if (!menu || !c) return null;
 
@@ -96,6 +99,20 @@ export function ConversationMenu({ menu, onClose }: { menu: RowMenuState | null;
     keepOpen: true,
     onSelect: () => setView("notify"),
   });
+  // Dragging a row into a section is mouse-only, and the Home sidebar is the mobile sidebar too —
+  // so this submenu is the way the feature exists at all on a phone, and by keyboard. Hidden until
+  // there is a section to move into; they are made from "New section" in the Home sidebar, which
+  // is reachable on a phone too.
+  if (isTeam && isChannel && sections.length > 0) {
+    main.push({
+      id: "section",
+      label: "Move to section",
+      icon: "files",
+      hint: sections.find((s) => s.id === sectionOf(c.id))?.name ?? "None",
+      keepOpen: true,
+      onSelect: () => setView("section"),
+    });
+  }
   main.push({
     id: "copy",
     label: "Copy link",
@@ -138,6 +155,31 @@ export function ConversationMenu({ menu, onClose }: { menu: RowMenuState | null;
     },
   ];
 
+  const currentSection = sectionOf(c.id);
+  const section: (MenuItem | "divider")[] = [
+    ...sections.map((s) => ({
+      id: s.id,
+      label: s.name,
+      checked: currentSection === s.id,
+      onSelect: () => void moveToSection(c.id, s.id),
+    })),
+    "divider",
+    {
+      id: "none",
+      label: "None",
+      checked: currentSection === null,
+      onSelect: () => void moveToSection(c.id, null),
+    },
+    "divider",
+    {
+      id: "back",
+      label: "Back",
+      icon: "back",
+      keepOpen: true,
+      onSelect: () => setView("main"),
+    },
+  ];
+
   const width = 260;
   const left = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8));
   const below = menu.y < window.innerHeight - 380;
@@ -146,8 +188,8 @@ export function ConversationMenu({ menu, onClose }: { menu: RowMenuState | null;
     <div className="fixed z-40" style={{ left, top: menu.y }}>
       <Menu
         label={`Options for ${conversationName(c)}`}
-        header={view === "notify" ? "Notify me about" : conversationName(c)}
-        items={view === "notify" ? notify : main}
+        header={view === "notify" ? "Notify me about" : view === "section" ? "Move to section" : conversationName(c)}
+        items={view === "notify" ? notify : view === "section" ? section : main}
         onClose={close}
         align="left"
         below={below}

@@ -51,8 +51,19 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
   sidebar sections; archived groups hidden behind a toggle and read-only.
 - Activity filters: Mentions, Threads (replies), Reactions, plus mark-all-read.
 - Sidebar row menus (right-click or the hover "⋯"): mark as read, star, mute, notification
-  level, copy link, leave and archive (team), on every conversation list including the
-  customer view.
+  level, move to section, copy link, leave and archive (team), on every conversation list
+  including the customer view.
+- Sidebar sections you make yourself (`0039_sidebar_sections.sql`): every other heading in the
+  sidebar is computed — Starred from the membership row, Customers and Channels from the
+  conversation type, the lead sub-lists from `profiles.lead_category` — so none of them can say
+  "these six are what I am working on this week". **New section** names one, and a group is filed
+  into it by dragging the row onto it with the mouse; dropping it back on Customers or Channels
+  takes it out again. Filed groups leave the computed list they came from so nothing appears
+  twice, and starring still wins, because starring means "keep this where I can see it". Sections
+  are private to one person, like starring and muting: organising your own sidebar never moves
+  anyone else's. Dragging is mouse-only, so the row menu's **Move to section** is the same action
+  by keyboard and on a phone. Deleting a section never hides a group — its contents fall back to
+  the section they are computed into.
 - People and presence: profile cards on any avatar or name (role, custom status, local time,
   Message / Copy email), a People directory for the team (`/people`), profile editing (names,
   photo to the public `avatars` bucket, time zone), custom status with an expiry, pause
@@ -313,6 +324,13 @@ conversation_id)` dropped so there is one token per notification email rather th
     notification given up on after five attempts is a state rather than an absence — it used to
     be left as `failed`, indistinguishable from one that will be retried next minute — plus the
     missing index on `org_id`
+
+38. `0039_sidebar_sections.sql` `sidebar_sections` and `sidebar_section_items`, the sidebar
+    sections a person makes for themselves and what they have filed into them. Both are private to
+    one user and shaped after `saved_items` (0010): plain `user_id = auth.uid()` policies, with the
+    insert and update `WITH CHECK` on the items proving the section is yours and that you are in
+    the conversation. No column on `conversation_members`, whose update policy does not restrict
+    which columns move (which is what 0029 was about), and so no change to `my_conversations()`
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
