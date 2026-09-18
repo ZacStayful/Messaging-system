@@ -27,6 +27,38 @@ describe("inbound email", () => {
     );
   });
 
+  it("drops a Gmail attribution header that wraps after the address", () => {
+    // Gmail breaks the line wherever the width runs out, so the first line ends with the
+    // address rather than the date's comma, and "wrote:" stands alone underneath.
+    const text =
+      "OK nice one i am glad it worked through ok.\n\nOn Fri, 18 Sept 2026 at 10:24, Michael Vassilounis <michael@vassandco.com>\nwrote:\n> Hi Zac";
+    expect(stripQuotedReply(text)).toBe("OK nice one i am glad it worked through ok.");
+    expect(
+      stripQuotedReply(
+        "Hello\nI have made payment\n\nOn Fri, Sep 18, 2026 at 11:31 AM SARAH ARCHARD <sarah@example.com>\nwrote:",
+      ),
+    ).toBe("Hello\nI have made payment");
+  });
+
+  it("drops an attribution header that wraps onto three lines, but not a sentence starting with On", () => {
+    expect(
+      stripQuotedReply(
+        "Sounds good.\n\nOn Mon, 15 Sep 2026 at 09:00,\nStayful Bookings <noreply@stayful.co.uk>\nwrote:\n> Hi",
+      ),
+    ).toBe("Sounds good.");
+    expect(stripQuotedReply("On Tuesday I will be at the property.\nThanks,\nJason")).toBe(
+      "On Tuesday I will be at the property.\nThanks,\nJason",
+    );
+  });
+
+  it("drops everything under the standard signature separator", () => {
+    expect(stripQuotedReply("Looking forward to the leads\n\n-- \n*Simon Brint*\n*Partner*")).toBe(
+      "Looking forward to the leads",
+    );
+    // Dashes at the end of a sentence are prose, not a separator.
+    expect(stripQuotedReply("Fine --\nJason")).toBe("Fine --\nJason");
+  });
+
   it("finds the reply token in recipients", () => {
     // The domain is now part of the contract rather than ignored, so it is passed explicitly
     // here; in the route it comes from EMAIL_REPLY_DOMAIN.
