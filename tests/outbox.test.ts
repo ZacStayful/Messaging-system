@@ -103,4 +103,78 @@ describe("groupOutboxRows", () => {
   it("handles an empty run", () => {
     expect(groupOutboxRows([], WINDOW)).toEqual([]);
   });
+
+  const sizes = (groups: { id: number }[][]) => groups.map((g) => g.length);
+
+  /**
+   * The bug these were written for: the overflowing batch was stored under a key nothing ever
+   * read back, so the window anchor stayed pinned to the first row of the whole run and every
+   * later row became a batch of one. The old tests missed it because none of them put three
+   * rows in a second window, and they asserted only that ids were conserved — which the broken
+   * version did perfectly.
+   */
+  it("batches a burst that spans more than one window", () => {
+    const rows = [
+      row(1, "u1", "c1", 0),
+      row(2, "u1", "c1", 1),
+      row(3, "u1", "c1", 5),
+      row(4, "u1", "c1", 6),
+      row(5, "u1", "c1", 7),
+    ];
+    // Two emails: minutes 0-1, then 5-7. Before the fix this returned four.
+    expect(sizes(groupOutboxRows(rows, WINDOW))).toEqual([2, 3]);
+  });
+
+  it("keeps batching after a split, rather than one email per message", () => {
+    const rows = [row(1, "u1", "c1", 0), row(2, "u1", "c1", 3), row(3, "u1", "c1", 4)];
+    expect(sizes(groupOutboxRows(rows, WINDOW))).toEqual([1, 2]);
+  });
+
+  it("treats exactly one window apart as still in the batch", () => {
+    // Pins > against >=, which is otherwise the kind of thing a later refactor flips by accident.
+    expect(sizes(groupOutboxRows([row(1, "u1", "c1", 0), row(2, "u1", "c1", 2)], WINDOW))).toEqual([2]);
+    expect(sizes(groupOutboxRows([row(1, "u1", "c1", 0), row(2, "u1", "c1", 3)], WINDOW))).toEqual([1, 1]);
+  });
+
+  /**
+   * The drain orders by the outbox row's created_at, but the window is measured on the message's,
+   * and they diverge: the WhatsApp fallback copies an old payload onto a brand-new row. Without
+   * ordering, the subtraction went negative and merged a message of any age into a fresh batch.
+   */
+  it("orders by the message time, so a late-queued old message cannot join a fresh batch", () => {
+    const rows = [row(1, "u1", "c1", 0), row(2, "u1", "c1", 10), row(3, "u1", "c1", 1)];
+    expect(sizes(groupOutboxRows(rows, WINDOW))).toEqual([2, 1]);
+
+    const reversed = [row(1, "u1", "c1", 10), row(2, "u1", "c1", 0)];
+    expect(sizes(groupOutboxRows(reversed, WINDOW))).toEqual([1, 1]);
+  });
+
+  /**
+   * The one that matters most. recipient_user_id is nullable, and the old key interpolated it
+   * into a template string, so two rows with no recipient keyed on the literal "null:<conv>"
+   * and batched — and the drain addresses a whole batch to batch[0].recipient_email.
+   */
+  it("never batches rows that have no recipient", () => {
+    const orphan = (id: number, addr: string) => ({
+      id,
+      channel: "email",
+      recipient_user_id: null,
+      recipient_email: addr,
+      payload: { conversation_id: "c1", created_at: at(0) },
+    });
+    expect(sizes(groupOutboxRows([orphan(1, "a@example.com"), orphan(2, "b@example.com")], WINDOW))).toEqual([1, 1]);
+  });
+
+  it("never batches rows that disagree on the address", () => {
+    // Same person, two addresses on file. The batch is addressed once, so these cannot merge.
+    const a = { ...row(1, "u1", "c1", 0), recipient_email: "old@example.com" };
+    const b = { ...row(2, "u1", "c1", 1), recipient_email: "new@example.com" };
+    expect(sizes(groupOutboxRows([a, b], WINDOW))).toEqual([1, 1]);
+  });
+
+  it("does not merge rows whose payload has no usable timestamp", () => {
+    const broken = { id: 9, channel: "email", recipient_user_id: "u1", payload: { conversation_id: "c1" } };
+    const groups = groupOutboxRows([row(1, "u1", "c1", 0), broken as never], WINDOW);
+    expect(sizes(groups)).toEqual([1, 1]);
+  });
 });

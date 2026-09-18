@@ -295,7 +295,21 @@ export async function GET(request: NextRequest) {
     const first = batch[0].payload as unknown as MessagePayload;
     const to = batch[0].recipient_email;
     if (!to) {
-      await skip(batch[0], "no email address");
+      // Skip every row, not just the head. Skipping only batch[0] left the rest in 'sending'
+      // with a claim, invisible to a drain that selects pending and failed — rescued ten
+      // minutes later without burning an attempt, so they could never age out either.
+      for (const row of batch) await skip(row, "no email address");
+      continue;
+    }
+    // A batch is addressed once, to batch[0]. groupKey() already makes a mixed batch
+    // impossible; this is the assertion that keeps it impossible if the key ever changes,
+    // because the failure it guards against is one person receiving another person's messages
+    // and nothing downstream would notice.
+    const mixed = batch.find(
+      (row) => row.recipient_email !== to || row.recipient_user_id !== batch[0].recipient_user_id,
+    );
+    if (mixed) {
+      for (const row of batch) await skip(row, "batch addressed to more than one recipient");
       continue;
     }
     const isDm = first.conversation_type === "dm" || first.conversation_type === "group_dm";
