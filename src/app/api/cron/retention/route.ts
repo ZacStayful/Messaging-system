@@ -85,9 +85,23 @@ export async function GET(request: Request) {
     voicemailsDeleted++;
   }
 
+  // ---- spent and expired reply tokens ---------------------------------------
+  // One row per notification email since 0036, so this table now grows with send volume rather
+  // than with the number of (person, conversation) pairs. A token that is spent or past its
+  // expiry can never authenticate anything again, so keeping it is pure accumulation.
+  //
+  // It rides this sweep rather than getting a schedule of its own: same cadence, same guard,
+  // and one fewer thing to remember exists.
+  const { data: deadTokens } = await admin
+    .from("email_reply_threads")
+    .delete()
+    .or(`used_at.not.is.null,expires_at.lt.${new Date().toISOString()}`)
+    .select("token");
+
   return NextResponse.json({
     ok: true,
     retention_days: days,
+    reply_tokens_deleted: deadTokens?.length ?? 0,
     before,
     recordings_deleted: recordingsDeleted,
     voicemails_deleted: voicemailsDeleted,

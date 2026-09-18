@@ -266,28 +266,27 @@ export async function GET(request: NextRequest) {
     GROUP_WINDOW_MS,
   );
 
+  /**
+   * A fresh reply token for this email.
+   *
+   * One per notification since 0036, where it used to be one per (person, conversation) reused
+   * for ever, with its expiry pushed out by every send and every reply. That made a notification
+   * from months ago, forwarded to anyone, a working way to post as its recipient — and the From
+   * line is the only other gate, which is an unauthenticated header.
+   *
+   * Minting per email costs one insert on a send we are making anyway, and means the token in
+   * someone's inbox stops working a week after it arrives whatever else happens.
+   */
   const replyTo = async (userId: string, conversationId: string, orgId: string): Promise<string | undefined> => {
     if (!replyDomain()) return undefined;
-    const { data: existing } = await admin
-      .from("email_reply_threads")
-      .select("token")
-      .eq("user_id", userId)
-      .eq("conversation_id", conversationId)
-      .maybeSingle();
-    if (existing) {
-      // Every notification that carries the token pushes its expiry out, so a conversation
-      // people are actually using never goes cold, and one nobody has touched for a month
-      // stops being a way in (0031).
-      await admin
-        .from("email_reply_threads")
-        .update({ expires_at: new Date(Date.now() + REPLY_TOKEN_TTL_MS).toISOString() })
-        .eq("token", existing.token);
-      return replyAddress(existing.token) ?? undefined;
-    }
     const token = newReplyToken();
-    const { error } = await admin
-      .from("email_reply_threads")
-      .insert({ token, org_id: orgId, user_id: userId, conversation_id: conversationId });
+    const { error } = await admin.from("email_reply_threads").insert({
+      token,
+      org_id: orgId,
+      user_id: userId,
+      conversation_id: conversationId,
+      expires_at: new Date(Date.now() + REPLY_TOKEN_TTL_MS).toISOString(),
+    });
     return error ? undefined : (replyAddress(token) ?? undefined);
   };
 

@@ -1,6 +1,13 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { htmlToText, stripQuotedReply, tokenFromRecipients, verifySvixSignature } from "@/lib/email/inbound";
+import {
+  htmlToText,
+  newReplyToken,
+  REPLY_TOKEN_TTL_MS,
+  stripQuotedReply,
+  tokenFromRecipients,
+  verifySvixSignature,
+} from "@/lib/email/inbound";
 import { generatePassword } from "@/lib/email/password";
 import { messageEmail, welcomeEmail } from "@/lib/email/templates";
 import { unsubscribeUrl, verifyUnsubscribeToken } from "@/lib/email/unsubscribe";
@@ -21,8 +28,46 @@ describe("inbound email", () => {
   });
 
   it("finds the reply token in recipients", () => {
-    expect(tokenFromRecipients(["Stayful <reply+AbC123xyz789@reply.stayful.co.uk>"])).toBe("AbC123xyz789");
-    expect(tokenFromRecipients(["zac@stayful.co.uk"])).toBeNull();
+    // The domain is now part of the contract rather than ignored, so it is passed explicitly
+    // here; in the route it comes from EMAIL_REPLY_DOMAIN.
+    const ours = "reply.stayful.co.uk";
+    expect(tokenFromRecipients(["Stayful <reply+AbC123xyz789@reply.stayful.co.uk>"], ours)).toBe("AbC123xyz789");
+    expect(tokenFromRecipients(["zac@stayful.co.uk"], ours)).toBeNull();
+  });
+
+  /**
+   * The reply token is a bearer credential printed in an email anyone may forward, and the
+   * inbound webhook carries no DKIM result to check the sender against. So the domain matters:
+   * the recipient list is attacker-influenced — anyone can address a mail to whatever they
+   * like — and this used to accept `reply+TOKEN@` on any domain at all.
+   */
+  it("ignores a token on someone else's domain", () => {
+    const ours = "reply.stayful.co.uk";
+    expect(tokenFromRecipients(["Stayful <reply+AbC123xyz789@reply.stayful.co.uk>"], ours)).toBe("AbC123xyz789");
+    expect(tokenFromRecipients(["reply+AbC123xyz789@evil.example"], ours)).toBeNull();
+    // A lookalike that merely ends with our domain must not match either.
+    expect(tokenFromRecipients(["reply+AbC123xyz789@notreply.stayful.co.uk"], ours)).toBeNull();
+    // A dot is a regex metacharacter, so it has to be matched literally rather than as "any".
+    expect(tokenFromRecipients(["reply+AbC123xyz789@replyXstayful.co.uk"], ours)).toBeNull();
+  });
+
+  it("matches nothing when reply-by-email is switched off", () => {
+    expect(tokenFromRecipients(["reply+AbC123xyz789@reply.stayful.co.uk"], null)).toBeNull();
+  });
+
+  it("gives a reply token a week from issue, not a month from last use", () => {
+    // The old value was 30 days, refreshed by every send *and* every reply, which for a
+    // conversation in use amounted to for ever. Pinned because the SQL default in 0036 has to
+    // agree with it and nothing else connects the two.
+    expect(REPLY_TOKEN_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("mints a distinct token every time", () => {
+    // One per notification email since 0036. Two notifications sharing a token would put the
+    // durable credential straight back.
+    const tokens = new Set(Array.from({ length: 200 }, () => newReplyToken()));
+    expect(tokens.size).toBe(200);
+    for (const t of tokens) expect(t).toMatch(/^[A-Za-z0-9]{20}$/);
   });
 
   it("converts html replies to text and drops blockquotes", () => {

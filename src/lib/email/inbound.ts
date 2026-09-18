@@ -11,16 +11,21 @@ export function replyAddress(token: string): string | null {
 }
 
 /**
- * How long a reply token stays valid after it was last used, in either direction.
+ * How long a reply token stays valid **from the moment it was issued**.
  *
- * The token sits in the Reply-To of every notification for its conversation, and the inbound
- * webhook carries no SPF or DKIM result, so the From line beside it proves nothing. Treating
- * the token as the credential means it cannot be valid for ever. Mirrors the default on
- * email_reply_threads.expires_at (0031) — change one, change both.
+ * Not from last use, which is what it used to be and which amounted to "for ever" for any
+ * conversation still in use: every notification sent and every reply received pushed it out
+ * another 30 days.
+ *
+ * The token is the whole of the authentication. It sits in the Reply-To of a notification, and
+ * the inbound webhook carries no SPF, DKIM or DMARC result, so the From line beside it is an
+ * unauthenticated header and proves nothing. A credential printed in an email that anyone may
+ * forward has to perish on its own schedule. Mirrors the default on
+ * email_reply_threads.expires_at (0036) — change one, change both.
  */
-export const REPLY_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
+export const REPLY_TOKEN_TTL_MS = 7 * 24 * 60 * 60_000;
 
-/** 20-char URL-safe token for a customer + conversation pair. */
+/** 20-char URL-safe token. One per notification email since 0036, not one per pair. */
 export function newReplyToken(): string {
   return randomBytes(15)
     .toString("base64url")
@@ -28,11 +33,22 @@ export function newReplyToken(): string {
     .slice(0, 20);
 }
 
-/** Pulls the token out of any recipient address of the form reply+TOKEN@domain. */
-export function tokenFromRecipients(recipients: string[]): string | null {
+/**
+ * Pulls the token out of a recipient address of the form reply+TOKEN@<our reply domain>.
+ *
+ * The domain is checked now. It used to match `reply+TOKEN@` on *any* domain, so a token in a Cc
+ * to `reply+…@anywhere.example` counted — and the recipient list is attacker-influenced, since
+ * anyone can address a mail to whatever they like. Requiring our own domain costs nothing and
+ * removes a way of smuggling a token in past the address that was actually delivered to.
+ *
+ * Returns null when no reply domain is configured: reply-by-email is off, so nothing can match.
+ */
+export function tokenFromRecipients(recipients: string[], domain: string | null = replyDomain()): string | null {
+  if (!domain) return null;
+  const pattern = new RegExp(`^reply\\+([A-Za-z0-9]{8,64})@${domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
   for (const raw of recipients) {
     const addr = raw.match(/<([^>]+)>/)?.[1] ?? raw;
-    const m = /^reply\+([A-Za-z0-9]{8,64})@/i.exec(addr.trim());
+    const m = pattern.exec(addr.trim());
     if (m) return m[1];
   }
   return null;
