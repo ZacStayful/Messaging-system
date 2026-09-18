@@ -281,7 +281,8 @@ Migrations live in `supabase/migrations` and are applied in order:
     asked only "are you team?"
 31. `0031_reply_expiry_and_scheduled_claim.sql` `email_reply_threads.expires_at` (30 days from
     last use, refreshed at both ends — the token is a bearer credential printed in every
-    notification, and the inbound webhook carries no DKIM result to check instead);
+    notification, and the inbound webhook carries no DKIM result to check instead — superseded by
+    0036, which makes the token perishable instead);
     `scheduled_messages.claimed_at`, so the cron claims a message before posting it rather than
     after, and a claimed row can no longer be edited or cancelled underneath the send
 
@@ -299,6 +300,19 @@ Migrations live in `supabase/migrations` and are applied in order:
     in the future, so nobody can sign in; email off, WhatsApp on), `my_conversations` gains
     `lead_category`, and `enqueue_message_notifications` ignores a message with
     `meta.mirrored = true` — one captured from a channel, which the other party already has
+
+35. `0035_rate_limit_sweep.sql` an index on `api_rate_limits.window_start` and a sampled sweep
+    inside `api_rate_hit`, which used to run a sequential-scan delete on **every** API request —
+    the limiter's own housekeeping helping to cause the timeouts that made the limiter fail open
+36. `0036_reply_tokens_single_use.sql` reply tokens become perishable: `unique (user_id,
+conversation_id)` dropped so there is one token per notification email rather than one per
+    pair, `used_at` added for single use, and the expiry cut to seven days **from issue** and no
+    longer refreshed — a forwarded notification used to be a working way in indefinitely
+
+37. `0037_outbox_dead_status.sql` `'dead'` joins the `notification_outbox` status CHECK, so a
+    notification given up on after five attempts is a state rather than an absence — it used to
+    be left as `failed`, indistinguishable from one that will be retried next minute — plus the
+    missing index on `org_id`
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.

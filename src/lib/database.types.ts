@@ -596,6 +596,7 @@ export type Database = {
           last_used_at: string | null;
           org_id: string;
           token: string;
+          used_at: string | null;
           user_id: string;
         };
         Insert: {
@@ -605,6 +606,7 @@ export type Database = {
           last_used_at?: string | null;
           org_id: string;
           token: string;
+          used_at?: string | null;
           user_id: string;
         };
         Update: {
@@ -614,6 +616,7 @@ export type Database = {
           last_used_at?: string | null;
           org_id?: string;
           token?: string;
+          used_at?: string | null;
           user_id?: string;
         };
         Relationships: [

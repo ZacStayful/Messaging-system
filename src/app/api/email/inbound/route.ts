@@ -1,12 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  htmlToText,
-  REPLY_TOKEN_TTL_MS,
-  stripQuotedReply,
-  tokenFromRecipients,
-  verifySvixSignature,
-} from "@/lib/email/inbound";
+import { htmlToText, stripQuotedReply, tokenFromRecipients, verifySvixSignature } from "@/lib/email/inbound";
 import { captureEmail, isCaptureRecipient, normaliseMessageId } from "@/lib/email/capture";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +131,15 @@ export async function POST(request: NextRequest) {
   if (new Date(thread.expires_at).getTime() < Date.now()) {
     return unmatched(admin, "expired_token", emailId, from ?? "", null, event);
   }
+  // Single use (0036). The token is a bearer credential printed in an email anyone may forward,
+  // so spending it on first use means a copy of that email is worth nothing afterwards.
+  //
+  // The cost is real and deliberate: replying twice to the *same* notification has the second
+  // reply refused rather than posted. It is recorded here rather than dropped, so it shows up as
+  // something that happened rather than as a message that vanished.
+  if (thread.used_at) {
+    return unmatched(admin, "token_already_used", emailId, from ?? "", null, event);
+  }
 
   // The sender must still be a member; a forwarded email from someone else is dropped.
   const [{ data: profile }, { data: membership }] = await Promise.all([
@@ -157,9 +160,10 @@ export async function POST(request: NextRequest) {
   // sending a bracket-less or absent From header.
   //
   // It is still only a string compare against an unauthenticated RFC 5322 header: nothing here
-  // sees SPF, DKIM or DMARC results, because the webhook payload does not carry them. That is
-  // why the token above is treated as the real credential and given an expiry (0031), rather
-  // than this line being relied on to tell a forgery from a reply.
+  // sees SPF, DKIM or DMARC results, because the webhook payload does not carry them — Resend's
+  // email.received is metadata only. That is why the token above carries the weight instead:
+  // one per notification, seven days from issue, never refreshed, and spent on first use
+  // (0036). This line is a useful extra gate, not the thing standing on its own.
   const fromAddr = (from?.match(/<([^>]+)>/)?.[1] ?? from ?? "").trim().toLowerCase();
   if (!fromAddr || !profile.email || fromAddr !== profile.email.toLowerCase()) {
     return unmatched(admin, "sender_mismatch", emailId, fromAddr || "unknown", null, event);
@@ -194,13 +198,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   const now = new Date();
+  // Spend the token. The expiry is deliberately *not* pushed out: it runs from issue, so that a
+  // forwarded notification carries a credential that dies on its own schedule whatever anyone
+  // does with it. Refreshing on use is what previously made an active conversation's token
+  // effectively permanent.
+  //
+  // `.is("used_at", null)` makes this the claim rather than a blind write, so two deliveries of
+  // the same reply racing each other cannot both be spending it — the second updates no rows.
   await admin
     .from("email_reply_threads")
-    .update({
-      last_used_at: now.toISOString(),
-      // Someone replying is the clearest evidence the token is still wanted.
-      expires_at: new Date(now.getTime() + REPLY_TOKEN_TTL_MS).toISOString(),
-    })
-    .eq("token", token);
+    .update({ last_used_at: now.toISOString(), used_at: now.toISOString() })
+    .eq("token", token)
+    .is("used_at", null);
   return NextResponse.json({ ok: true });
 }

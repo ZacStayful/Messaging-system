@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "@/lib/net/withTimeout";
 /** Thin Resend client (https://resend.com/docs/api-reference/emails/send-email). Server-only. */
 
 export interface EmailMessage {
@@ -28,7 +29,7 @@ export async function sendEmail(message: EmailMessage): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return { ok: false, skipped: true, error: "RESEND_API_KEY is not set" };
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await fetchWithTimeout("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
