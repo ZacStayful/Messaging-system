@@ -82,108 +82,117 @@ export function Templates({ templates }: { templates: TemplateRow[] }) {
 
   if (!template) {
     return (
-      <div className="mx-auto w-full max-w-[760px] px-4 py-8">
-        <h1 className="font-display mb-2 text-[26px] font-bold text-ink">Message templates</h1>
-        <p className="text-[14px] text-ink-dim">There are no templates in this workspace yet.</p>
+      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[760px] px-4 py-8">
+          <h1 className="font-display mb-2 text-[26px] font-bold text-ink">Message templates</h1>
+          <p className="text-[14px] text-ink-dim">There are no templates in this workspace yet.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-[860px] px-4 py-8">
-      <Link href={`/${nav}`} className="mb-4 inline-flex items-center gap-1.5 text-[14px] text-ink-dim hover:text-ink">
-        <Icon name="back" size={16} /> Back
-      </Link>
-      <h1 className="font-display mb-1 text-[26px] font-bold text-ink">Message templates</h1>
-      <p className="mb-6 text-[14px] text-ink-dim">
-        The standard messages Stayful posts automatically. Editing one changes what the next group opens with; it never
-        rewrites a message a customer has already read.
-      </p>
-
-      {templates.length > 1 && (
-        <div className="mb-5 flex flex-wrap gap-2">
-          {templates.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => choose(t.key)}
-              className={`h-9 rounded-lg border px-3 text-[14px] ${
-                t.key === selected ? "border-brand bg-brand/10 text-ink" : "border-line text-ink-dim hover:text-ink"
-              }`}
-            >
-              {t.title}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <form action={submit} className={`${card} mb-5`}>
-        <input type="hidden" name="key" value={template.key} />
-        <label htmlFor="title" className="mb-1.5 block text-[14px] font-semibold text-ink">
-          Name
-        </label>
-        <input id="title" name="title" defaultValue={template.title} className={input} />
-
-        <label htmlFor="body" className="mt-5 mb-1.5 block text-[14px] font-semibold text-ink">
-          Message
-        </label>
-        <textarea
-          id="body"
-          name="body"
-          value={body}
-          onChange={(e) => setBody(e.currentTarget.value)}
-          rows={18}
-          className="w-full rounded-lg border border-input-border bg-input px-3.5 py-3 font-mono text-[14px] leading-[1.6] text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]"
-        />
-        <p className="mt-1.5 text-[13px] text-ink-dim">
-          Written the same way as a message in the app: <code>**bold**</code>, <code>- bullets</code>,{" "}
-          <code>[text](link)</code>. A line that is entirely bold becomes a heading.
+    <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-[860px] px-4 py-8">
+        <Link
+          href={`/${nav}`}
+          className="mb-4 inline-flex items-center gap-1.5 text-[14px] text-ink-dim hover:text-ink"
+        >
+          <Icon name="back" size={16} /> Back
+        </Link>
+        <h1 className="font-display mb-1 text-[26px] font-bold text-ink">Message templates</h1>
+        <p className="mb-6 text-[14px] text-ink-dim">
+          The standard messages Stayful posts automatically. Editing one changes what the next group opens with; it
+          never rewrites a message a customer has already read.
         </p>
 
-        <div className="mt-4">
-          <p className="mb-1.5 text-[14px] font-semibold text-ink">Placeholders</p>
-          <div className="flex flex-wrap gap-1.5">
-            {KNOWN_PLACEHOLDERS.map((p) => (
-              <code key={p} className="rounded-md border border-line px-2 py-1 text-[13px] text-ink-dim">
-                {`{{${p}}}`}
-              </code>
+        {templates.length > 1 && (
+          <div className="mb-5 flex flex-wrap gap-2">
+            {templates.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => choose(t.key)}
+                className={`h-9 rounded-lg border px-3 text-[14px] ${
+                  t.key === selected ? "border-brand bg-brand/10 text-ink" : "border-line text-ink-dim hover:text-ink"
+                }`}
+              >
+                {t.title}
+              </button>
             ))}
           </div>
-          {unknown.length > 0 && (
-            <p className="mt-2 text-[13px] text-danger">
-              {unknown.map((u) => `{{${u}}}`).join(", ")} {unknown.length === 1 ? "is" : "are"} not substituted and will
-              be sent as written.
-            </p>
-          )}
-        </div>
+        )}
 
-        <label className="mt-5 flex items-center gap-2 text-[14px] text-ink">
-          <input type="checkbox" name="active" defaultChecked={template.active} className="size-4 accent-brand" />
-          Post this automatically
-        </label>
+        <form action={submit} className={`${card} mb-5`}>
+          <input type="hidden" name="key" value={template.key} />
+          <label htmlFor="title" className="mb-1.5 block text-[14px] font-semibold text-ink">
+            Name
+          </label>
+          <input id="title" name="title" defaultValue={template.title} className={input} />
 
-        {error && <p className="mt-4 text-[14px] text-danger">{error}</p>}
-        {saved && !error && <p className="mt-4 text-[14px] text-ink-dim">Saved.</p>}
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <button type="submit" disabled={busy} className={primary}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-          <button
-            type="button"
-            onClick={restore}
-            disabled={busy}
-            className="h-11 rounded-lg border border-line px-4 text-[15px] text-ink-dim hover:text-ink disabled:opacity-60"
-          >
-            Restore the default
-          </button>
-        </div>
-      </form>
+          <label htmlFor="body" className="mt-5 mb-1.5 block text-[14px] font-semibold text-ink">
+            Message
+          </label>
+          <textarea
+            id="body"
+            name="body"
+            value={body}
+            onChange={(e) => setBody(e.currentTarget.value)}
+            rows={18}
+            className="w-full rounded-lg border border-input-border bg-input px-3.5 py-3 font-mono text-[14px] leading-[1.6] text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.2)]"
+          />
+          <p className="mt-1.5 text-[13px] text-ink-dim">
+            Written the same way as a message in the app: <code>**bold**</code>, <code>- bullets</code>,{" "}
+            <code>[text](link)</code>. A line that is entirely bold becomes a heading.
+          </p>
 
-      <div className={card}>
-        <h2 className="mb-3 text-[15px] font-semibold text-ink">Preview</h2>
-        <p className="mb-3 text-[13px] text-ink-dim">Rendered exactly as a message in a group, with example details.</p>
-        <div className="rounded-lg border border-line bg-input p-4 text-ink">
-          <MessageBody body={renderTemplate(body, SAMPLE)} />
+          <div className="mt-4">
+            <p className="mb-1.5 text-[14px] font-semibold text-ink">Placeholders</p>
+            <div className="flex flex-wrap gap-1.5">
+              {KNOWN_PLACEHOLDERS.map((p) => (
+                <code key={p} className="rounded-md border border-line px-2 py-1 text-[13px] text-ink-dim">
+                  {`{{${p}}}`}
+                </code>
+              ))}
+            </div>
+            {unknown.length > 0 && (
+              <p className="mt-2 text-[13px] text-danger">
+                {unknown.map((u) => `{{${u}}}`).join(", ")} {unknown.length === 1 ? "is" : "are"} not substituted and
+                will be sent as written.
+              </p>
+            )}
+          </div>
+
+          <label className="mt-5 flex items-center gap-2 text-[14px] text-ink">
+            <input type="checkbox" name="active" defaultChecked={template.active} className="size-4 accent-brand" />
+            Post this automatically
+          </label>
+
+          {error && <p className="mt-4 text-[14px] text-danger">{error}</p>}
+          {saved && !error && <p className="mt-4 text-[14px] text-ink-dim">Saved.</p>}
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={busy} className={primary}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={restore}
+              disabled={busy}
+              className="h-11 rounded-lg border border-line px-4 text-[15px] text-ink-dim hover:text-ink disabled:opacity-60"
+            >
+              Restore the default
+            </button>
+          </div>
+        </form>
+
+        <div className={card}>
+          <h2 className="mb-3 text-[15px] font-semibold text-ink">Preview</h2>
+          <p className="mb-3 text-[13px] text-ink-dim">
+            Rendered exactly as a message in a group, with example details.
+          </p>
+          <div className="rounded-lg border border-line bg-input p-4 text-ink">
+            <MessageBody body={renderTemplate(body, SAMPLE)} />
+          </div>
         </div>
       </div>
     </div>
