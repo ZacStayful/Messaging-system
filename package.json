@@ -14,7 +14,7 @@
     "test:rls": "vitest run tests/rls.test.ts",
     "test:e2e": "playwright test",
     "db:verify": "./scripts/verify-migrations.sh",
-    "db:types": "supabase gen types typescript --project-id dqgdhmlgojhiidxlxzsr > src/lib/database.types.ts"
+    "db:types": "./scripts/gen-types.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",

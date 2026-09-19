@@ -577,6 +577,37 @@ run it and `supabase start` cannot. It proves the SQL parses, the plpgsql bodies
 constraints hold and the triggers fire; it is not a substitute for
 `supabase start && supabase db reset` against the real thing.
 
+### Regenerating the database types
+
+`pnpm db:types` rebuilds `src/lib/database.types.ts` from the hosted project. It is safe to run:
+nothing is written until the result has been corrected, formatted and passed `tsc --noEmit`, and
+every failure before that leaves the file alone. The script it replaced was a shell redirect, which
+emptied the file before it started — so a missing CLI destroyed it.
+
+The generator is right about almost everything and wrong about three things, because Postgres does
+not record what it would need: the columns of a `RETURNS TABLE` function are all typed NOT NULL, an
+RPC argument is never nullable even though passing null is how a caller says "no topic", and
+`conversation_members.member_side` is filled by a trigger the generator cannot see. Those
+corrections live in `CORRECTIONS` in `scripts/types-corrections.ts`, alongside the type aliases the
+app imports. **`src/lib/database.types.ts` is generated — edit the corrections, not the file.**
+
+Corrections are resolved through the TypeScript AST by structural path, not by matching text, so
+the generator's formatting can change without silently dropping one. Each must match exactly once,
+and the script says which of three things went wrong:
+
+| Message                                     | What it means                     | What to do                  |
+| ------------------------------------------- | --------------------------------- | --------------------------- |
+| `no such property`                          | the column was renamed or dropped | repoint or delete the entry |
+| `already correct in the generator's output` | the CLI or the SQL improved       | retire the entry            |
+| `expected X, found Y`                       | the column's type changed         | update `from` and `to`      |
+
+The Supabase CLI is deliberately not a dependency — the npm package downloads a ~30 MB platform
+binary on install, which every CI run would pay for a script CI never runs. The script uses
+`SUPABASE_CLI` if set, then one already on `PATH`, then `pnpm dlx supabase@$SUPABASE_VERSION`.
+Where there is no CLI and no `supabase login` — a sandbox, for instance — generate with the
+Supabase MCP `generate_typescript_types` and pass the file as `GEN_TYPES_INPUT` instead; the
+corrections and the typecheck still run.
+
 ## Calling (Twilio)
 
 A team member presses Call on a trade contact's thread, talks in the browser, and Twilio rings
@@ -893,11 +924,11 @@ whether Zapier's MCP client accepts a static bearer header before promising it t
 | `pnpm test`                                    | Vitest: unit tests; the RLS suite runs only when `SEED_TEST_PASSWORD` is set                                 |
 | `pnpm test:e2e`                                | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
 | `pnpm db:verify`                               | Applies every migration to a throwaway PostgreSQL cluster (no Docker, no Supabase CLI) — see below           |
+| `pnpm db:types`                                | Regenerates `src/lib/database.types.ts`, re-applies the hand corrections, typechecks the result — see below  |
 
 The RLS and sign-in tests expect the fixtures from `supabase/seed.sql` (test accounts and groups).
 Run them against a local stack (`supabase start && supabase db reset`) or a staging project, never
 against production, which holds real accounts only.
-| `pnpm db:types` | Regenerate `src/lib/database.types.ts` from the hosted project |
 
 Playwright options for sandboxes: `PW_CHROMIUM_EXECUTABLE` to use a preinstalled Chromium,
 `PW_CERT_SPKI_ALLOWLIST` to trust a proxy CA by SPKI hash, `PW_DIRECT=1` to bypass an HTTP
