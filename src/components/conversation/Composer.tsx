@@ -246,7 +246,7 @@ export function Composer({
       // MediaRecorder can throw after getUserMedia has already succeeded, so the stream has to
       // be released here too; otherwise the failure message appears with the mic still live.
       releaseMicrophone();
-      setError("Microphone access was blocked. Allow the microphone for chat.stayful.co.uk and try again.");
+      setError("Microphone access was blocked. Allow the microphone for this site and try again.");
     } finally {
       acquiring.current = false;
     }
