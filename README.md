@@ -577,6 +577,34 @@ run it and `supabase start` cannot. It proves the SQL parses, the plpgsql bodies
 constraints hold and the triggers fire; it is not a substitute for
 `supabase start && supabase db reset` against the real thing.
 
+It then asks whether `src/lib/database.types.ts` still describes the schema those migrations just
+built. That question exists because `pnpm db:types` is safe to run but nothing makes anyone run it,
+and **stale types fail nothing**: `tsc` is perfectly happy with a table it has never heard of,
+because nothing references it. `0033` added `topic_internal_conversation_id` and the committed types
+went eight migrations without it; six tables carried empty `Relationships` for as long.
+
+It compares table, view, column, function and enum **names** in both directions, per-column
+**nullability**, the **write shape** of `Insert` and `Update` (whether each field is required,
+optional, or `never` for an identity column), **foreign keys** against the `Relationships` arrays,
+and that every hand correction in `scripts/types-corrections.ts` is still applied — those live
+outside the generated region, so a regeneration that dropped them all would otherwise pass clean.
+
+The write-shape rule is the generator's, derived and then checked against all 337 columns: a field
+is optional in `Insert` when the column has a default, is nullable, is an identity column or is
+generated, and typed `never` when it is `GENERATED ALWAYS AS IDENTITY`; in `Update` everything is
+optional. A column covered by a correction is exempt, because there the correction is the authority
+and the corrections check already asserts it.
+
+It deliberately does not compare Postgres-to-TypeScript type mappings: that mapping is a large table
+inside the generator, and a second copy here would drift, showing up as a failing build on a correct
+change. A pass therefore means nothing has been added, removed, made nullable, made required or
+re-pointed without the types being regenerated — not that the file is byte-identical to what
+`pnpm db:types` produces.
+
+When it fails there are two possible causes and the message says both: the types are stale (run
+`pnpm db:types`), or the hosted project has drifted from `supabase/migrations`, in which case
+regenerating reproduces the drift and the migrations are what need to catch up.
+
 ### Regenerating the database types
 
 `pnpm db:types` rebuilds `src/lib/database.types.ts` from the hosted project. It is safe to run:
@@ -923,7 +951,7 @@ whether Zapier's MCP client accepts a static bearer header before promising it t
 | `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint, TypeScript, Prettier                                                                                 |
 | `pnpm test`                                    | Vitest: unit tests; the RLS suite runs only when `SEED_TEST_PASSWORD` is set                                 |
 | `pnpm test:e2e`                                | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
-| `pnpm db:verify`                               | Applies every migration to a throwaway PostgreSQL cluster (no Docker, no Supabase CLI) — see below           |
+| `pnpm db:verify`                               | Applies every migration to a throwaway PostgreSQL cluster, asserts behaviour, checks the types — see below   |
 | `pnpm db:types`                                | Regenerates `src/lib/database.types.ts`, re-applies the hand corrections, typechecks the result — see below  |
 
 The RLS and sign-in tests expect the fixtures from `supabase/seed.sql` (test accounts and groups).

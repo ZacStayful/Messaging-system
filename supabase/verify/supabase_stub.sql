@@ -16,7 +16,11 @@ create schema if not exists extensions;
 create schema if not exists realtime;
 create schema if not exists storage;
 create extension if not exists pgcrypto with schema extensions;
-create extension if not exists pg_trgm;
+-- Into `extensions`, as the line above does and as hosted Supabase does. Unqualified, it lands in
+-- `public` and its ~31 functions become indistinguishable from the app's own — which matters now
+-- that scripts/verify-types-fresh.ts compares this cluster's public schema against the generated
+-- types. Nothing in the repo uses trgm; this exists only because hosted Supabase has it.
+create extension if not exists pg_trgm with schema extensions;
 
 do $r$ begin create role anon; exception when duplicate_object then null; end $r$;
 do $r$ begin create role authenticated; exception when duplicate_object then null; end $r$;
