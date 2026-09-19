@@ -4,10 +4,11 @@ import { sendEmail, emailConfigured } from "@/lib/email/resend";
 import { messageEmail, welcomeEmail } from "@/lib/email/templates";
 import { unsubscribeUrl } from "@/lib/email/unsubscribe";
 import { newReplyToken, replyAddress, replyDomain, REPLY_TOKEN_TTL_MS } from "@/lib/email/inbound";
-import { sendWhatsApp, whatsappConfigured } from "@/lib/whatsapp/timelines";
+import { findSentMessage, sendWhatsApp, whatsappConfigured } from "@/lib/whatsapp/timelines";
 import { messageWhatsApp } from "@/lib/whatsapp/templates";
 import { siteUrl } from "@/lib/site";
 import { groupOutboxRows, skipReason } from "@/lib/notifications/policy";
+import { outboxIdempotencyKey } from "@/lib/notifications/idempotency";
 import { authorised } from "@/lib/cron/auth";
 import type { NotificationOutbox } from "@/lib/database.types";
 
@@ -217,6 +218,26 @@ export async function GET(request: NextRequest) {
   let failed = 0;
   let skipped = 0;
   let dead = 0;
+  let duplicates = 0;
+
+  /**
+   * Recorded immediately before handing anything to a provider.
+   *
+   * The claim stops two runs sending the same row; this is what survives one run dying between
+   * the provider accepting a message and the UPDATE that records it. A row picked up later with
+   * dispatched_at already set is one somebody already handed over, and the channel decides what
+   * to do about that — see 0038.
+   */
+  const markDispatched = async (batch: NotificationOutbox[]) => {
+    const at = new Date().toISOString();
+    await admin
+      .from("notification_outbox")
+      .update({ dispatched_at: at })
+      .in(
+        "id",
+        batch.map((r) => r.id),
+      );
+  };
 
   const finish = async (batch: NotificationOutbox[], ok: boolean, providerId?: string, err?: string) => {
     for (const r of batch) {
@@ -345,7 +366,11 @@ export async function GET(request: NextRequest) {
       unsubscribeUrl: unsubscribeUrl(base, batch[0].recipient_user_id ?? ""),
       canReplyByEmail: !!replyDomain(),
     });
+    await markDispatched(batch);
     const res = await sendEmail({
+      // Derived from the rows this email is made of, so a retry after a crash replays Resend's
+      // original response rather than sending a second copy.
+      idempotencyKey: outboxIdempotencyKey(batch.map((r) => r.id)),
       to,
       subject: mail.subject,
       html: mail.html,
@@ -355,6 +380,19 @@ export async function GET(request: NextRequest) {
         : undefined,
       headers: { "List-Unsubscribe": `<${unsubscribeUrl(base, batch[0].recipient_user_id ?? "")}>` },
     });
+    if (res.inFlight) {
+      // Another request holding this key is still running. Neither sent nor failed — burning an
+      // attempt on it would be wrong, so put it back and let the next minute settle it.
+      await admin
+        .from("notification_outbox")
+        .update({ status: "pending", claimed_at: null })
+        .in(
+          "id",
+          batch.map((r) => r.id),
+        );
+      return;
+    }
+    if (res.duplicate) duplicates += batch.length;
     await finish(batch, res.ok, res.id, res.error);
   });
 
@@ -415,6 +453,28 @@ export async function GET(request: NextRequest) {
       plain: Boolean(pref?.lead_category),
     });
     const account = accountByConv.get(p.conversation_id);
+
+    // A previous attempt already handed this to TimelinesAI and did not live to record the
+    // outcome (0038). TimelinesAI has no idempotency key, so rather than guess between a
+    // duplicate and a miss, ask: read what we sent to this number since that moment.
+    if (r.dispatched_at) {
+      const already = await findSentMessage({ phone: to, text, since: r.dispatched_at });
+      if (already?.found) {
+        duplicates++;
+        console.warn(`notifications: outbox row ${r.id} was already delivered; not sending again`);
+        await finish([r], true, already.uid);
+        return;
+      }
+      // `null` is "could not find out" — the API refused, or there is no chat. Sending is the
+      // right move on an unanswered question here: the row is a notification the customer has
+      // not demonstrably received, and a second copy is recoverable in a way a silent miss is
+      // not. `found: false` is a real answer and means the same thing.
+      if (already === null) {
+        console.warn(`notifications: could not confirm delivery of outbox row ${r.id}; sending again`);
+      }
+    }
+
+    await markDispatched([r]);
     const res = await sendWhatsApp({
       to,
       text,
@@ -559,5 +619,5 @@ export async function GET(request: NextRequest) {
 
   // dead is reported separately from failed: "will be retried" and "given up on" are different
   // facts, and the run summary was the one place that conflated them.
-  return NextResponse.json({ sent, failed, dead, skipped, posted, deferred: waDeferred.length });
+  return NextResponse.json({ sent, failed, dead, duplicates, skipped, posted, deferred: waDeferred.length });
 }

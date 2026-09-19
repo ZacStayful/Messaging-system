@@ -86,3 +86,63 @@ export async function sendWhatsApp(message: WhatsAppMessage): Promise<SendResult
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Did we already send this?
+ *
+ * Asked only of a row a previous run had already handed to TimelinesAI before dying — see
+ * notification_outbox.dispatched_at (0038). TimelinesAI has no idempotency key, so the choice on
+ * such a row is otherwise between risking a duplicate and risking a miss. Reading the chat turns
+ * the guess into an answer nearly every time.
+ *
+ * Two calls, both only on that rare path: find the direct chat for the number, then read what we
+ * sent in it since the moment we dispatched. Matching is on the exact text, which is safe here
+ * because the question is not "has anything like this been said" but "is the message we composed
+ * already in the chat" — and we composed it, verbatim, from a template.
+ *
+ * Returns null when the question cannot be answered — not configured, an API error, no chat. The
+ * caller decides what to do with "don't know"; this does not decide for it by returning false.
+ */
+export async function findSentMessage(opts: {
+  phone: string;
+  text: string;
+  since: string;
+}): Promise<{ found: boolean; uid?: string } | null> {
+  const token = process.env.TIMELINES_API_TOKEN;
+  if (!token || dryRun()) return null;
+  const auth = { Authorization: `Bearer ${token}` };
+
+  try {
+    const chatRes = await fetchWithTimeout(
+      `${whatsappApiBase()}/chats?phone=${encodeURIComponent(opts.phone)}`,
+      { headers: auth },
+      8000,
+    );
+    if (!chatRes.ok) return null;
+    const chats = (await chatRes.json().catch(() => ({}))) as {
+      data?: { chats?: { id?: string | number; chat_id?: string | number }[] };
+    };
+    const chat = chats.data?.chats?.[0];
+    const chatId = chat?.chat_id ?? chat?.id;
+    // No chat at all means nothing was ever delivered to this number, which is an answer.
+    if (chatId === undefined || chatId === null) return { found: false };
+
+    // from_me, so an inbound message that happens to quote us back cannot be mistaken for ours.
+    const historyRes = await fetchWithTimeout(
+      `${whatsappApiBase()}/chats/${encodeURIComponent(String(chatId))}/messages` +
+        `?from_me=true&after=${encodeURIComponent(opts.since)}`,
+      { headers: auth },
+      8000,
+    );
+    if (!historyRes.ok) return null;
+    const history = (await historyRes.json().catch(() => ({}))) as {
+      data?: { messages?: { uid?: string; text?: string | null }[] };
+    };
+    // One page is enough: the window starts at the moment we dispatched, so anything we sent is
+    // among the first few. Paging further would be looking for a message we did not send.
+    const hit = (history.data?.messages ?? []).find((m) => (m.text ?? "") === opts.text);
+    return hit ? { found: true, uid: hit.uid } : { found: false };
+  } catch {
+    return null;
+  }
+}

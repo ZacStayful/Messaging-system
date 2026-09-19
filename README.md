@@ -325,7 +325,12 @@ conversation_id)` dropped so there is one token per notification email rather th
     be left as `failed`, indistinguishable from one that will be retried next minute — plus the
     missing index on `org_id`
 
-38. `0039_sidebar_sections.sql` `sidebar_sections` and `sidebar_section_items`, the sidebar
+38. `0038_outbox_dispatched_at.sql` `notification_outbox.dispatched_at`, written immediately
+    before every provider call. The claim (0029) stops two runs sending the same row; this is what
+    survives one run dying between the provider accepting a message and the UPDATE recording it.
+    Email then retries under a Resend `Idempotency-Key`; WhatsApp, which has no such mechanism,
+    reads the chat's recent outbound history before it resends
+39. `0039_sidebar_sections.sql` `sidebar_sections` and `sidebar_section_items`, the sidebar
     sections a person makes for themselves and what they have filed into them. Both are private to
     one user and shaped after `saved_items` (0010): plain `user_id = auth.uid()` policies, with the
     insert and update `WITH CHECK` on the items proving the section is yours and that you are in

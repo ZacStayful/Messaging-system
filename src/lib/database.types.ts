@@ -1010,6 +1010,7 @@ export type Database = {
           channel: string;
           claimed_at: string | null;
           created_at: string;
+          dispatched_at: string | null;
           fallback_from: string | null;
           id: number;
           kind: string;
@@ -1028,6 +1029,7 @@ export type Database = {
           channel?: string;
           claimed_at?: string | null;
           created_at?: string;
+          dispatched_at?: string | null;
           fallback_from?: string | null;
           id?: never;
           kind: string;
@@ -1046,6 +1048,7 @@ export type Database = {
           channel?: string;
           claimed_at?: string | null;
           created_at?: string;
+          dispatched_at?: string | null;
           fallback_from?: string | null;
           id?: never;
           kind?: string;
