@@ -72,7 +72,10 @@ export function useConversationChannel(opts: Options) {
   useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
-    let needsBackfill = false;
+    // One flag per channel, not one shared. Each channel's *first* SUBSCRIBED is its initial
+    // join and recovers nothing — the page was just server-rendered. Sharing a flag would make
+    // whichever channel joined second see the first one's flag and recover on every page load.
+    const needsRecovery = { public: false, internal: false };
     const channel = supabase.channel(`conversation:${conversationId}`, { config: { private: true } });
     channelRef.current = channel;
 
@@ -108,17 +111,24 @@ export function useConversationChannel(opts: Options) {
 
     supabase.realtime.setAuth().then(() => {
       if (cancelled) return;
-      internalChannel?.subscribe();
-      channel.subscribe((status) => {
+      // Both channels report, not just the public one. The internal channel used to subscribe
+      // with no callback at all, so a drop that affected only it recovered nothing — in practice
+      // the two share a transport and the public channel usually reports too, but "usually" is
+      // not a thing to leave a team member's internal notes depending on.
+      //
+      // onResubscribe is idempotent and rate-limited by the caller, so both firing is harmless.
+      const onStatus = (which: "public" | "internal") => (status: string) => {
         if (status === "SUBSCRIBED") {
           // After a reconnect, or after a failed first attempt (new projects can briefly report
-          // MissingPartition), fetch anything that arrived while we were not listening.
-          if (needsBackfill) handlers.current.onResubscribe();
-          needsBackfill = true;
+          // MissingPartition), recover anything that changed while we were not listening.
+          if (needsRecovery[which]) handlers.current.onResubscribe();
+          needsRecovery[which] = true;
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          needsBackfill = true;
+          needsRecovery[which] = true;
         }
-      });
+      };
+      internalChannel?.subscribe(onStatus("internal"));
+      channel.subscribe(onStatus("public"));
     });
 
     return () => {
