@@ -33,6 +33,7 @@ import { startCall } from "@/lib/calls/startCall";
 import { callableProfiles } from "@/lib/calls/callable";
 import { loadConversationState, type PinWithMessage } from "@/lib/conversation/load";
 import { pinKey, reactionKey, reconcile } from "@/lib/realtime/reconcile";
+import { makeRecoveryGuard, RECOVER_MIN_INTERVAL_MS } from "@/lib/realtime/recoveryGuard";
 
 // Defined with the loader, since that is what produces them. Re-exported because PinsTab has
 // always imported it from here.
@@ -76,9 +77,6 @@ function sortByCreated(list: LocalMessage[]) {
 function clientIdOf(m: Message): string | undefined {
   return (m.meta as { client_id?: string } | null)?.client_id;
 }
-
-/** A reconnect is a human-scale event; this only has to stop a flapping socket hammering it. */
-const RECOVER_MIN_INTERVAL_MS = 5_000;
 
 function sameReaction(a: Reaction, b: Pick<Reaction, "message_id" | "user_id" | "emoji">) {
   return a.message_id === b.message_id && a.user_id === b.user_id && a.emoji === b.emoji;
@@ -210,34 +208,27 @@ export function ConversationView({
    * do not know what changed"; a new message means "here is one specific thing". Different
    * questions, different cost.
    */
-  const recovering = useRef<Promise<void> | null>(null);
-  const recoveredAt = useRef(0);
-  const recoverConversation = async () => {
-    // One at a time, and not more than once every few seconds. The hook fires onResubscribe on
-    // every SUBSCRIBED after the first, so a flapping connection would otherwise issue this
-    // repeatedly; a human reconnect is not a per-second event.
-    if (recovering.current) return recovering.current;
-    if (Date.now() - recoveredAt.current < RECOVER_MIN_INTERVAL_MS) return;
-
-    const run = (async () => {
-      try {
-        const state = await loadConversationState(supabase, conversationId);
-        setMessages((prev) => reconcile(prev, state.messages as LocalMessage[], (m) => m.id));
-        setReactions((prev) => reconcile(prev, state.reactions, reactionKey));
-        setAttachments((prev) => reconcile(prev, state.attachments, (a) => a.id));
-        setBookmarks((prev) => reconcile(prev, state.bookmarks, (b) => b.id));
-        setPins((prev) => reconcile(prev, state.pins, pinKey));
-        // The open thread is not in the conversation query — its replies have a parent_id — so
-        // it is re-read separately, unbounded, for the same reason.
-        if (threadRef.current) await loadReplies(threadRef.current);
-      } finally {
-        recoveredAt.current = Date.now();
-        recovering.current = null;
-      }
-    })();
-    recovering.current = run;
-    return run;
-  };
+  // One at a time, and not more than once every few seconds. The hook fires onResubscribe on
+  // every SUBSCRIBED after the first, so a flapping connection would otherwise issue this
+  // repeatedly; a human reconnect is not a per-second event. The work is passed per call so the
+  // closure stays fresh while the guard holding the interval stays put across renders.
+  const guard = useRef(makeRecoveryGuard({ minIntervalMs: RECOVER_MIN_INTERVAL_MS, label: "conversation" })).current;
+  const recoverConversation = () =>
+    guard(async () => {
+      const state = await loadConversationState(supabase, conversationId);
+      // A failed read looks exactly like an empty conversation, and the merge below replaces.
+      // Throwing leaves the timeline alone and, because the guard does not start its clock on a
+      // failure, lets the next SUBSCRIBED try again straight away.
+      if (state.partial) throw new Error("a conversation query failed");
+      setMessages((prev) => reconcile(prev, state.messages as LocalMessage[], (m) => m.id));
+      setReactions((prev) => reconcile(prev, state.reactions, reactionKey));
+      setAttachments((prev) => reconcile(prev, state.attachments, (a) => a.id));
+      setBookmarks((prev) => reconcile(prev, state.bookmarks, (b) => b.id));
+      setPins((prev) => reconcile(prev, state.pins, pinKey));
+      // The open thread is not in the conversation query — its replies have a parent_id — so
+      // it is re-read separately, unbounded, for the same reason.
+      if (threadRef.current) await loadReplies(threadRef.current);
+    });
 
   const backfill = async () => {
     const since = latestCreatedAt.current;

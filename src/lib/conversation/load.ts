@@ -14,6 +14,15 @@ export interface ConversationState {
   attachments: Attachment[];
   bookmarks: ConversationBookmark[];
   reactions: Reaction[];
+  /**
+   * At least one query failed, so the rest of this is incomplete rather than empty.
+   *
+   * PostgREST resolves `{ data: null, error }` rather than throwing, so a failed read and an
+   * empty conversation arrive in the same shape. The server component renders what it got, but
+   * recovery must not: the merge replaces, so re-reading through a blip would empty the timeline
+   * a reconnect was supposed to repair.
+   */
+  partial: boolean;
 }
 
 /** The newest N messages are what a conversation opens on, and what recovery re-reads. */
@@ -34,7 +43,12 @@ export async function loadConversationState(
   supabase: SupabaseClient<Database>,
   conversationId: string,
 ): Promise<ConversationState> {
-  const [{ data: messages }, { data: pins }, { data: attachments }, { data: bookmarks }] = await Promise.all([
+  const [
+    { data: messages, error: messagesError },
+    { data: pins, error: pinsError },
+    { data: attachments, error: attachmentsError },
+    { data: bookmarks, error: bookmarksError },
+  ] = await Promise.all([
     supabase
       .from("messages")
       .select("*")
@@ -66,9 +80,9 @@ export async function loadConversationState(
   // for the window we just loaded rather than for the conversation. That also keeps the two
   // consistent: a reaction on a message outside the window has nothing to attach to.
   const ids = (messages ?? []).map((m) => m.id);
-  const { data: reactions } = ids.length
+  const { data: reactions, error: reactionsError } = ids.length
     ? await supabase.from("reactions").select("*").in("message_id", ids)
-    : { data: [] as Reaction[] };
+    : { data: [] as Reaction[], error: null };
 
   return {
     messages: messages ?? [],
@@ -76,5 +90,6 @@ export async function loadConversationState(
     attachments: attachments ?? [],
     bookmarks: bookmarks ?? [],
     reactions: reactions ?? [],
+    partial: [messagesError, pinsError, attachmentsError, bookmarksError, reactionsError].some((e) => e !== null),
   };
 }
