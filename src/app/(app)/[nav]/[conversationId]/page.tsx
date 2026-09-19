@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isNav } from "@/lib/nav";
-import { ConversationView, type PinWithMessage } from "@/components/conversation/ConversationView";
+import { loadConversationState } from "@/lib/conversation/load";
+import { ConversationView } from "@/components/conversation/ConversationView";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,14 +20,9 @@ export default async function ConversationPage({
   } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const [
-    { data: conversation },
-    { data: membership },
-    { data: messages },
-    { data: pins },
-    { data: attachments },
-    { data: bookmarks },
-  ] = await Promise.all([
+  // The conversation's contents come from loadConversationState, which the client calls too after
+  // a dropped socket. One definition, so the first paint and the recovery cannot disagree.
+  const [{ data: conversation }, { data: membership }, state] = await Promise.all([
     supabase.from("conversations").select("id, created_at, topic, description").eq("id", conversationId).maybeSingle(),
     supabase
       .from("conversation_members")
@@ -34,39 +30,10 @@ export default async function ConversationPage({
       .eq("conversation_id", conversationId)
       .eq("user_id", user.id)
       .maybeSingle(),
-    supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .is("deleted_at", null)
-      .is("parent_id", null)
-      .order("created_at", { ascending: true })
-      .limit(300),
-    supabase
-      .from("pins")
-      .select("pinned_at, pinned_by, message:messages(*)")
-      .eq("conversation_id", conversationId)
-      .order("pinned_at", { ascending: false }),
-    supabase
-      .from("attachments")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false }),
-    // Loaded here so the bookmark bar paints with the first render, not after a flash.
-    supabase
-      .from("conversation_bookmarks")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true }),
+    loadConversationState(supabase, conversationId),
   ]);
 
   if (!conversation) notFound();
-
-  const ids = (messages ?? []).map((m) => m.id);
-  const { data: reactions } = ids.length
-    ? await supabase.from("reactions").select("*").in("message_id", ids)
-    : { data: [] };
 
   return (
     <ConversationView
@@ -74,11 +41,11 @@ export default async function ConversationPage({
       conversationId={conversationId}
       createdAt={conversation.created_at}
       description={conversation.description}
-      initialMessages={messages ?? []}
-      pins={(pins ?? []).filter((p): p is PinWithMessage => p.message !== null) as PinWithMessage[]}
-      attachments={attachments ?? []}
-      bookmarks={bookmarks ?? []}
-      reactions={reactions ?? []}
+      initialMessages={state.messages}
+      pins={state.pins}
+      attachments={state.attachments}
+      bookmarks={state.bookmarks}
+      reactions={state.reactions}
       lastReadAt={membership?.last_read_at ?? null}
     />
   );

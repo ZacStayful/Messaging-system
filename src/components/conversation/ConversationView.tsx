@@ -31,12 +31,12 @@ import { ThreadPanel } from "./ThreadPanel";
 import { CallBar, type CallTarget } from "./CallBar";
 import { startCall } from "@/lib/calls/startCall";
 import { callableProfiles } from "@/lib/calls/callable";
+import { loadConversationState, type PinWithMessage } from "@/lib/conversation/load";
+import { pinKey, reactionKey, reconcile } from "@/lib/realtime/reconcile";
 
-export interface PinWithMessage {
-  pinned_at: string;
-  pinned_by: string | null;
-  message: Message;
-}
+// Defined with the loader, since that is what produces them. Re-exported because PinsTab has
+// always imported it from here.
+export type { PinWithMessage };
 
 interface ConversationViewProps {
   conversationId: string;
@@ -76,6 +76,9 @@ function sortByCreated(list: LocalMessage[]) {
 function clientIdOf(m: Message): string | undefined {
   return (m.meta as { client_id?: string } | null)?.client_id;
 }
+
+/** A reconnect is a human-scale event; this only has to stop a flapping socket hammering it. */
+const RECOVER_MIN_INTERVAL_MS = 5_000;
 
 function sameReaction(a: Reaction, b: Pick<Reaction, "message_id" | "user_id" | "emoji">) {
   return a.message_id === b.message_id && a.user_id === b.user_id && a.emoji === b.emoji;
@@ -192,6 +195,50 @@ export function ConversationView({
     latestCreatedAt.current = serverHighWaterMark(messages);
   }, [messages]);
 
+  /**
+   * Everything about this conversation, re-read after the socket was away.
+   *
+   * `backfill()` below cannot do this and never could: it asks for messages *newer* than a high
+   * water mark, so anything that changed about an older one — a reaction added or taken off, an
+   * attachment, an edit, a delete, a reply count — is invisible to it, and pins and bookmarks are
+   * not in its path at all. Fetching a wider window would still not have helped, because its
+   * merge could only add.
+   *
+   * Deliberately separate from `backfill()` rather than replacing it. `backfill()` has a second,
+   * much hotter caller — the MESSAGE_EVENT listener, which fires for any message this view has
+   * not seen — where a wholesale re-read would be pure waste. Resubscribe means "I was away and
+   * do not know what changed"; a new message means "here is one specific thing". Different
+   * questions, different cost.
+   */
+  const recovering = useRef<Promise<void> | null>(null);
+  const recoveredAt = useRef(0);
+  const recoverConversation = async () => {
+    // One at a time, and not more than once every few seconds. The hook fires onResubscribe on
+    // every SUBSCRIBED after the first, so a flapping connection would otherwise issue this
+    // repeatedly; a human reconnect is not a per-second event.
+    if (recovering.current) return recovering.current;
+    if (Date.now() - recoveredAt.current < RECOVER_MIN_INTERVAL_MS) return;
+
+    const run = (async () => {
+      try {
+        const state = await loadConversationState(supabase, conversationId);
+        setMessages((prev) => reconcile(prev, state.messages as LocalMessage[], (m) => m.id));
+        setReactions((prev) => reconcile(prev, state.reactions, reactionKey));
+        setAttachments((prev) => reconcile(prev, state.attachments, (a) => a.id));
+        setBookmarks((prev) => reconcile(prev, state.bookmarks, (b) => b.id));
+        setPins((prev) => reconcile(prev, state.pins, pinKey));
+        // The open thread is not in the conversation query — its replies have a parent_id — so
+        // it is re-read separately, unbounded, for the same reason.
+        if (threadRef.current) await loadReplies(threadRef.current);
+      } finally {
+        recoveredAt.current = Date.now();
+        recovering.current = null;
+      }
+    })();
+    recovering.current = run;
+    return run;
+  };
+
   const backfill = async () => {
     const since = latestCreatedAt.current;
     const base = supabase
@@ -213,12 +260,21 @@ export function ConversationView({
   /** Reactions and attachments for a batch of freshly loaded messages. */
   const loadExtras = async (ids: string[]) => {
     if (!ids.length) return;
+    const scope = new Set(ids);
     const [{ data: rx }, { data: ax }] = await Promise.all([
       supabase.from("reactions").select("*").in("message_id", ids),
       supabase.from("attachments").select("*").in("message_id", ids),
     ]);
-    if (rx) setReactions((prev) => [...prev.filter((r) => !rx.some((n) => sameReaction(r, n))), ...rx]);
-    if (ax) setAttachments((prev) => [...ax.filter((a) => !prev.some((p) => p.id === a.id)), ...prev]);
+    // Replace within the window we just read, keep everything outside it. The old merge only
+    // ever added, so a reaction or an attachment removed server-side survived for ever — and
+    // fetching more rows could never have fixed that, because an additive merge cannot express
+    // a deletion at all.
+    if (rx) {
+      setReactions((prev) => [...prev.filter((r) => !scope.has(r.message_id)), ...rx]);
+    }
+    if (ax) {
+      setAttachments((prev) => [...ax, ...prev.filter((a) => !scope.has(a.message_id))]);
+    }
   };
 
   // ---- threads --------------------------------------------------------------
@@ -445,7 +501,7 @@ export function ConversationView({
     onPin: (c) => void onPinChange(c),
     onBookmark: onBookmarkChange,
     onAttachment: onAttachmentChange,
-    onResubscribe: () => void backfill(),
+    onResubscribe: () => void recoverConversation(),
   });
 
   // ---- scrolling ------------------------------------------------------------
