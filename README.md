@@ -584,16 +584,22 @@ because nothing references it. `0033` added `topic_internal_conversation_id` and
 went eight migrations without it; six tables carried empty `Relationships` for as long.
 
 It compares table, view, column, function and enum **names** in both directions, per-column
-**nullability**, **foreign keys** against the `Relationships` arrays, and that every hand correction
-in `scripts/types-corrections.ts` is still applied — those live outside the generated region, so a
-regeneration that dropped them all would otherwise pass clean.
+**nullability**, the **write shape** of `Insert` and `Update` (whether each field is required,
+optional, or `never` for an identity column), **foreign keys** against the `Relationships` arrays,
+and that every hand correction in `scripts/types-corrections.ts` is still applied — those live
+outside the generated region, so a regeneration that dropped them all would otherwise pass clean.
+
+The write-shape rule is the generator's, derived and then checked against all 337 columns: a field
+is optional in `Insert` when the column has a default, is nullable, is an identity column or is
+generated, and typed `never` when it is `GENERATED ALWAYS AS IDENTITY`; in `Update` everything is
+optional. A column covered by a correction is exempt, because there the correction is the authority
+and the corrections check already asserts it.
 
 It deliberately does not compare Postgres-to-TypeScript type mappings: that mapping is a large table
 inside the generator, and a second copy here would drift, showing up as a failing build on a correct
-change. `Insert` and `Update` are not compared either, so adding or dropping a column `DEFAULT` is
-invisible to it. A pass therefore means nothing has been added, removed, made nullable or re-pointed
-without the types being regenerated — not that the file is byte-identical to what `pnpm db:types`
-produces.
+change. A pass therefore means nothing has been added, removed, made nullable, made required or
+re-pointed without the types being regenerated — not that the file is byte-identical to what
+`pnpm db:types` produces.
 
 When it fails there are two possible causes and the message says both: the types are stale (run
 `pnpm db:types`), or the hosted project has drifted from `supabase/migrations`, in which case

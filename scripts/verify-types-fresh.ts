@@ -12,22 +12,28 @@
  * column. 0033 added topic_internal_conversation_id and the committed types went eight migrations
  * without it; six tables carried empty Relationships for as long.
  *
- * What it compares is deliberately narrow: names, nullability and foreign keys. It says nothing
+ * What it compares is deliberately narrow: names, nullability, write-shape and foreign keys. It
+ * says nothing
  * about how a Postgres type maps to a TypeScript one, because that mapping is a large table inside
  * the generator and rebuilding it here would be a second implementation — one that drifts, and
  * whose drift shows up as a failing build on a correct change, which is the fastest way to get a
  * check ignored.
  *
  * So a pass does not mean the file is byte-identical to what `pnpm db:types` produces. It means
- * nothing has been added, removed, made nullable or re-pointed without the types being
- * regenerated, and that the hand corrections are still in place.
+ * nothing has been added, removed, made nullable, made required or re-pointed without the types
+ * being regenerated, and that the hand corrections are still in place.
  */
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { CORRECTIONS } from "./types-corrections";
 
+/** What Insert must say about a column; Update uses only the `never` part. */
+type InsertRule = "required" | "optional" | "never";
+/** `n` = nullable, for Row. `i` = the Insert rule; absent for a view, which has no Insert. */
+type ColumnInfo = { n: boolean; i?: InsertRule };
+
 interface Inventory {
-  tables: Record<string, Record<string, boolean>>; // table -> column -> is_nullable
+  tables: Record<string, Record<string, ColumnInfo>>;
   views: Record<string, Record<string, boolean>>;
   foreign_keys: { name: string; table: string; columns: string[]; referenced_table: string }[];
   functions: string[];
@@ -91,6 +97,14 @@ function publicSchema(): readonly ts.TypeElement[] {
 
 const pub = publicSchema();
 
+// Paths a CORRECTIONS entry owns. The schema-derived expectation is skipped for these, because by
+// design they disagree with the generator — conversation_members.member_side is required according
+// to the column definition and optional in the types, since a trigger fills it. The corrections
+// check below asserts the hand-applied value instead, so the column is still covered, once.
+// Keyed on the full correction path rather than the column name, so a correction added elsewhere
+// cannot silently widen the exemption.
+const correctedPaths = new Set(CORRECTIONS.map((c) => c.path));
+
 /** Set comparison, phrased from the schema's side: the migrations are right, the file is not. */
 function compare(kind: string, inDb: readonly string[], inTypes: readonly string[]) {
   for (const n of inDb) if (!inTypes.includes(n)) report(`${kind} \`${n}\` is missing from the types`);
@@ -111,7 +125,7 @@ function compare(kind: string, inDb: readonly string[], inTypes: readonly string
  * from the generator, and so should be checked here. `NonNullable<Json>`, which newer generators
  * emit for a NOT NULL json column, correctly reads as non-null.
  */
-function compareColumns(kind: string, relation: string, columns: Record<string, boolean>, section: string) {
+function compareColumns(kind: string, relation: string, columns: Record<string, ColumnInfo>, section: string) {
   const container = child(members(child(pub, section)?.type), relation);
   const rowProps = members(child(members(container?.type), "Row")?.type);
   if (!rowProps) {
@@ -126,16 +140,54 @@ function compareColumns(kind: string, relation: string, columns: Record<string, 
 
   for (const prop of props(rowProps)) {
     const column = nameOf(prop.name);
-    if (!(column in columns)) continue;
+    const info = columns[column];
+    if (!info) continue;
     const declared = prop.type?.getText(file) ?? "";
     if (declared === "unknown" || declared === "any") continue;
     const nullableInTypes = /\|\s*null\b/.test(declared);
-    if (columns[column] !== nullableInTypes) {
+    if (info.n !== nullableInTypes) {
       report(
-        columns[column]
+        info.n
           ? `column \`${relation}.${column}\` is nullable in the schema but not in the types`
           : `column \`${relation}.${column}\` is NOT NULL in the schema but nullable in the types`,
       );
+    }
+  }
+
+  // Insert and Update. `| null` inside them is not compared: it follows Row, which is compared
+  // above, and checking twice would report one schema change as two problems.
+  for (const write of ["Insert", "Update"] as const) {
+    const writeProps = members(child(members(container?.type), write)?.type);
+    if (!writeProps) {
+      report(`${kind} \`${relation}\` has no readable \`${write}\` in the types`);
+      continue;
+    }
+    compare(`${write} field`, Object.keys(columns).map(qualify), names(writeProps).map(qualify));
+
+    for (const prop of props(writeProps)) {
+      const column = nameOf(prop.name);
+      const rule = columns[column]?.i;
+      if (!rule) continue;
+      if (correctedPaths.has(`Tables.${relation}.${write}.${column}`)) continue;
+
+      // Update makes everything optional; only Insert distinguishes required from optional.
+      const mustBeOptional = write === "Update" || rule !== "required";
+      if (mustBeOptional !== Boolean(prop.questionToken)) {
+        report(
+          mustBeOptional
+            ? `${write} field \`${relation}.${column}\` should be optional in the types but is required`
+            : `${write} field \`${relation}.${column}\` should be required in the types but is optional`,
+        );
+      }
+
+      const isNever = (prop.type?.getText(file) ?? "").trim() === "never";
+      if ((rule === "never") !== isNever) {
+        report(
+          rule === "never"
+            ? `${write} field \`${relation}.${column}\` is GENERATED ALWAYS AS IDENTITY and should be typed \`never\``
+            : `${write} field \`${relation}.${column}\` is typed \`never\` but can be written`,
+        );
+      }
     }
   }
 }
@@ -145,7 +197,11 @@ compare("table", Object.keys(db.tables), names(members(child(pub, "Tables")?.typ
 for (const [table, columns] of Object.entries(db.tables)) compareColumns("table", table, columns, "Tables");
 
 compare("view", Object.keys(db.views), names(members(child(pub, "Views")?.type)));
-for (const [view, columns] of Object.entries(db.views)) compareColumns("view", view, columns, "Views");
+for (const [view, columns] of Object.entries(db.views)) {
+  // A view has a Row and nothing else, so its columns carry no Insert rule.
+  const asInfo = Object.fromEntries(Object.entries(columns).map(([c, n]) => [c, { n }]));
+  compareColumns("view", view, asInfo, "Views");
+}
 
 // --- foreign keys -------------------------------------------------------------------------------
 // Compared as `constraint -> referenced table`, which is what the generated Relationships entries
@@ -236,7 +292,7 @@ if (problems.length) {
 
 const columns = Object.values(db.tables).reduce((n, c) => n + Object.keys(c).length, 0);
 console.log(
-  `  ok  types match the schema (${Object.keys(db.tables).length} tables, ${columns} columns, ` +
-    `${db.foreign_keys.length} foreign keys, ${db.functions.length} functions, ` +
+  `  ok  types match the schema (${Object.keys(db.tables).length} tables, ${columns} columns ` +
+    `incl. Insert/Update, ${db.foreign_keys.length} foreign keys, ${db.functions.length} functions, ` +
     `${Object.keys(db.enums).length} enums, ${CORRECTIONS.length} corrections)`,
 );

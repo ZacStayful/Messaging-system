@@ -19,9 +19,23 @@ select json_build_object(
   -- is its columns.sql expression verbatim. pg_attribute rather than information_schema.columns
   -- because the latter is privilege-filtered — it would quietly tie correctness to connecting as
   -- superuser.
+  --
+  -- Each column carries two facts: `n`, whether it is nullable, which the Row section must match;
+  -- and `i`, what the Insert section must say about it. The `i` rule was derived from the
+  -- generator's output and then checked against all 337 columns of the committed types — 113
+  -- predicted required against 112 actual, the single difference being
+  -- conversation_members.member_side, which is a hand correction. Update is simpler: the generator
+  -- makes every column optional there, so only the `never` part of `i` applies.
   'tables', coalesce((select json_object_agg(t.name, t.columns) from (
       select c.relname as name,
-             json_object_agg(a.attname, not (a.attnotnull or (ty.typtype = 'd' and ty.typnotnull))) as columns
+             json_object_agg(a.attname, json_build_object(
+               'n', not (a.attnotnull or (ty.typtype = 'd' and ty.typnotnull)),
+               -- GENERATED ALWAYS AS IDENTITY cannot be written at all, so the generator types the
+               -- field `never` rather than merely making it optional.
+               'i', case when a.attidentity = 'a' then 'never'
+                         when a.atthasdef or not a.attnotnull
+                              or a.attidentity <> '' or a.attgenerated <> '' then 'optional'
+                         else 'required' end)) as columns
       from pg_attribute a
       join pg_class c on c.oid = a.attrelid
       join pg_namespace n on n.oid = c.relnamespace
@@ -29,6 +43,8 @@ select json_build_object(
       where n.nspname = 'public' and c.relkind in ('r', 'p') and a.attnum > 0 and not a.attisdropped
       group by c.relname) t), '{}'::json),
 
+  -- Views keep the plain boolean: the generator emits only a Row for a view, with no Insert or
+  -- Update to compare against.
   'views', coalesce((select json_object_agg(v.name, v.columns) from (
       select c.relname as name,
              json_object_agg(a.attname, not (a.attnotnull or (ty.typtype = 'd' and ty.typnotnull))) as columns
