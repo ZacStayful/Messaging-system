@@ -70,6 +70,34 @@ export async function checkRateLimit(keyId: string): Promise<RateVerdict> {
   }
 }
 
+/**
+ * Seconds until an empty bucket earns a single token, rounded up and never below 1.
+ *
+ * Derived rather than written down, so it stays right if RATE_LIMIT moves: at 600 a minute the
+ * bucket refills 10 tokens a second and the answer is 1 (the smallest `retry-after` that means
+ * anything), while at 10 a minute it is 6. Taking the empty bucket is deliberate — it is the worst
+ * case, and a client that was just refused has no way to know how close to a token it was.
+ */
+export function secondsPerToken(limit: number, windowSeconds: number): number {
+  return Math.max(1, Math.ceil(windowSeconds / limit));
+}
+
+/**
+ * What `retry-after` should say, which is not the same answer in the two cases.
+ *
+ * Being over the limit means "you are going faster than the refill rate", and the wait is one
+ * token — a second. It used to say a whole window, which was the honest answer under the fixed
+ * window 0040 replaced (you really did have to wait for the next one) and is now merely
+ * pessimistic: it parks a well-behaved client for a minute when a tenth of a second would do.
+ *
+ * Unavailable means the limiter could not reach the database, so the number is not about tokens at
+ * all. Telling those clients to come back in a second would point a retry storm at a database that
+ * is already struggling, which is the thing a limiter exists to prevent.
+ */
+export function retryAfterSeconds(verdict: Exclude<RateVerdict, "ok">): number {
+  return verdict === "over" ? secondsPerToken(RATE_LIMIT, RATE_WINDOW_SECONDS) : RATE_WINDOW_SECONDS;
+}
+
 /** What to tell someone who has been turned away. Shared so the two surfaces word it alike. */
 export const RATE_LIMITED_MESSAGE = `More than ${RATE_LIMIT} requests in a minute. Slow down and retry.`;
 export const RATE_UNAVAILABLE_MESSAGE = "Rate limiting is temporarily unavailable. Retry shortly.";
