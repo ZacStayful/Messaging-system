@@ -859,10 +859,13 @@ Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
 
 Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
 `forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,
-`not_configured` and `internal`. 600 requests per key per minute, counted in Postgres (a fixed
-window — coarse, but the only stateful option without adding Redis; a token bucket is a
-follow-up). Posting a message with the same `client_id` twice returns the original rather than
-a duplicate, enforced by a unique index.
+`not_configured` and `internal`. 600 requests per key per minute, as a token bucket in Postgres
+(`0040`): a key that has been idle can spend the whole allowance at once, and one that keeps going
+settles at ten requests a second. A `rate_limited` response carries `retry-after` — one second when
+you are simply going too fast, since that is how long an empty bucket takes to earn a token, and a
+minute when the limiter could not reach the database at all, because that is not about tokens and
+a retry storm is the last thing a struggling database needs. Posting a message with the same
+`client_id` twice returns the original rather than a duplicate, enforced by a unique index.
 
 `POST /api/email/capture` is the mailbox side of "Lead database customers": an automation that
 reads Gmail (an n8n Gmail trigger, say) posts each email as
