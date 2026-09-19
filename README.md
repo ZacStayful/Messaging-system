@@ -337,6 +337,15 @@ conversation_id)` dropped so there is one token per notification email rather th
     the conversation. No column on `conversation_members`, whose update policy does not restrict
     which columns move (which is what 0029 was about), and so no change to `my_conversations()`
 
+40. `0040_rate_limit_token_bucket.sql` the token bucket 0016 said was the real answer, replacing
+    its fixed window. A fixed window lets a key spend its whole allowance at 10:00:59 and the whole
+    of it again at 10:01:00 — twice the limit inside two seconds, with every window counted
+    correctly. A bucket has no boundary to sit on: one row per key, refilling continuously at
+    limit/window a second and capped at limit, so an idle key keeps its burst but a busy one cannot
+    exceed the refill rate. The per-window rows go, and with them the sweep 0016 added and 0035 had
+    to sample down — a bucket row is removed by its key's own cascade. `api_rate_hit` keeps its
+    signature, so the migration and the deploy can land in either order
+
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
 

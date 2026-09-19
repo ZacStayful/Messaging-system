@@ -1,13 +1,22 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
-/** Requests per key per minute. Generous for real use, low enough to notice a runaway loop. */
+/**
+ * Requests per key per minute. Generous for real use, low enough to notice a runaway loop.
+ *
+ * Since 0040 these describe a token bucket rather than a fixed window, and the pair is read two
+ * ways: RATE_LIMIT is both the sustained allowance per RATE_WINDOW_SECONDS *and* the size of the
+ * bucket, so a key that has been idle can still spend the whole allowance at once — which is what
+ * the fixed window allowed, so clients that batch are unaffected — while a key that keeps going
+ * settles at RATE_LIMIT / RATE_WINDOW_SECONDS requests a second and can no longer double its
+ * allowance by straddling a window boundary.
+ */
 export const RATE_LIMIT = 600;
 export const RATE_WINDOW_SECONDS = 60;
 
 export type RateVerdict = "ok" | "over" | "unavailable";
 
 /**
- * Has this key had too many requests this minute?
+ * Does this key have a token to spend?
  *
  * One definition, called by both the REST surface and the MCP server. They had a byte-identical
  * copy each, which is how they had already drifted: the same over-limit condition answered 429
@@ -25,6 +34,9 @@ export type RateVerdict = "ok" | "over" | "unavailable";
  * accident the way a nullable boolean was.
  */
 export async function checkRateLimit(keyId: string): Promise<RateVerdict> {
+  // One call, one transaction, which is what the bucket's refill depends on: now() is frozen
+  // inside a transaction, so several calls batched into one would measure the same instant and
+  // earn nothing between them. That errs strict rather than permissive, and no caller does it.
   const admin = createAdminClient();
   // No service role means no counter. Unreachable through either caller today, since both
   // authenticate the key through the same client first — but "unreachable" is not a reason to
