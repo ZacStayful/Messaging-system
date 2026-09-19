@@ -9,7 +9,10 @@
 # It is a syntax and structure check, not a substitute for `supabase start && supabase db reset`:
 # supabase/verify/supabase_stub.sql fakes auth, realtime and storage rather than running them.
 #
-#   ./scripts/verify-migrations.sh            # apply the chain
+# It then runs supabase/verify/checks/*.sql, which assert behaviour rather than syntax — the
+# things worth proving about a plpgsql function that no amount of parsing shows.
+#
+#   ./scripts/verify-migrations.sh            # apply the chain, then run the checks
 #   ./scripts/verify-migrations.sh --keep     # leave the cluster running to poke at it
 set -euo pipefail
 
@@ -63,4 +66,24 @@ for f in "$ROOT"/supabase/migrations/*.sql; do
 done
 
 [ "$failed" = "0" ] && echo "All migrations applied."
+
+# Behaviour checks, once the schema is up. The migration loop above proves a file parses; these
+# prove a function does what its comment claims, against a real Postgres with no network and
+# nothing to clean up afterwards. Each file raises an exception on a failed assertion, and
+# ON_ERROR_STOP turns that into a non-zero exit.
+if [ "$failed" = "0" ] && compgen -G "$ROOT/supabase/verify/checks/*.sql" > /dev/null; then
+  for f in "$ROOT"/supabase/verify/checks/*.sql; do
+    name="$(basename "$f")"
+    if out=$(psql -f "$f" 2>&1); then
+      echo "  ok  check $name"
+    else
+      echo "FAILED  check $name"
+      echo "$out" | grep -v "^psql.*NOTICE" | head -20
+      failed=1
+      break
+    fi
+  done
+  [ "$failed" = "0" ] && echo "All checks passed."
+fi
+
 exit "$failed"

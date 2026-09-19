@@ -92,27 +92,27 @@ export type Database = {
           },
         ];
       };
-      api_rate_limits: {
+      api_rate_buckets: {
         Row: {
-          count: number;
           key_id: string;
-          window_start: string;
+          tokens: number;
+          updated_at: string;
         };
         Insert: {
-          count?: number;
           key_id: string;
-          window_start: string;
+          tokens: number;
+          updated_at?: string;
         };
         Update: {
-          count?: number;
           key_id?: string;
-          window_start?: string;
+          tokens?: number;
+          updated_at?: string;
         };
         Relationships: [
           {
-            foreignKeyName: "api_rate_limits_key_id_fkey";
+            foreignKeyName: "api_rate_buckets_key_id_fkey";
             columns: ["key_id"];
-            isOneToOne: false;
+            isOneToOne: true;
             referencedRelation: "api_keys";
             referencedColumns: ["id"];
           },
