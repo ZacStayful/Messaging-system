@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { messageWhatsApp } from "@/lib/whatsapp/templates";
-import { dryRun, sendWhatsApp, whatsappApiBase, whatsappConfigured } from "@/lib/whatsapp/timelines";
+import { dryRun, findSentMessage, sendWhatsApp, whatsappApiBase, whatsappConfigured } from "@/lib/whatsapp/timelines";
 import { normaliseInboundPayload, verifyWebhookToken } from "@/lib/whatsapp/inbound";
 
 const env = { ...process.env };
@@ -271,5 +271,92 @@ describe("normaliseInboundPayload — the documented event shape", () => {
       message: { ...real.message, text: "", attachments: [{ url: "https://x.test/contract.pdf" }] },
     };
     expect(normaliseInboundPayload(withFile)[0].mediaUrl).toBe("https://x.test/contract.pdf");
+  });
+});
+
+/**
+ * Asked only of a row a previous run handed to TimelinesAI before dying. TimelinesAI has no
+ * idempotency key — its send endpoint takes phone, text, whatsapp_account_id, label and chat_id
+ * and nothing else — so the worker reads the chat instead of guessing.
+ */
+describe("findSentMessage", () => {
+  const SINCE = "2026-09-18T11:00:00.000Z";
+
+  const withToken = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const saved = process.env.TIMELINES_API_TOKEN;
+    const savedDry = process.env.TIMELINES_DRY_RUN;
+    process.env.TIMELINES_API_TOKEN = "tok";
+    delete process.env.TIMELINES_DRY_RUN;
+    try {
+      return await fn();
+    } finally {
+      if (saved === undefined) delete process.env.TIMELINES_API_TOKEN;
+      else process.env.TIMELINES_API_TOKEN = saved;
+      if (savedDry !== undefined) process.env.TIMELINES_DRY_RUN = savedDry;
+    }
+  };
+
+  /** Answers the chat lookup, then the history read. */
+  const stub = (chats: unknown, messages: unknown) =>
+    vi.fn(async (url: string) => (String(url).includes("/messages") ? Response.json(messages) : Response.json(chats)));
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("finds a message we already sent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stub({ data: { chats: [{ chat_id: 77 }] } }, { data: { messages: [{ uid: "m-1", text: "Hello there" }] } }),
+    );
+    const res = await withToken(() => findSentMessage({ phone: "+447700900001", text: "Hello there", since: SINCE }));
+    expect(res).toEqual({ found: true, uid: "m-1" });
+  });
+
+  it("reads only our own outbound, since the moment we dispatched", async () => {
+    // from_me guards against an inbound message quoting us back being mistaken for ours.
+    const fetchMock = stub({ data: { chats: [{ chat_id: 77 }] } }, { data: { messages: [] } });
+    vi.stubGlobal("fetch", fetchMock);
+    await withToken(() => findSentMessage({ phone: "+447700900001", text: "x", since: SINCE }));
+    const historyUrl = String(fetchMock.mock.calls.find((c) => String(c[0]).includes("/messages"))?.[0]);
+    expect(historyUrl).toContain("from_me=true");
+    expect(historyUrl).toContain(encodeURIComponent(SINCE));
+  });
+
+  it("says no when the chat holds nothing matching", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stub({ data: { chats: [{ chat_id: 77 }] } }, { data: { messages: [{ uid: "m-9", text: "something else" }] } }),
+    );
+    const res = await withToken(() => findSentMessage({ phone: "+447700900001", text: "Hello", since: SINCE }));
+    expect(res).toEqual({ found: false });
+  });
+
+  it("says no when there is no chat with that number at all", async () => {
+    // A real answer: nothing was ever delivered there.
+    vi.stubGlobal("fetch", stub({ data: { chats: [] } }, { data: { messages: [] } }));
+    const res = await withToken(() => findSentMessage({ phone: "+447700900002", text: "Hello", since: SINCE }));
+    expect(res).toEqual({ found: false });
+  });
+
+  // The distinction the caller depends on: null is "could not find out", which is different from
+  // "no". Returning false on an API error would silently suppress a notification.
+  it("returns null when it cannot find out", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 500 })));
+    expect(await withToken(() => findSentMessage({ phone: "+447700900001", text: "x", since: SINCE }))).toBeNull();
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    expect(await withToken(() => findSentMessage({ phone: "+447700900001", text: "x", since: SINCE }))).toBeNull();
+  });
+
+  it("does not ask at all when there is no token", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const saved = process.env.TIMELINES_API_TOKEN;
+    delete process.env.TIMELINES_API_TOKEN;
+    try {
+      expect(await findSentMessage({ phone: "+447700900001", text: "x", since: SINCE })).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (saved !== undefined) process.env.TIMELINES_API_TOKEN = saved;
+    }
   });
 });
