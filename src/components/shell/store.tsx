@@ -14,6 +14,8 @@ import type {
   SidebarSectionItem,
   ThreadSummary,
 } from "@/lib/database.types";
+import { loadSidebarState, type SavedRow } from "@/lib/sidebar/load";
+import { makeRecoveryGuard, RECOVER_MIN_INTERVAL_MS } from "@/lib/realtime/recoveryGuard";
 import { previewOf } from "@/lib/format";
 import { previewMentions } from "@/lib/richtext";
 import { isNav, type Nav } from "@/lib/nav";
@@ -63,8 +65,9 @@ export type ProfileChangedEvent = Pick<
   | "deactivated_at"
 >;
 
-/** A saved-for-later row with the message it points at (null if since deleted or hidden). */
-export type SavedRow = SavedItem & { message: Message | null };
+// Defined beside the query that produces it, and re-exported so the components that read it off
+// the store keep importing it from the store.
+export type { SavedRow };
 
 export interface ProfileCardState {
   id: string;
@@ -606,6 +609,45 @@ export function StoreProvider({
     [supabase, conversations, refresh],
   );
 
+  /**
+   * Everything in the shell, re-read after the socket was away.
+   *
+   * The sidebar is fed entirely by broadcasts — unread and mention counts, ordering, the activity
+   * list, threads, channels joined and left — and a broadcast missed is missed for good. Until
+   * this existed nothing noticed a drop at all: `user:<id>` subscribed with no status callback,
+   * so a badge that went wrong while the laptop was shut stayed wrong for as long as the tab
+   * stayed open. Reloading the page was the only cure, and nothing told anyone to.
+   *
+   * Replaces rather than merges. There is nothing optimistic to protect here the way there is in
+   * a message list — no sidebar row is waiting on a server id — and `refresh()` already replaces
+   * this same state wholesale on every conversation_changed. `activityRead` is deliberately left
+   * alone: it is this tab's own record of what has been looked at, and the server has no opinion
+   * on it.
+   */
+  const recoveryGuard = useRef(makeRecoveryGuard({ minIntervalMs: RECOVER_MIN_INTERVAL_MS, label: "sidebar" })).current;
+  const recoverSidebar = () =>
+    recoveryGuard(async () => {
+      const state = await loadSidebarState(supabase, { orgId: me.org_id, isTeam });
+      // A failed query and an empty result are the same shape from PostgREST. Bail rather than
+      // replace the sidebar with what a blip returned; the guard leaves its clock alone on a
+      // throw, so the next SUBSCRIBED tries again instead of waiting out the interval.
+      if (state.partial) throw new Error("a sidebar query failed");
+      setConversations(state.conversations);
+      setActivity(state.activity);
+      setThreads(state.threads);
+      setSaved(state.saved);
+      setSections(state.sections);
+      setSectionItems(state.sectionItems);
+      setProfiles(Object.fromEntries(state.profiles.map((p) => [p.id, p])));
+    });
+  // Held in a ref, as useConversationChannel holds its handlers, so the two channel effects below
+  // can call the current closure without naming it as a dependency — which would tear them down
+  // and re-subscribe both channels on every render.
+  const recoverRef = useRef(recoverSidebar);
+  useEffect(() => {
+    recoverRef.current = recoverSidebar;
+  });
+
   // ---- Realtime: personal topic (new messages anywhere, conversation changes) --------
   useEffect(() => {
     let cancelled = false;
@@ -711,8 +753,22 @@ export function StoreProvider({
       refresh();
     });
 
+    // The first SUBSCRIBED is this channel's initial join and recovers nothing — the shell was
+    // just server-rendered. Every one after it follows a drop, and everything above this line
+    // stopped being told about anything while it lasted. One flag per channel: the org channel
+    // below keeps its own, because whichever subscribed second would otherwise see this one's and
+    // recover on every page load.
+    let needsRecovery = false;
     supabase.realtime.setAuth().then(() => {
-      if (!cancelled) channel.subscribe();
+      if (cancelled) return;
+      channel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          if (needsRecovery) void recoverRef.current();
+          needsRecovery = true;
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          needsRecovery = true;
+        }
+      });
     });
     return () => {
       cancelled = true;
@@ -765,12 +821,23 @@ export function StoreProvider({
     for (const ev of events) window.addEventListener(ev, onActivity, { passive: true });
     const onVisible = () => document.visibilityState === "visible" && onActivity();
     document.addEventListener("visibilitychange", onVisible);
+    // This channel already reported, but only to re-announce presence. Presence repairs itself
+    // through its own sync event; `profile_changed` does not, so a rename or an avatar set while
+    // this socket was away stayed wrong. Recovery is shared with the personal topic and coalesced
+    // by the guard, so both channels reporting at once still does the work once.
+    let needsRecovery = false;
     supabase.realtime.setAuth().then(() => {
       if (cancelled) return;
       channel.subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
+          // Before the await, not after: recovery is the part that must not be skipped if
+          // re-announcing presence happens to fail.
+          if (needsRecovery) void recoverRef.current();
+          needsRecovery = true;
           await track();
           arm();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          needsRecovery = true;
         }
       });
     });

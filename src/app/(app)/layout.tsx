@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { StoreProvider, type Org, type SavedRow } from "@/components/shell/store";
-import type { SidebarSection, SidebarSectionItem } from "@/lib/database.types";
+import { StoreProvider, type Org } from "@/components/shell/store";
+import { loadSidebarState } from "@/lib/sidebar/load";
 import { AppShell } from "@/components/shell/AppShell";
 import { PhoneGate } from "@/components/onboarding/PhoneGate";
 import { shouldAskForPhone } from "@/lib/phone";
@@ -42,31 +42,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // shouldAskForPhone, so the rule is unit-tested rather than an inline conjunction here.
   if (shouldAskForPhone(me, whatsappConfigured())) return <PhoneGate profile={me} />;
 
-  const isTeam = me.account_type === "team";
-  const [
-    { data: org },
-    { data: conversations },
-    { data: profiles },
-    { data: activity },
-    { data: threads },
-    { data: saved },
-    { data: sections },
-    { data: sectionItems },
-  ] = await Promise.all([
+  // The same loader the store calls after a reconnect, so what the shell is rendered with and
+  // what it recovers to cannot drift apart. The organisation row is not part of it — it has no
+  // broadcast, so it cannot go stale while the socket is away.
+  const [{ data: org }, sidebar] = await Promise.all([
     supabase.from("organisations").select("id, name, slug, settings").eq("id", me.org_id).single(),
-    supabase.rpc("my_conversations"),
-    supabase.from("profiles").select("*").eq("org_id", me.org_id).is("deactivated_at", null).order("display_name"),
-    supabase.rpc("my_activity"),
-    isTeam ? supabase.rpc("my_threads", { max_rows: 100 }) : Promise.resolve({ data: [] }),
-    isTeam
-      ? supabase.from("saved_items").select("*, message:messages(*)").order("saved_at", { ascending: false }).limit(200)
-      : Promise.resolve({ data: [] as SavedRow[] }),
-    // Sidebar sections are a team sidebar feature: CustomerSidebar has no section headings for
-    // them to sit between. Gated the same way my_threads and saved_items are.
-    isTeam
-      ? supabase.from("sidebar_sections").select("*").order("position").order("created_at")
-      : Promise.resolve({ data: [] as SidebarSection[] }),
-    isTeam ? supabase.from("sidebar_section_items").select("*") : Promise.resolve({ data: [] as SidebarSectionItem[] }),
+    loadSidebarState(supabase, { orgId: me.org_id, isTeam: me.account_type === "team" }),
   ]);
 
   return (
@@ -74,13 +55,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       me={me}
       org={(org ?? { id: me.org_id, name: "Stayful", slug: "stayful", settings: {} }) as Org}
       callsEnabled={callsConfigured()}
-      profiles={profiles ?? []}
-      conversations={conversations ?? []}
-      activity={activity ?? []}
-      threads={threads ?? []}
-      saved={(saved ?? []) as SavedRow[]}
-      sections={sections ?? []}
-      sectionItems={sectionItems ?? []}
+      profiles={sidebar.profiles}
+      conversations={sidebar.conversations}
+      activity={sidebar.activity}
+      threads={sidebar.threads}
+      saved={sidebar.saved}
+      sections={sidebar.sections}
+      sectionItems={sidebar.sectionItems}
     >
       <AppShell>{children}</AppShell>
     </StoreProvider>
