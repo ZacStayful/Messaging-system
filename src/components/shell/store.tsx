@@ -16,6 +16,13 @@ import type {
 } from "@/lib/database.types";
 import { loadSidebarState, type SavedRow } from "@/lib/sidebar/load";
 import { makeRecoveryGuard, RECOVER_MIN_INTERVAL_MS } from "@/lib/realtime/recoveryGuard";
+import {
+  applyReadState,
+  applyThreadReadState,
+  type ActivitySeenEvent,
+  type ReadStateEvent,
+  type ThreadReadStateEvent,
+} from "@/lib/realtime/readState";
 import { previewOf } from "@/lib/format";
 import { previewMentions } from "@/lib/richtext";
 import { isNav, type Nav } from "@/lib/nav";
@@ -426,7 +433,13 @@ export function StoreProvider({
 
   const markThreadRead = useCallback(
     async (messageId: string) => {
-      setThreads((prev) => prev.map((t) => (t.message_id === messageId ? { ...t, unread_count: 0 } : t)));
+      // last_read_at as well as the count: my_threads returns the column, so ThreadSummary carries
+      // it, and leaving it stale here would make this path disagree with the read_state handler
+      // that now writes it on every other device.
+      const now = new Date().toISOString();
+      setThreads((prev) =>
+        prev.map((t) => (t.message_id === messageId ? { ...t, unread_count: 0, last_read_at: now } : t)),
+      );
       setActivity((prev) => prev.map((a) => (a.parent_id === messageId ? { ...a, unread: false } : a)));
       await supabase.rpc("mark_thread_read", { p_message_id: messageId });
     },
@@ -753,6 +766,58 @@ export function StoreProvider({
       refresh();
     });
 
+    // ---- The same person, reading on another device -------------------------------------
+    // Unlike message_created these carry no sender, so the device that did the reading gets its
+    // own event back. That is wanted, not tolerated: markRead writes a browser-clock last_read_at
+    // and the echo replaces it with the server's. The rules live in @/lib/realtime/readState
+    // because two of them (clear only when the server says nothing is left; never reorder) are
+    // worth a test, and because copying the handler above would get both wrong.
+    //
+    // Note what is deliberately absent: no refresh() for a conversation this device does not know.
+    // message_created does that, and refresh is router.refresh() — a full server render. Because
+    // messages_after_insert fires before messages_broadcast, read_state arrives *first* for your
+    // own send, so the same reflex here would cost a server render per message sent.
+    //
+    // ConversationView freezes its "New" divider at open (initialLastRead), so none of this can
+    // move it under someone mid-read. That is the thing a careless last_read_at update breaks.
+    channel.on("broadcast", { event: "read_state" }, ({ payload }) => {
+      const evt = payload as ReadStateEvent;
+      setConversations((prev) => applyReadState(prev, evt));
+      if (!evt.has_unread) {
+        setActivity((prev) =>
+          prev.map((a) =>
+            a.conversation_id === evt.conversation_id && !a.parent_id && a.unread ? { ...a, unread: false } : a,
+          ),
+        );
+      }
+    });
+
+    // No refreshThreads() for an unknown thread either. One this device does not list contributes
+    // nothing to threadsUnread, so there is no badge to clear — and fetching my_threads to learn
+    // about a thread we have just been told is *read* would double the fetch on the first-reply
+    // path, which message_created already covers.
+    channel.on("broadcast", { event: "thread_read_state" }, ({ payload }) => {
+      const evt = payload as ThreadReadStateEvent;
+      setThreads((prev) => applyThreadReadState(prev, evt));
+      if (!evt.has_unread) {
+        setActivity((prev) =>
+          prev.map((a) => (a.parent_id === evt.message_id && a.unread ? { ...a, unread: false } : a)),
+        );
+      }
+    });
+
+    // Mirrors markAllActivityRead. Worth knowing: activity_seen_at only drives the `unread` of
+    // *reaction* rows in my_activity — message rows take theirs from conversation_members and
+    // reply rows from thread_follows — so clearing everything is already optimistic on the device
+    // that pressed it, and recovery brings those rows back. This reproduces that faithfully so the
+    // two devices agree with each other; making them agree with the server is a separate change.
+    channel.on("broadcast", { event: "activity_seen" }, ({ payload }) => {
+      const evt = payload as ActivitySeenEvent;
+      setActivity((prev) => prev.map((a) => (a.unread ? { ...a, unread: false } : a)));
+      setMeState((prev) => ({ ...prev, activity_seen_at: evt.activity_seen_at }));
+      patchProfile(me.id, { activity_seen_at: evt.activity_seen_at });
+    });
+
     // The first SUBSCRIBED is this channel's initial join and recovers nothing — the shell was
     // just server-rendered. Every one after it follows a drop, and everything above this line
     // stopped being told about anything while it lasted. One flag per channel: the org channel
@@ -774,7 +839,7 @@ export function StoreProvider({
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [supabase, me.id, me.display_name, refresh, refreshThreads, router]);
+  }, [supabase, me.id, me.display_name, patchProfile, refresh, refreshThreads, router]);
 
   // ---- Realtime: org presence (with idle → away) and live profile changes ----
   useEffect(() => {

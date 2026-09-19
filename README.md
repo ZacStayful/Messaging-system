@@ -345,6 +345,14 @@ conversation_id)` dropped so there is one token per notification email rather th
     exceed the refill rate. The per-window rows go, and with them the sweep 0016 added and 0035 had
     to sample down — a bucket row is removed by its key's own cascade. `api_rate_hit` keeps its
     signature, so the migration and the deploy can land in either order
+41. `0041_read_state_broadcast.sql` read state reaches the same person's other devices. All three
+    read markers — `conversation_members.last_read_at`, `thread_follows.last_read_at` and
+    `profiles.activity_seen_at` — moved in silence, so reading on a phone left the badge lit on the
+    laptop until that tab reloaded. Four triggers publish `read_state`, `thread_read_state` and
+    `activity_seen` to the reader's own `user:<id>` topic. Triggers rather than a broadcast inside
+    `mark_read`, because there are three writers: `messages_after_insert` moves the mark when you
+    send, and the UPDATE policy has no column list, so a client can PATCH the column directly.
+    Whether anything is still unread is decided in the trigger and shipped as a boolean
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -380,6 +388,14 @@ A trigger on `messages` broadcasts the full row to the private topic
 member's `user:<id>` topic. Reactions, pins and attachments broadcast `REACTION`, `PIN` and
 `ATTACHMENT` events on the same conversation topic. Presence runs on `org:<id>`. Clients
 back-fill from Postgres after any reconnect.
+
+`user:<id>` also carries this person's own read state, so a conversation read on one device clears
+its badge on the others: `read_state`, `thread_read_state` and `activity_seen`
+(`0041_read_state_broadcast.sql`). These are the only events a device receives about itself —
+there is no sender to compare against, so the device that did the reading gets its own event back
+and reconciles `last_read_at` to the server's clock rather than its own. Whether anything is still
+unread is decided in the trigger and arrives as `has_unread`, so the client does no timestamp
+arithmetic. The rules for applying them are in `src/lib/realtime/readState.ts`.
 
 ## Attachments
 
