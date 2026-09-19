@@ -386,6 +386,10 @@ voice notes). Downloads use one-hour signed URLs.
   `https://chat.stayful.co.uk/auth/callback`, `http://localhost:3000/auth/callback` and the
   Vercel preview pattern `https://*-zacs-projects-bcdb6016.vercel.app/auth/callback` to the
   redirect allow list.
+- That wildcard is deliberately broad and should be narrowed once previews sit on a stable
+  host (see "Preview deployments and Chrome's password warning" under Deployment). The
+  `.vercel.app` arm of `siteOrigin()` in `src/app/auth/callback/route.ts` should be tightened
+  to that host at the same time.
 - Authentication > Providers > Google: enable and paste a Google OAuth client ID and
   secret (authorised redirect URI is `https://dqgdhmlgojhiidxlxzsr.supabase.co/auth/v1/callback`).
 - Magic links only work for existing users (`shouldCreateUser: false`); invitations create
@@ -895,3 +899,46 @@ proxy that cannot upgrade WebSockets. None are needed on a normal machine or in 
 Vercel project `messaging-system` builds from this repository. Set the three
 `NEXT_PUBLIC_*` variables in the Vercel project settings. Production domain:
 `chat.stayful.co.uk`.
+
+### Browser security headers
+
+`next.config.ts` sets `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors
+'none'` (the sign-in form must never be framable — that is how a clean domain ends up embedded
+in someone else's phishing page), plus `nosniff`, `Referrer-Policy` and a `Permissions-Policy`
+that keeps camera and microphone on `self` for voice notes and Twilio Voice.
+
+There is no full CSP yet, on purpose. The app talks to Supabase REST and Realtime
+(`wss://*.supabase.co`), the Twilio Voice SDK and Resend, and ships Next.js inline bootstrap
+scripts and Tailwind v4 inline styles. Add the full policy as
+`Content-Security-Policy-Report-Only` first, exercise a real session (sign in, send a message,
+record a voice note, place a call, open a link preview), then promote it to enforcing.
+
+### Preview deployments and Chrome's password warning
+
+Vercel preview URLs change on every deploy, so each one is a hostname Chrome has never seen,
+on `vercel.app` — a public-suffix domain heavily used by real phishing kits. A password form
+on such a host draws Chrome's "you entered your password into a deceptive site" warning
+whenever the password typed is one Chrome protects (for example a Google Workspace password).
+`chat.stayful.co.uk` itself is not flagged; the preview hostnames are the problem.
+
+Vercel Deployment Protection is already enabled, so previews sit behind Vercel SSO and are not
+publicly reachable. That matters for the diagnosis: an unreachable host is not one Safe
+Browsing has crawled and classified, so this is the Chrome/Workspace **password-reuse** policy
+warning on a non-allow-listed domain, not a phishing verdict on the deployment.
+
+To stop it recurring:
+
+- Never reuse a Google Workspace password for a Stayful Messaging account. This is the whole
+  arming condition, and no change in this repo can override it. Prefer "Continue with Google",
+  which is now the first option on the sign-in page.
+- Give previews a **stable** host — a Vercel branch-alias domain, or better a subdomain you
+  own such as `preview.stayful.co.uk` — so an allow-list entry can actually hold. Per-deploy
+  hostnames defeat any allow-list by design.
+- Then add that host (and `chat.stayful.co.uk`) to `SafeBrowsingAllowlistDomains` in the
+  Google Admin console, under Chrome > Settings > Users.
+- Keep Deployment Protection on, so a sign-in form never becomes publicly reachable on
+  `vercel.app`.
+
+The sign-in page renders the host it is actually served from (`src/app/login/page.tsx`); it
+must never hardcode a domain, because a page naming a domain it is not on is precisely what a
+spoofed login page looks like.
