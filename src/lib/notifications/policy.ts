@@ -17,6 +17,8 @@ export interface OutboxRowLike {
   /** Where the email actually goes. Part of the grouping key: see groupKey below. */
   recipient_email?: string | null;
   payload: unknown;
+  /** Set once this row has been handed to Resend (0044). Forces a replay: see groupOutboxRows. */
+  idempotency_key?: string | null;
 }
 
 export interface RecipientPrefs {
@@ -52,6 +54,61 @@ export function skipReason(row: { channel: string }, pref: RecipientPrefs | unde
 interface GroupablePayload {
   conversation_id: string;
   created_at: string;
+}
+
+export interface SettleGroup {
+  /** Rows that arrived with the same attempts count, so one statement settles them all. */
+  ids: number[];
+  status: "sent" | "failed" | "dead";
+  /** What to store: what they arrived with, plus this try. */
+  attempts: number;
+}
+
+export interface Settlement {
+  groups: SettleGroup[];
+  /** The rows that have just run out of attempts. One note covers all of them, not one each. */
+  goneQuiet: number[];
+}
+
+/**
+ * How a batch settles after a single send.
+ *
+ * Pulled out of the drain because the loop it replaces was itself two bugs. It updated one row
+ * per round trip, so a run killed partway through — maxDuration is 60 seconds and a run can hold
+ * 200 rows — left half the batch `sent` and half `sending`, and the stranded half came back as a
+ * strict subset that used to hash to an idempotency key Resend had never seen. And it called the
+ * give-up note from inside itself, so a dead batch of six rows posted six identical notes into
+ * one conversation.
+ *
+ * Grouping by the attempts a row arrived with is normally a single group, because rows in a
+ * batch have always travelled together. It is not assumed: the WhatsApp-to-email fallback can
+ * put a row with its own history alongside fresh ones.
+ */
+export function settleBatch(
+  rows: readonly { id: number; attempts: number }[],
+  ok: boolean,
+  maxAttempts: number,
+): Settlement {
+  const byAttempts = new Map<number, number[]>();
+  for (const r of rows) {
+    const group = byAttempts.get(r.attempts);
+    if (group) group.push(r.id);
+    else byAttempts.set(r.attempts, [r.id]);
+  }
+
+  const groups: SettleGroup[] = [];
+  const goneQuiet: number[] = [];
+  for (const [was, ids] of byAttempts) {
+    const attempts = was + 1;
+    // At the cap the row used to be left as 'failed', which is indistinguishable from one that
+    // failed once and will be retried next minute — the only thing separating "will be retried"
+    // from "abandoned" was an integer nobody queries. 'dead' (0037) makes the give-up a thing
+    // that happened rather than an absence.
+    const giveUp = !ok && attempts >= maxAttempts;
+    groups.push({ ids, attempts, status: ok ? "sent" : giveUp ? "dead" : "failed" });
+    if (giveUp) goneQuiet.push(...ids);
+  }
+  return { groups, goneQuiet };
 }
 
 /**
@@ -103,7 +160,32 @@ function messageTime(row: OutboxRowLike): number {
  *     out-of-order row produced a negative difference and merged however old it was.
  */
 export function groupOutboxRows<T extends OutboxRowLike>(rows: T[], windowMs: number): T[][] {
-  const ordered = [...rows].sort((a, b) => {
+  // A row carrying an idempotency key was handed to Resend once under that key (0044). Re-form
+  // exactly that batch and nothing else, so the retry replays byte-identically and Resend
+  // answers with its original response instead of sending a second copy.
+  //
+  // The window does not apply: these rows were already batched together, and re-anchoring could
+  // split them. Nor may a keyless row join, which is the part that matters. Sending a *new*
+  // message under a key Resend has already answered would have it dropped as a duplicate and
+  // never delivered — a silent loss, and a worse bug than the duplicate this prevents.
+  //
+  // The replay is often a strict subset of the original batch, because the rows that did get
+  // marked sent are no longer selectable. That is fine and expected: Resend sees a known key
+  // with a changed payload, refuses it, and resend.ts reads that refusal as "already delivered".
+  const replays = new Map<string, T[]>();
+  const unsent: T[] = [];
+  for (const row of rows) {
+    const key = row.idempotency_key?.trim();
+    if (!key) {
+      unsent.push(row);
+      continue;
+    }
+    const open = replays.get(key);
+    if (open) open.push(row);
+    else replays.set(key, [row]);
+  }
+
+  const ordered = [...unsent].sort((a, b) => {
     const diff = messageTime(a) - messageTime(b);
     // id breaks ties, and keeps the order of anything with an unusable timestamp stable.
     return Number.isNaN(diff) || diff === 0 ? a.id - b.id : diff;
@@ -132,5 +214,7 @@ export function groupOutboxRows<T extends OutboxRowLike>(rows: T[], windowMs: nu
     batches.push(fresh);
   }
 
-  return batches;
+  // Replays first: they are a second attempt at something a recipient may already have, and
+  // settling them is what frees their rows from `sending`.
+  return [...replays.values(), ...batches];
 }

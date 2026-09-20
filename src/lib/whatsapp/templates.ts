@@ -27,11 +27,21 @@ export interface WhatsAppMessageInput {
   plain?: boolean;
 }
 
-function trim(body: string): string {
+/**
+ * The message body as it actually goes out: trimmed, with an ellipsis when it was cut.
+ *
+ * Exported because the mirror has to recognise the app's own sends coming back through the
+ * webhook, and what comes back is this, not the body the outbox row stored. Comparing against
+ * the stored body meant every message longer than MAX_BODY failed to match and was mirrored in
+ * again as though the customer had typed it.
+ */
+export function whatsAppBodyText(body: string): string {
   const clean = body.trim();
   if (clean.length <= MAX_BODY) return clean;
   return `${clean.slice(0, MAX_BODY).trimEnd()}…`;
 }
+
+const trim = whatsAppBodyText;
 
 export function messageWhatsApp(input: WhatsAppMessageInput): { text: string } {
   if (input.plain) return { text: trim(input.body) };

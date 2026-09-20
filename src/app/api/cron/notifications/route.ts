@@ -7,8 +7,8 @@ import { newReplyToken, replyAddress, replyDomain, REPLY_TOKEN_TTL_MS } from "@/
 import { findSentMessage, sendWhatsApp, whatsappConfigured } from "@/lib/whatsapp/timelines";
 import { messageWhatsApp } from "@/lib/whatsapp/templates";
 import { siteUrl } from "@/lib/site";
-import { groupOutboxRows, skipReason } from "@/lib/notifications/policy";
-import { outboxIdempotencyKey } from "@/lib/notifications/idempotency";
+import { groupOutboxRows, settleBatch, skipReason } from "@/lib/notifications/policy";
+import { keyForBatch } from "@/lib/notifications/idempotency";
 import { authorised } from "@/lib/cron/auth";
 import type { NotificationOutbox } from "@/lib/database.types";
 
@@ -228,45 +228,72 @@ export async function GET(request: NextRequest) {
    * dispatched_at already set is one somebody already handed over, and the channel decides what
    * to do about that — see 0038.
    */
-  const markDispatched = async (batch: NotificationOutbox[]) => {
+  const markDispatched = async (batch: NotificationOutbox[], idempotencyKey?: string): Promise<boolean> => {
     const at = new Date().toISOString();
-    await admin
+    const { error } = await admin
       .from("notification_outbox")
-      .update({ dispatched_at: at })
+      .update({ dispatched_at: at, ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) })
       .in(
         "id",
         batch.map((r) => r.id),
       );
+    // Checked, and the caller does not send if it failed. This write is the whole safety net:
+    // without the key on the rows, a run that dies after the send re-batches them under a key
+    // Resend has never seen and delivers a second copy. Leaving them claimed costs one rescue
+    // cycle and delivers once; sending regardless risks delivering twice, which cannot be undone.
+    if (error) console.error("notifications: could not record dispatch, holding the send", error.message);
+    return !error;
   };
 
+  /**
+   * Settles a whole batch at once.
+   *
+   * One statement per outcome rather than one per row, because the per-row loop was itself a
+   * bug: a run killed partway through it — maxDuration is 60 seconds and a run can hold 200
+   * rows — left some rows `sent` and the rest `sending`, and `chunked` swallows a throw, so a
+   * single failed UPDATE did the same while the run still answered 200. The stranded remainder
+   * was then rescued as a strict subset of the batch, which under the old scheme hashed to an
+   * idempotency key Resend had never seen and sent the same email again. 0044 makes that
+   * replay safe; this makes it rare.
+   *
+   * Grouped by the attempts each row arrived with — normally one group, since rows in a batch
+   * have always travelled together — so `attempts + 1` stays exact without a round trip per row.
+   */
   const finish = async (batch: NotificationOutbox[], ok: boolean, providerId?: string, err?: string) => {
-    for (const r of batch) {
-      const attempts = r.attempts + 1;
-      // At the cap the row used to be left as 'failed', which is indistinguishable from a row
-      // that failed once and will be retried next minute — the only thing separating "will be
-      // retried" from "abandoned" was an integer nobody queries. 'dead' (0037) makes the
-      // give-up a thing that happened rather than an absence.
-      const giveUp = !ok && attempts >= MAX_ATTEMPTS;
+    const { groups, goneQuiet } = settleBatch(batch, ok, MAX_ATTEMPTS);
+    for (const group of groups) {
       await admin
         .from("notification_outbox")
         .update({
-          status: ok ? "sent" : giveUp ? "dead" : "failed",
-          attempts,
-          provider_message_id: providerId ?? r.provider_message_id,
+          status: group.status,
+          attempts: group.attempts,
+          ...(providerId ? { provider_message_id: providerId } : {}),
           last_error: err ?? null,
-          sent_at: ok ? new Date().toISOString() : r.sent_at,
+          ...(ok ? { sent_at: new Date().toISOString() } : {}),
         })
-        .eq("id", r.id);
-      if (giveUp) {
-        dead++;
+        .in("id", group.ids);
+      if (group.status === "dead") {
+        dead += group.ids.length;
         // Said out loud as well as recorded, because nothing reads this table: its only policy
         // is an admin SELECT for debugging.
-        console.error(
-          `notifications: giving up on outbox row ${r.id} (${r.channel}) after ${attempts} attempts: ${err ?? "no error recorded"}`,
-        );
-        await noteGiveUp(r, err);
+        for (const id of group.ids) {
+          console.error(
+            `notifications: giving up on outbox row ${id} after ${group.attempts} attempts: ${err ?? "no error recorded"}`,
+          );
+        }
       }
     }
+    // One note for the batch, not one per row. Every row in it shares a recipient and a
+    // conversation by construction (policy.ts groupKey), so N notes were N copies of one
+    // sentence in one place.
+    if (goneQuiet.length) {
+      const byId = new Set(goneQuiet);
+      await noteGiveUp(
+        batch.filter((r) => byId.has(r.id)),
+        err,
+      );
+    }
+
     if (ok) sent += batch.length;
     else failed += batch.length;
   };
@@ -313,9 +340,19 @@ export async function GET(request: NextRequest) {
    *
    * Minting per email costs one insert on a send we are making anyway, and means the token in
    * someone's inbox stops working a week after it arrives whatever else happens.
+   *
+   * The token comes back alongside the address because a send does not always use it: Resend
+   * can answer that this key was already delivered, or that another request holds it. The email
+   * that did go out carries its own working token, so the one minted here would sit in the table
+   * until it expired, unreachable, one more on every replay. Handing it back lets the caller
+   * take it away again.
    */
-  const replyTo = async (userId: string, conversationId: string, orgId: string): Promise<string | undefined> => {
-    if (!replyDomain()) return undefined;
+  const replyTo = async (
+    userId: string,
+    conversationId: string,
+    orgId: string,
+  ): Promise<{ address?: string; token?: string }> => {
+    if (!replyDomain()) return {};
     const token = newReplyToken();
     const { error } = await admin.from("email_reply_threads").insert({
       token,
@@ -324,7 +361,12 @@ export async function GET(request: NextRequest) {
       conversation_id: conversationId,
       expires_at: new Date(Date.now() + REPLY_TOKEN_TTL_MS).toISOString(),
     });
-    return error ? undefined : (replyAddress(token) ?? undefined);
+    return error ? {} : { address: replyAddress(token) ?? undefined, token };
+  };
+
+  /** Removes a token that was minted for a send nobody received. */
+  const dropReplyToken = async (token?: string) => {
+    if (token) await admin.from("email_reply_threads").delete().eq("token", token);
   };
 
   // Concurrent, like WhatsApp already was. SEND_CONCURRENCY has been declared since this file
@@ -366,23 +408,30 @@ export async function GET(request: NextRequest) {
       unsubscribeUrl: unsubscribeUrl(base, batch[0].recipient_user_id ?? ""),
       canReplyByEmail: !!replyDomain(),
     });
-    await markDispatched(batch);
+    // Derived from the rows this email is made of, so a retry after a crash replays Resend's
+    // original response rather than sending a second copy — but only if it is the *same* key.
+    // A row that already carries one has been handed over under it once (0044), and recomputing
+    // from whichever rows survived would mint a key Resend has never seen and send again.
+    const idempotencyKey = keyForBatch(batch);
+    // Held, not sent, if the key could not be recorded: see markDispatched. The rows stay
+    // claimed and the stranded-claim rescue brings them back.
+    if (!(await markDispatched(batch, idempotencyKey))) return;
+    const reply = batch[0].recipient_user_id
+      ? await replyTo(batch[0].recipient_user_id, first.conversation_id, batch[0].org_id)
+      : {};
     const res = await sendEmail({
-      // Derived from the rows this email is made of, so a retry after a crash replays Resend's
-      // original response rather than sending a second copy.
-      idempotencyKey: outboxIdempotencyKey(batch.map((r) => r.id)),
+      idempotencyKey,
       to,
       subject: mail.subject,
       html: mail.html,
       text: mail.text,
-      replyTo: batch[0].recipient_user_id
-        ? await replyTo(batch[0].recipient_user_id, first.conversation_id, batch[0].org_id)
-        : undefined,
+      replyTo: reply.address,
       headers: { "List-Unsubscribe": `<${unsubscribeUrl(base, batch[0].recipient_user_id ?? "")}>` },
     });
     if (res.inFlight) {
       // Another request holding this key is still running. Neither sent nor failed — burning an
       // attempt on it would be wrong, so put it back and let the next minute settle it.
+      await dropReplyToken(reply.token);
       await admin
         .from("notification_outbox")
         .update({ status: "pending", claimed_at: null })
@@ -392,7 +441,12 @@ export async function GET(request: NextRequest) {
         );
       return;
     }
-    if (res.duplicate) duplicates += batch.length;
+    if (res.duplicate) {
+      // Resend already delivered this key. The email in their inbox carries the token minted on
+      // that first send, so this one is unreachable from the moment it was written.
+      duplicates += batch.length;
+      await dropReplyToken(reply.token);
+    }
     await finish(batch, res.ok, res.id, res.error);
   });
 
@@ -474,6 +528,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Deliberately not held on a failed write, unlike email. WhatsApp's recovery is the
+    // findSentMessage check above, which asks the provider what it actually has rather than
+    // relying on anything recorded here, and this channel's stated preference (see the comment
+    // on `already === null`) is to send again rather than risk a silent miss.
     await markDispatched([r]);
     const res = await sendWhatsApp({
       to,
@@ -557,18 +615,23 @@ export async function GET(request: NextRequest) {
   /**
    * Tells the team that somebody was never reached.
    *
-   * Only for a message notification, and only once — at the give-up, not on each retry. The
-   * WhatsApp channel already had this via fallbackToEmail; email had nothing at all, so five
-   * failed attempts to reach a customer left no trace anywhere a person looks.
+   * Only for a message notification, and only once — at the give-up, not on each retry, and not
+   * once per row. The WhatsApp channel already had this via fallbackToEmail; email had nothing
+   * at all, so five failed attempts to reach a customer left no trace anywhere a person looks.
+   *
+   * Takes the whole batch because it used to sit inside finish()'s per-row loop, so a dead batch
+   * of six rows posted six byte-identical notes into one conversation. Its own doc comment
+   * already claimed "only once", which was true across retries and false across rows.
    */
-  async function noteGiveUp(r: NotificationOutbox, err?: string) {
-    if (r.kind !== "message") return;
-    const p = r.payload as unknown as MessagePayload;
-    if (!p?.conversation_id) return;
+  async function noteGiveUp(batch: NotificationOutbox[], err?: string) {
     // WhatsApp announces its own give-up through fallbackToEmail, including whether the email
     // fallback went out. Two notes for one failure would read like two failures.
-    if (r.channel === "whatsapp") return;
-    await admin!.from("messages").insert({
+    const rows = batch.filter((r) => r.kind === "message" && r.channel !== "whatsapp");
+    if (!rows.length) return;
+    const r = rows[0];
+    const p = r.payload as unknown as MessagePayload;
+    if (!p?.conversation_id) return;
+    const { error: dupe } = await admin!.from("messages").insert({
       org_id: r.org_id,
       conversation_id: p.conversation_id,
       sender_id: null,
@@ -580,8 +643,19 @@ export async function GET(request: NextRequest) {
         channel: r.channel,
         user_id: r.recipient_user_id,
         error: err ?? r.last_error ?? null,
+        // messages_client_id_idx (0016) is unique on (conversation_id, client_id) and partial on
+        // the column being set, so nothing here used it before. Naming the rows that died makes
+        // it a second line of defence: the same give-up can only ever land once, however this is
+        // called. A later, different failure names different rows and still gets its own note.
+        client_id: `notification_gave_up:${rows
+          .map((x) => x.id)
+          .sort((a, b) => a - b)
+          .join(",")}`,
       },
     });
+    // 23505 is that index doing its job — the note is already there. Anything else is worth
+    // saying, since an insert that fails here loses the only trace of a failed notification.
+    if (dupe && dupe.code !== "23505") console.error("notifications: give-up note failed", dupe.message);
   }
 
   // Welcome emails that the app could not send synchronously

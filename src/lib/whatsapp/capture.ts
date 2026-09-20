@@ -48,6 +48,38 @@ export type WhatsAppCaptureReason =
   | "empty_body"
   | "no_team_sender";
 
+/** How many of a lead's owner groups to read before choosing between them. */
+export const OWNER_GROUP_LOOKUP = 10;
+
+/** A row of the owner-group lookup that this module and the mirror both make. */
+export interface OwnerGroupRow {
+  conversation_id: string;
+  conversations: unknown;
+}
+
+/**
+ * The owner group a lead's WhatsApp message belongs in.
+ *
+ * `one_owner_group_per_external` (0018) counts only *live* groups, so a lead can hold an
+ * archived one and a current one at the same time — which is exactly what archiving a group and
+ * making a new one leaves behind. Both callers used to take `.limit(1)` with no ordering and
+ * then treat an archived group as a reason to file the message as unmatched, so which of the two
+ * Postgres happened to return decided whether a live customer's message reached their group or
+ * went to inbound_messages_unmatched.
+ *
+ * A live group always wins. Falling back to an archived one keeps the "archived" outcome
+ * meaningful for a lead whose only group really has been archived.
+ */
+export function pickOwnerGroup(
+  rows: readonly OwnerGroupRow[] | null | undefined,
+): { conversationId: string; archivedAt: string | null } | null {
+  const groups = (rows ?? []).map((r) => ({
+    conversationId: r.conversation_id,
+    archivedAt: (r.conversations as { archived_at: string | null } | null)?.archived_at ?? null,
+  }));
+  return groups.find((g) => !g.archivedAt) ?? groups[0] ?? null;
+}
+
 export interface WhatsAppCaptureInput {
   message: WhatsAppCaptureMessage;
   /** The person the number belongs to, if any. */
@@ -133,20 +165,16 @@ export async function captureWhatsAppMessage(
     : null;
 
   const isLead = Boolean(counterpart?.lead_category);
-  const { data: membership } = isLead
+  const { data: memberships } = isLead
     ? await admin
         .from("conversation_members")
         .select("conversation_id, conversations!inner(type, archived_at)")
         .eq("user_id", counterpart!.id)
         .eq("member_side", "external")
         .eq("conversations.type", "owner")
-        .limit(1)
-        .maybeSingle()
+        .limit(OWNER_GROUP_LOOKUP)
     : { data: null };
-  const conv = membership?.conversations as unknown as { archived_at: string | null } | null;
-  const ownerGroup = membership
-    ? { conversationId: membership.conversation_id, archivedAt: conv?.archived_at ?? null }
-    : null;
+  const ownerGroup = pickOwnerGroup(memberships);
 
   let senderUserId: string | null = opts.fallbackActorId ?? null;
   if (isLead && msg.direction === "outbound" && msg.sentFrom) {

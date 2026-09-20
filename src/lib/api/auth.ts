@@ -47,6 +47,14 @@ export async function verifyApiKey(request: Request): Promise<ApiKeyContext | nu
   const { data: profile } = await admin.from("profiles").select("*").eq("id", key.user_id).maybeSingle();
   if (!profile || profile.deactivated_at) return null;
 
+  // The context below pairs the key's org_id with this profile, so the two had better agree.
+  // Creating a mismatched key is already impossible — the insert policy (0016) requires the
+  // profile to be an active team member of the key's organisation — but that is checked once, at
+  // creation, and a key outlives the state it was minted against. If the person is later moved
+  // to another organisation, or stops being a team member, the key would otherwise keep working
+  // and keep acting with the old organisation's reach.
+  if (profile.org_id !== key.org_id || profile.account_type !== "team") return null;
+
   return {
     keyId: key.id,
     keyName: key.name,

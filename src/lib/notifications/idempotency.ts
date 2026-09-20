@@ -22,3 +22,24 @@ export function outboxIdempotencyKey(rowIds: readonly number[]): string {
   const ids = [...rowIds].sort((a, b) => a - b).join(",");
   return `stayful-outbox-${createHash("sha256").update(ids).digest("hex")}`;
 }
+
+/**
+ * The key a batch goes out under.
+ *
+ * A row that has already been dispatched carries the key its email was handed to Resend with
+ * (0044). Reuse it exactly. Recomputing from the ids would be right only if the batch were
+ * still the same batch, and the case this exists for is precisely when it is not: a run killed
+ * partway through settling marks some rows `sent` and strands the rest, and ten minutes later
+ * the rescue returns a strict subset. Hashing that subset gives a key Resend has never seen, so
+ * it sends the same email a second time.
+ *
+ * The first key found wins, and groupOutboxRows guarantees there is only ever one — a batch
+ * carrying a key holds nothing else.
+ */
+export function keyForBatch(rows: readonly { id: number; idempotency_key?: string | null }[]): string {
+  for (const r of rows) {
+    const existing = r.idempotency_key?.trim();
+    if (existing) return existing;
+  }
+  return outboxIdempotencyKey(rows.map((r) => r.id));
+}

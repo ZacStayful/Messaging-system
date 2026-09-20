@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   KEY_PREFIX,
   SCOPES,
@@ -11,6 +11,10 @@ import {
   publicPrefix,
 } from "@/lib/api/keys";
 import { NotConfiguredError, mintUserToken } from "@/lib/api/jwt";
+import { verifyApiKey } from "@/lib/api/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 
 const req = (headers: Record<string, string>) => new Request("https://example.com/api/v1/me", { headers });
 
@@ -141,5 +145,79 @@ describe("mintUserToken", () => {
     delete process.env.SUPABASE_JWT_SECRET;
     expect(() => mintUserToken(USER)).toThrow(NotConfiguredError);
     process.env.SUPABASE_JWT_SECRET = saved;
+  });
+});
+
+describe("verifyApiKey — the key and the person it acts as must still agree", () => {
+  const ORG = "11111111-1111-4111-8111-111111111111";
+  const OTHER_ORG = "22222222-2222-4222-8222-222222222222";
+  const USER = "33333333-3333-4333-8333-333333333333";
+
+  let key: ReturnType<typeof generateApiKey>;
+  let keyRow: Record<string, unknown>;
+  let profileRow: Record<string, unknown> | null;
+
+  beforeEach(() => {
+    key = generateApiKey();
+    keyRow = {
+      id: "key-1",
+      name: "automation",
+      org_id: ORG,
+      user_id: USER,
+      key_hash: key.hash,
+      scopes: ["messages:read"],
+      expires_at: null,
+      revoked_at: null,
+    };
+    profileRow = { id: USER, org_id: ORG, account_type: "team", deactivated_at: null };
+    vi.mocked(createAdminClient).mockReturnValue(fakeAdmin() as never);
+  });
+
+  // Just enough of the client for verifyApiKey: two selects, each ending in maybeSingle().
+  // The rows are read at call time, so a test can change them after this is built.
+  const fakeAdmin = () => ({
+    from(table: string) {
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        maybeSingle: async () => ({ data: table === "api_keys" ? keyRow : profileRow }),
+      };
+      return chain;
+    },
+  });
+
+  const call = () =>
+    verifyApiKey(
+      new Request("https://example.com/api/v1/me", { headers: { authorization: `Bearer ${key.plaintext}` } }),
+    );
+
+  it("accepts a key whose person is an active team member of the same organisation", async () => {
+    const ctx = await call();
+    expect(ctx?.orgId).toBe(ORG);
+    expect(ctx?.userId).toBe(USER);
+  });
+
+  it("rejects a key whose person has since moved to another organisation", async () => {
+    // The insert policy (0016) checks this once, at creation. A key outlives that: without the
+    // re-check, the context would pair the key's old org_id with a profile that has left it.
+    profileRow = { ...profileRow!, org_id: OTHER_ORG };
+    expect(await call()).toBeNull();
+  });
+
+  it("rejects a key whose person is no longer a team member", async () => {
+    // Minting a key that acts as a customer is blocked at creation for a reason: it would read
+    // that customer's direct messages. Being downgraded later must not reopen it.
+    profileRow = { ...profileRow!, account_type: "customer" };
+    expect(await call()).toBeNull();
+  });
+
+  it("still rejects a deactivated person", async () => {
+    profileRow = { ...profileRow!, deactivated_at: "2026-01-01T00:00:00.000Z" };
+    expect(await call()).toBeNull();
+  });
+
+  it("rejects a key whose person has no profile at all", async () => {
+    profileRow = null;
+    expect(await call()).toBeNull();
   });
 });

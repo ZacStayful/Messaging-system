@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { normaliseInboundPayload } from "@/lib/whatsapp/inbound";
-import { counterpartPhone, decideMirror, type MirrorInput } from "@/lib/whatsapp/mirror";
+import { appSendMatches, counterpartPhone, decideMirror, type MirrorInput } from "@/lib/whatsapp/mirror";
+import { pickOwnerGroup } from "@/lib/whatsapp/capture";
+import { whatsAppBodyText } from "@/lib/whatsapp/templates";
 
 /** The documented event shape, as tests/whatsapp.test.ts uses it, but going the other way. */
 const sentEvent = {
@@ -156,5 +158,65 @@ describe("decideMirror", () => {
       kind: "mirror",
       body: "[Sent an attachment on WhatsApp]",
     });
+  });
+});
+
+describe("appSendMatches — recognising the app's own WhatsApp send coming back", () => {
+  it("matches a short message the app sent verbatim", () => {
+    expect(appSendMatches("Hi Myles, yes we can do Tuesday.", "Hi Myles, yes we can do Tuesday.")).toBe(true);
+  });
+
+  it("matches a long message against the trimmed text that actually went out", () => {
+    // The bug this exists for. The outbox row keeps the whole body; a lead receives
+    // whatsAppBodyText(body), cut at 900 characters with an ellipsis. Comparing the two raw
+    // meant every message over that length failed to match its own echo and was mirrored back
+    // into the customer's group as though they had typed it.
+    const body = `${"a".repeat(1200)} end`;
+    expect(appSendMatches(body, whatsAppBodyText(body))).toBe(true);
+    expect(whatsAppBodyText(body)).not.toBe(body.trim());
+    expect(whatsAppBodyText(body).endsWith("…")).toBe(true);
+  });
+
+  it("tolerates the whitespace a provider may add or strip", () => {
+    expect(appSendMatches("  Tuesday works.  ", "Tuesday works.")).toBe(true);
+  });
+
+  it("does not match a different message", () => {
+    expect(appSendMatches("Tuesday works.", "Wednesday works.")).toBe(false);
+  });
+
+  it("does not match nothing at all", () => {
+    // An empty inbound must never be read as "the app sent this", or every attachment-only
+    // message from a customer would be dropped.
+    expect(appSendMatches("Tuesday works.", "   ")).toBe(false);
+  });
+});
+
+describe("pickOwnerGroup — a lead with more than one customer group", () => {
+  const live = { conversation_id: "live", conversations: { type: "owner", archived_at: null } };
+  const archived = {
+    conversation_id: "old",
+    conversations: { type: "owner", archived_at: "2026-01-01T00:00:00.000Z" },
+  };
+
+  it("prefers the live group when an archived one also exists", () => {
+    // one_owner_group_per_external (0018) counts only live groups, so this pairing is legal and
+    // happens whenever a group is archived and remade. Both callers used to take .limit(1) with
+    // no ordering, so which one Postgres returned decided whether a live customer's message
+    // reached their group or went to inbound_messages_unmatched.
+    expect(pickOwnerGroup([archived, live])).toEqual({ conversationId: "live", archivedAt: null });
+    expect(pickOwnerGroup([live, archived])).toEqual({ conversationId: "live", archivedAt: null });
+  });
+
+  it("still reports an archived group when that is the only one", () => {
+    // The archived outcome stays meaningful: a lead whose group really has been archived is
+    // filed as unmatched rather than silently posted into a closed group.
+    expect(pickOwnerGroup([archived])).toEqual({ conversationId: "old", archivedAt: "2026-01-01T00:00:00.000Z" });
+  });
+
+  it("finds nothing when the lead has no group", () => {
+    expect(pickOwnerGroup([])).toBeNull();
+    expect(pickOwnerGroup(null)).toBeNull();
+    expect(pickOwnerGroup(undefined)).toBeNull();
   });
 });

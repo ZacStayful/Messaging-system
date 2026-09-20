@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { outboxIdempotencyKey } from "@/lib/notifications/idempotency";
+import { keyForBatch, outboxIdempotencyKey } from "@/lib/notifications/idempotency";
 
 /**
  * The key that stops a crashed run sending the same email twice. Resend keeps it for 24 hours and
@@ -90,5 +90,31 @@ describe("sendEmail idempotency responses", () => {
     const res = await (await load())({ ...message, idempotencyKey: "k" });
     expect(res).toMatchObject({ ok: false, error: "nope" });
     expect(res.duplicate).toBeUndefined();
+  });
+});
+
+describe("keyForBatch — the key a batch actually goes out under", () => {
+  const row = (id: number, key?: string) => ({ id, ...(key ? { idempotency_key: key } : {}) });
+
+  it("hashes the ids when nothing in the batch has been dispatched", () => {
+    expect(keyForBatch([row(1), row(2)])).toBe(outboxIdempotencyKey([1, 2]));
+  });
+
+  it("reuses the key a dispatched row already carries", () => {
+    expect(keyForBatch([row(101, "stayful-outbox-abc")])).toBe("stayful-outbox-abc");
+  });
+
+  it("gives a stranded remnant the same key the whole batch was sent under", () => {
+    // The bug in one assertion. Rows 101 and 102 go out together; finish() marks 101 sent and
+    // the run dies; ten minutes later only 102 is selectable. Hashing that remnant produces a
+    // key Resend has never seen, and the recipient reads the message twice.
+    const original = keyForBatch([row(101), row(102)]);
+    const remnant = keyForBatch([row(102, original)]);
+    expect(remnant).toBe(original);
+    expect(remnant).not.toBe(outboxIdempotencyKey([102]));
+  });
+
+  it("ignores a key that is only whitespace", () => {
+    expect(keyForBatch([row(1, "   ")])).toBe(outboxIdempotencyKey([1]));
   });
 });
