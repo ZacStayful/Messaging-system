@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupOutboxRows, skipReason, type RecipientPrefs } from "@/lib/notifications/policy";
+import { groupOutboxRows, settleBatch, skipReason, type RecipientPrefs } from "@/lib/notifications/policy";
 
 const AWAKE: RecipientPrefs = {
   presence_mode: "auto",
@@ -176,5 +176,91 @@ describe("groupOutboxRows", () => {
     const broken = { id: 9, channel: "email", recipient_user_id: "u1", payload: { conversation_id: "c1" } };
     const groups = groupOutboxRows([row(1, "u1", "c1", 0), broken as never], WINDOW);
     expect(sizes(groups)).toEqual([1, 1]);
+  });
+});
+
+describe("groupOutboxRows — replaying a send that already went out", () => {
+  const at = (minutes: number) => new Date(Date.UTC(2026, 0, 1, 9, minutes)).toISOString();
+  const row = (id: number, minute: number, key?: string) => ({
+    id,
+    channel: "email",
+    recipient_user_id: "u1",
+    recipient_email: "jason@example.com",
+    payload: { conversation_id: "c1", created_at: at(minute) },
+    ...(key ? { idempotency_key: key } : {}),
+  });
+
+  it("re-forms the batch a stranded row was sent in, rather than a fresh one", () => {
+    // The failure this exists for: a batch of two goes out, finish() marks the first `sent` and
+    // the run dies. Ten minutes later only the second is selectable. Without the stored key it
+    // hashes to something Resend has never seen and the recipient reads the message twice.
+    const batches = groupOutboxRows([row(102, 1, "stayful-outbox-abc")], 2 * 60_000);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].map((r) => r.id)).toEqual([102]);
+    expect(batches[0][0].idempotency_key).toBe("stayful-outbox-abc");
+  });
+
+  it("keeps rows sent under the same key together", () => {
+    const batches = groupOutboxRows([row(101, 0, "k1"), row(102, 1, "k1")], 2 * 60_000);
+    expect(batches.map((b) => b.map((r) => r.id))).toEqual([[101, 102]]);
+  });
+
+  it("never merges a row that has been sent with one that has not", () => {
+    // The dangerous direction. Sending a *new* message under a key Resend has already answered
+    // gets it dropped as a duplicate and never delivered — a silent loss, which is worse than
+    // the duplicate this whole mechanism prevents.
+    const batches = groupOutboxRows([row(101, 0, "k1"), row(102, 1)], 2 * 60_000);
+    expect(batches).toHaveLength(2);
+    expect(batches.map((b) => b.map((r) => r.id)).sort()).toEqual([[101], [102]]);
+  });
+
+  it("never merges rows sent under different keys, however close in time", () => {
+    const batches = groupOutboxRows([row(101, 0, "k1"), row(102, 0, "k2")], 2 * 60_000);
+    expect(batches).toHaveLength(2);
+  });
+
+  it("leaves rows that have never been dispatched batching as they always did", () => {
+    const batches = groupOutboxRows([row(1, 0), row(2, 1), row(3, 9)], 2 * 60_000);
+    expect(batches.map((b) => b.map((r) => r.id))).toEqual([[1, 2], [3]]);
+  });
+});
+
+describe("settleBatch", () => {
+  const rows = (attempts: number, ...ids: number[]) => ids.map((id) => ({ id, attempts }));
+
+  it("settles a whole batch in one group, not one statement per row", () => {
+    // The per-row loop this replaces is what split batches: a run killed partway through left
+    // some rows `sent` and the rest stranded in `sending`.
+    const { groups } = settleBatch(rows(0, 1, 2, 3), true, 5);
+    expect(groups).toEqual([{ ids: [1, 2, 3], attempts: 1, status: "sent" }]);
+  });
+
+  it("names every dead row once, so one note covers the batch", () => {
+    // Six rows used to mean six byte-identical internal notes in one conversation.
+    const { groups, goneQuiet } = settleBatch(rows(4, 1, 2, 3), false, 5);
+    expect(groups).toEqual([{ ids: [1, 2, 3], attempts: 5, status: "dead" }]);
+    expect(goneQuiet).toEqual([1, 2, 3]);
+  });
+
+  it("is quiet until the attempts actually run out", () => {
+    const { groups, goneQuiet } = settleBatch(rows(1, 7), false, 5);
+    expect(groups).toEqual([{ ids: [7], attempts: 2, status: "failed" }]);
+    expect(goneQuiet).toEqual([]);
+  });
+
+  it("keeps each row's own attempts count when a batch is not uniform", () => {
+    // The WhatsApp-to-email fallback can put a row with its own history beside fresh ones.
+    const { groups, goneQuiet } = settleBatch([...rows(4, 1), ...rows(0, 2)], false, 5);
+    expect(groups).toEqual([
+      { ids: [1], attempts: 5, status: "dead" },
+      { ids: [2], attempts: 1, status: "failed" },
+    ]);
+    expect(goneQuiet).toEqual([1]);
+  });
+
+  it("never gives up on a send that worked", () => {
+    const { groups, goneQuiet } = settleBatch(rows(9, 1), true, 5);
+    expect(groups[0].status).toBe("sent");
+    expect(goneQuiet).toEqual([]);
   });
 });

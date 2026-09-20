@@ -18,12 +18,30 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { normaliseUkMobile } from "@/lib/phone";
+import { OWNER_GROUP_LOOKUP, pickOwnerGroup } from "./capture";
+import { whatsAppBodyText } from "./templates";
 import type { InboundWhatsApp } from "./inbound";
 
 type Admin = SupabaseClient<Database>;
 
 /** How far back to look for an app send with the same text: the drain runs once a minute. */
 export const APP_SEND_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Whether `sent` — the text that came back through the webhook — is what the app would have put
+ * on the wire for the body an outbox row stored.
+ *
+ * The row carries the whole message; a lead receives `whatsAppBodyText(body)`, which cuts at 900
+ * characters and ends in an ellipsis. The two were compared raw, so any app message over that
+ * length never matched its own echo and was mirrored back into the customer's group as though
+ * they had typed it. Short messages are unaffected, which is why this went unnoticed.
+ */
+export function appSendMatches(payloadBody: string, sent: string): boolean {
+  const wanted = sent.trim();
+  if (!wanted) return false;
+  const raw = payloadBody.trim();
+  return raw === wanted || whatsAppBodyText(raw) === wanted;
+}
 
 /** The other party's number. For a sent message that is the recipient, not the sender. */
 export function counterpartPhone(
@@ -135,13 +153,17 @@ async function wasSentByApp(admin: Admin, uid: string, to: string, text: string)
     .eq("channel", "whatsapp")
     .eq("recipient_phone", to)
     .in("status", ["sending", "sent"])
-    .gte("created_at", since)
+    // dispatched_at (0038), not created_at. created_at is when the row was *queued*, and the
+    // question here is when it went out: a row that waited half an hour behind an unconfigured
+    // provider or a burst cap is dispatched long after it was created, and looking in the wrong
+    // window meant the app's own send came back and was filed as the customer typing it.
+    .gte("dispatched_at", since)
     .limit(20);
   const wanted = text.trim();
   if (!wanted) return false;
   return (recent ?? []).some((r) => {
     const body = (r.payload as { body?: unknown } | null)?.body;
-    return typeof body === "string" && body.trim() === wanted;
+    return typeof body === "string" && appSendMatches(body, wanted);
   });
 }
 
@@ -208,15 +230,11 @@ export async function mirrorSentMessage(admin: Admin, m: InboundWhatsApp, raw: u
           .eq("user_id", counterpart!.id)
           .eq("member_side", "external")
           .eq("conversations.type", "owner")
-          .limit(1)
-          .maybeSingle(),
+          .limit(OWNER_GROUP_LOOKUP),
       ])
     : [false, { data: null }];
 
-  const conv = membership.data?.conversations as unknown as { archived_at: string | null } | null;
-  const ownerGroup = membership.data
-    ? { conversationId: membership.data.conversation_id, archivedAt: conv?.archived_at ?? null }
-    : null;
+  const ownerGroup = pickOwnerGroup(membership.data);
   const senderUserId =
     isLead && ownerGroup ? await senderFor(admin, counterpart!.org_id, m, ownerGroup.conversationId) : null;
 

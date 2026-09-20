@@ -1098,6 +1098,7 @@ export type Database = {
           dispatched_at: string | null;
           fallback_from: string | null;
           id: number;
+          idempotency_key: string | null;
           kind: string;
           last_error: string | null;
           org_id: string;
@@ -1117,6 +1118,7 @@ export type Database = {
           dispatched_at?: string | null;
           fallback_from?: string | null;
           id?: never;
+          idempotency_key?: string | null;
           kind: string;
           last_error?: string | null;
           org_id: string;
@@ -1136,6 +1138,7 @@ export type Database = {
           dispatched_at?: string | null;
           fallback_from?: string | null;
           id?: never;
+          idempotency_key?: string | null;
           kind?: string;
           last_error?: string | null;
           org_id?: string;

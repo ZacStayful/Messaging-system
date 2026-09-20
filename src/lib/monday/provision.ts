@@ -21,6 +21,12 @@ type Admin = SupabaseClient<Database>;
 
 /** Why a delivery did or did not produce anything. Stored on `monday_events.outcome`. */
 export type Outcome =
+  /**
+   * Written when a delivery starts, before any work. The only non-terminal outcome: it means
+   * "this delivery was seen", not "this delivery finished". Kept distinct from `created` so a
+   * retry can tell a run that died halfway from one that succeeded — see the webhook route.
+   */
+  | "received"
   | "created"
   | "duplicate"
   | "skipped_disabled"
@@ -30,6 +36,18 @@ export type Outcome =
   | "no_address"
   | "not_configured"
   | "error";
+
+/**
+ * Whether a recorded outcome means the delivery was seen but never finished.
+ *
+ * Only 'received' qualifies, and the webhook leans on that: a redelivery whose stored outcome is
+ * this does the work instead of reporting a duplicate. Every other outcome is final. Anything
+ * new added to Outcome is terminal until someone says otherwise here, which is the safe default
+ * — treating a finished delivery as unfinished would provision twice.
+ */
+export function isUnfinished(outcome: string | null | undefined): boolean {
+  return outcome === "received";
+}
 
 export interface ProvisionResult {
   outcome: Outcome;

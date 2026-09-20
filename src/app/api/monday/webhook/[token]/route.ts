@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhookToken } from "@/lib/whatsapp/inbound";
 import { isItemCreated, normaliseMondayEvent } from "@/lib/monday/webhook";
 import { mondayConfigured } from "@/lib/monday/client";
-import { provisionClientItem, readIntegration, type Outcome } from "@/lib/monday/provision";
+import { isUnfinished, provisionClientItem, readIntegration, type Outcome } from "@/lib/monday/provision";
 
 export const dynamic = "force-dynamic";
 // Provisioning is several round trips — the Monday fetch, two groups, three messages — and
@@ -99,10 +99,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await record(admin, event, "not_configured", raw, "no integrations row for monday_clients");
     return NextResponse.json({ ok: true, ignored: "not configured" });
   }
-  // Recorded before the work, so a delivery that then throws still leaves a trace. The unique
-  // index on event_id means a retry stops here rather than provisioning twice.
-  const duplicate = await record(admin, event, settings.enabled ? "created" : "skipped_disabled", raw);
-  if (duplicate) return NextResponse.json({ ok: true, duplicate: true, ref: event.eventId });
+  // Recorded before the work, so a delivery that then throws still leaves a trace — but as
+  // 'received', which means "seen", not "done".
+  //
+  // It used to record 'created' here, and since the unique index on event_id makes a redelivery
+  // stop at this line, a delivery killed between the record and provisionClientItem left a
+  // customer who was never set up and a row that claimed they were, for ever: every retry read
+  // its own half-finished marker as proof the work had been done. Carrying on is safe because
+  // provisionClientItem is idempotent through monday_links, which is what the comment at the top
+  // of this file has always promised; the retry simply never reached it.
+  const duplicate = await record(admin, event, settings.enabled ? "received" : "skipped_disabled", raw);
+  if (duplicate && !(await unfinished(admin, event.eventId))) {
+    return NextResponse.json({ ok: true, duplicate: true, ref: event.eventId });
+  }
 
   if (!settings.enabled) return NextResponse.json({ ok: true, skipped: "integration disabled" });
   if (!mondayConfigured()) {
@@ -129,6 +138,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     customer_conversation_id: result.customerConversationId ?? null,
     property_conversation_id: result.propertyConversationId ?? null,
   });
+}
+
+/**
+ * Whether a redelivery is of something that never finished.
+ *
+ * True only for a row still sitting at 'received': the previous attempt was interrupted between
+ * recording the delivery and reaching a terminal outcome, so this one should do the work rather
+ * than report a duplicate. Every other outcome is final and a redelivery is genuinely a
+ * duplicate. A delivery with no event id never dedupes in the first place.
+ */
+async function unfinished(admin: Admin, eventId: string | null): Promise<boolean> {
+  if (!eventId) return false;
+  const { data } = await admin.from("monday_events").select("outcome").eq("event_id", eventId).maybeSingle();
+  return isUnfinished(data?.outcome);
 }
 
 /** The row was written optimistically before the work; this is what actually happened. */
