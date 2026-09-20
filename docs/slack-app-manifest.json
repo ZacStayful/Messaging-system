@@ -14,7 +14,6 @@
         "groups:read",
         "channels:history",
         "groups:history",
-        "channels:join",
         "files:read",
         "reactions:read",
         "pins:read",

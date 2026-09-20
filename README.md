@@ -697,8 +697,11 @@ internal customer-built app also keeps the ordinary rate limits on `conversation
 Slack's 2025 change took away from distributed apps.
 
 The scopes are all reads: `team:read`, `users:read`, `users:read.email`, `channels:read`,
-`groups:read`, `channels:history`, `groups:history`, `channels:join` (public channels the admin is
-not in are joined so they can be read), `files:read`, `reactions:read`, `pins:read`, `bookmarks:read`.
+`groups:read`, `channels:history`, `groups:history`, `files:read`, `reactions:read`, `pins:read`,
+`bookmarks:read`. Nothing is ever joined and nothing is ever posted, so the import announces itself
+in no channel: Slack's own rule for `conversations.history` is that **only** user tokens can read
+public channels they are not in, which is the other half of why this is a user token. A private
+channel the admin is not in stays invisible and is listed as `not_visible`.
 
 ### Running it
 
