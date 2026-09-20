@@ -100,7 +100,7 @@ async function repliesFor(channelId: string, parents: SlackMessage[], budget: Bu
   const out: SlackMessage[] = [];
   for (const p of parents) {
     if ((p.reply_count ?? 0) === 0 || (p.thread_ts && p.thread_ts !== p.ts)) continue;
-    if (!budget.has(5_000)) throw new OutOfTime();
+    if (!budget.has(16_000)) throw new OutOfTime();
     const thread = await threadReplies(channelId, p.ts);
     for (const r of thread) if (r.ts !== p.ts) out.push(r);
   }
@@ -151,6 +151,32 @@ async function phaseMembers(ctx: ApplyContext, link: LinkRow, actorId: string): 
   });
 }
 
+/**
+ * Reads a page, joining the channel only if Slack says it must.
+ *
+ * `conversations.join` posts "X joined the channel" in the live workspace, so doing it up front
+ * for every public channel would announce the import to everyone, hundreds of times, mostly
+ * needlessly — a user token can usually read a public channel it is not in.
+ */
+async function historyPageJoining(
+  ctx: ApplyContext,
+  link: LinkRow,
+  opts: { latest?: string; oldest?: string; limit?: number; cursor?: string },
+): Promise<Awaited<ReturnType<typeof historyPage>>> {
+  try {
+    return await historyPage(link.slack_channel_id, opts);
+  } catch (e) {
+    if (!(e instanceof SlackApiError) || e.code !== "not_in_channel" || link.is_private) throw e;
+    await joinChannel(link.slack_channel_id);
+    await ctx.admin
+      .from("slack_conversations")
+      .update({ is_member: true, updated_at: new Date().toISOString() })
+      .eq("org_id", link.org_id)
+      .eq("slack_channel_id", link.slack_channel_id);
+    return historyPage(link.slack_channel_id, opts);
+  }
+}
+
 async function phaseHistory(
   ctx: ApplyContext,
   link: LinkRow,
@@ -158,8 +184,8 @@ async function phaseHistory(
   out: SliceReport["conversations"][number],
 ): Promise<LinkRow> {
   let current = link;
-  while (budget.has(10_000)) {
-    const page = await historyPage(current.slack_channel_id, {
+  while (budget.has(20_000)) {
+    const page = await historyPageJoining(ctx, current, {
       latest: current.history_low_ts ?? undefined,
       limit: PAGE,
     });
@@ -231,7 +257,11 @@ async function phaseBookmarks(ctx: ApplyContext, link: LinkRow, actorId: string)
       .upsert(rows, { onConflict: "conversation_id,template_key", ignoreDuplicates: true });
   }
   if (link.status === "complete") return link;
-  const { error } = await ctx.admin.rpc("slack_finish_backfill", { p_conversation_id: link.conversation_id! });
+  // The backfill's own finish: mark the imported history read, because nobody was here for it.
+  const { error } = await ctx.admin.rpc("slack_finish_backfill", {
+    p_conversation_id: link.conversation_id!,
+    p_mark_read: true,
+  });
   if (error) throw new Error(`slack_finish_backfill: ${error.message}`);
   return patchLink(ctx.admin, link, {});
 }
@@ -283,7 +313,7 @@ async function catchUp(
     insertedReplies: 0,
   };
   do {
-    if (!budget.has(10_000)) throw new OutOfTime();
+    if (!budget.has(20_000)) throw new OutOfTime();
     const page = await historyPage(channel, { oldest: since, cursor, limit: PAGE });
     if (page.messages.length) {
       const replies = await repliesFor(channel, page.messages, budget);
@@ -308,12 +338,14 @@ async function catchUp(
     .eq("conversation_id", current.conversation_id!)
     .eq("sent_via", "slack")
     .is("parent_id", null)
-    .gt("reply_count", 0)
-    .gte("last_reply_at", recentSince)
-    .order("last_reply_at", { ascending: false })
+    // Deliberately not `reply_count > 0`: that column counts what we have imported, so requiring
+    // it means a thread can only be re-read once it already has a reply here — and its first one
+    // never arrives. A parent recently posted or recently replied to is the honest filter.
+    .or(`last_reply_at.gte.${recentSince},created_at.gte.${recentSince}`)
+    .order("last_reply_at", { ascending: false, nullsFirst: false })
     .limit(RECENT_THREADS_PER_SLICE);
   for (const p of parents ?? []) {
-    if (!budget.has(6_000)) throw new OutOfTime();
+    if (!budget.has(16_000)) throw new OutOfTime();
     const ts = p.external_ref?.split(":")[1];
     if (!ts) continue;
     const thread = await threadReplies(channel, ts);
@@ -330,20 +362,34 @@ async function catchUp(
     const seen = new Set<string>();
     let deepCursor: string | undefined;
     let latestSeen = oldest;
+    // Only a walk that reached the end may conclude that what it did not see was deleted.
+    let walkedToTheEnd = false;
     do {
-      if (!budget.has(10_000)) throw new OutOfTime();
+      if (!budget.has(20_000)) throw new OutOfTime();
       const page = await historyPage(channel, { oldest, cursor: deepCursor, limit: PAGE });
       for (const m of page.messages) {
         seen.add(m.ts);
         if (Number(m.ts) > Number(latestSeen)) latestSeen = m.ts;
       }
       if (page.messages.length) {
-        const r = await applyMessages(ctx, current.conversation_id!, channel, page.messages, { bulk: true });
+        // With the replies, which is the only route by which a new reply to an older thread ever
+        // arrives: the forward walk covers the last hour, step 4 covers threads we already know
+        // have replies, and a three-week-old parent whose first reply lands today is in neither.
+        // Slack's own reply_count on the parent is what repliesFor trusts, so it sees it.
+        const replies = await repliesFor(channel, page.messages, budget);
+        const r = await applyMessages(ctx, current.conversation_id!, channel, [...page.messages, ...replies], {
+          bulk: true,
+        });
         for (const k of Object.keys(report) as (keyof ApplyReport)[]) report[k] += r[k];
       }
+      if (!page.hasMore) walkedToTheEnd = true;
       deepCursor = page.hasMore ? page.nextCursor : undefined;
     } while (deepCursor);
-    await markDeletedInWindow(ctx.admin, channel, { oldest, latest: latestSeen, threadTs: null }, seen);
+    // `hasMore` with no cursor would otherwise leave the loop looking finished, and every message
+    // the walk had not reached would be stamped deleted.
+    if (walkedToTheEnd) {
+      await markDeletedInWindow(ctx.admin, channel, { oldest, latest: latestSeen, threadTs: null }, seen);
+    }
     current = await patchLink(ctx.admin, current, { threads_checked_at: new Date().toISOString() });
   }
 
@@ -351,7 +397,13 @@ async function catchUp(
   out.report = report;
   current = await phaseFiles(ctx, current, budget);
   await phaseBookmarks(ctx, current, actorId);
-  const { error } = await ctx.admin.rpc("slack_finish_backfill", { p_conversation_id: current.conversation_id! });
+  // Deliberately not marking anything read. After the backfill, unread means unread: a catch-up
+  // that cleared the badge would hide both what the team posted here and what it just brought
+  // over from Slack, every day, for everyone who had not opened the channel.
+  const { error } = await ctx.admin.rpc("slack_finish_backfill", {
+    p_conversation_id: current.conversation_id!,
+    p_mark_read: false,
+  });
   if (error) throw new Error(`slack_finish_backfill: ${error.message}`);
   return patchLink(ctx.admin, current, {});
 }
@@ -370,10 +422,6 @@ export async function syncConversation(
   let current = link;
   try {
     if (current.status === "ready") {
-      if (!current.is_member && !current.is_private) {
-        await joinChannel(current.slack_channel_id);
-        current = await patchLink(ctx.admin, current, { is_member: true });
-      }
       const made = await materialiseConversation(ctx.admin, ctx.actor, actorId, current);
       if ("error" in made) throw new Error(made.error);
       current = await patchLink(ctx.admin, current, {
@@ -437,9 +485,16 @@ async function applyPendingUsers(
     .neq("decision", "skip")
     .order("is_bot")
     .order("slack_user_id");
-  const pending = (rows ?? []).filter(
-    (r) => !r.outcome || !["linked", "invited", "created", "updated", "skipped"].includes(r.outcome),
-  );
+  const settled = ["linked", "invited", "created", "updated", "skipped"];
+  const pending = (rows ?? []).filter((r) => {
+    if (r.outcome && settled.includes(r.outcome)) return false;
+    // A decision that failed for a reason that will not change on its own — an address already
+    // used in another organisation, a hand-set `link` with nothing to link to — would otherwise
+    // be retried every minute for ever, burning an RPC and, for an invite, a send attempt. It
+    // stays on the page with its error, and a person changing the decision clears the way.
+    if (r.outcome === "error" && r.decision_source !== "manual") return false;
+    return true;
+  });
   let applied = 0;
   for (const r of pending) {
     if (!budget.has(6_000)) break;
@@ -461,7 +516,7 @@ async function applyPendingUsers(
     if (d.decision === "link" && !d.profileId) {
       // Decided by hand as "link" but with nothing to link to: find the account by email now.
       const { data: p } = d.email
-        ? await admin.from("profiles").select("id").ilike("email", d.email).maybeSingle()
+        ? await admin.from("profiles").select("id").eq("email", d.email).maybeSingle()
         : { data: null };
       d.profileId = p?.id ?? null;
     }

@@ -258,7 +258,10 @@ export async function applyUserDecision(
 
     if (d.decision === "invite_team") {
       if (!d.email) return { outcome: "error", profileId: null, error: "no email" };
-      const { data: existing } = await admin.from("profiles").select("id").ilike("email", d.email).maybeSingle();
+      // eq, not ilike: an underscore is a wildcard to LIKE and common in an address, so
+      // sam_jones@acme.com would also match samXjones@acme.com — and the match is what decides
+      // whether to write a Slack id onto someone else's profile. Addresses are stored lower-cased.
+      const { data: existing } = await admin.from("profiles").select("id").eq("email", d.email).maybeSingle();
       if (existing) {
         await admin.from("profiles").update({ slack_user_id: d.slackUserId }).eq("id", existing.id);
         return { outcome: "linked", profileId: existing.id };

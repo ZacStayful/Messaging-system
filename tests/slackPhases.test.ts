@@ -2,7 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import type { ApplyContext } from "@/lib/slack/apply";
-import { historyPage, listBookmarks, listMembers, threadReplies, type SlackMessage } from "@/lib/slack/client";
+import {
+  conversationInfo,
+  historyPage,
+  listBookmarks,
+  listMembers,
+  threadReplies,
+  type SlackMessage,
+} from "@/lib/slack/client";
 import { Directory } from "@/lib/slack/directory";
 import { Budget } from "@/lib/slack/lease";
 import { syncConversation } from "@/lib/slack/backfill";
@@ -86,7 +93,7 @@ function link(overrides: Partial<LinkRow> = {}): LinkRow {
  * is enough to check what a writer writes; a phase machine reads its own last write back, so this
  * one applies each patch to the row it is holding — which is also what makes "resume" testable.
  */
-function statefulDb(row: LinkRow, pendingFiles = 0) {
+function statefulDb(row: LinkRow, pendingFiles = 0, tables: Record<string, unknown[]> = {}) {
   let current = { ...row };
   const patches: Partial<LinkRow>[] = [];
   const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
@@ -125,7 +132,7 @@ function statefulDb(row: LinkRow, pendingFiles = 0) {
     chain.maybeSingle = async () => ({ data: table === "slack_conversations" ? current : null, error: null });
     chain.then = (resolve: (v: unknown) => void) =>
       // The files phase asks how many rows are still pending before it moves on.
-      resolve({ data: [], error: null, count: table === "slack_files" ? filesLeft : 0 });
+      resolve({ data: tables[table] ?? [], error: null, count: table === "slack_files" ? filesLeft : 0 });
     return chain;
   };
 
@@ -176,6 +183,9 @@ function context(admin: SupabaseClient<Database>): ApplyContext {
 }
 
 const msg = (n: number): SlackMessage => ({ ts: ts(n), user: "U1", text: `message ${n}` });
+
+/** The deep pass asks from a whole number of seconds; the forward walk keeps a ts's decimals. */
+const isDeepPass = (oldest: string | undefined) => Boolean(oldest && !oldest.includes("."));
 
 /** Serves `messages` newest first, honouring the exclusive `latest` bound the backfill walks by. */
 function paged(messages: SlackMessage[], perPage = 2) {
@@ -310,5 +320,126 @@ describe("syncConversation", () => {
     expect(vi.mocked(threadReplies)).toHaveBeenCalledWith("C1", ts(1));
     expect(db.row().imported_messages).toBe(1);
     expect(db.row().imported_replies).toBe(2);
+  });
+});
+
+/**
+ * The daily catch-up. It runs on every imported channel for as long as Slack is still in use, so
+ * what it must NOT do matters as much as what it does — it is the one part of the import that
+ * touches conversations people are already reading.
+ */
+describe("catchUp", () => {
+  /** A channel that finished its backfill yesterday and is due now. */
+  const done = (overrides: Partial<LinkRow> = {}) =>
+    link({
+      status: "complete",
+      conversation_id: "conv-1",
+      history_low_ts: ts(1),
+      history_high_ts: ts(9),
+      completed_at: new Date(Date.now() - 86_400_000).toISOString(),
+      next_sync_at: new Date(Date.now() - 1_000).toISOString(),
+      threads_checked_at: new Date().toISOString(),
+      ...overrides,
+    });
+
+  const quiet = () => {
+    vi.mocked(conversationInfo).mockResolvedValue({ id: "C1", name: "general" });
+    vi.mocked(listMembers).mockResolvedValue(["U1"]);
+    vi.mocked(historyPage).mockResolvedValue({ messages: [], hasMore: false });
+    vi.mocked(listBookmarks).mockResolvedValue([]);
+  };
+
+  it("never marks anything read, so a badge it did not earn is not cleared", async () => {
+    quiet();
+    const db = statefulDb(done());
+    await syncConversation(context(db.admin), "p-zac", done(), new Budget(60_000), entry());
+
+    const finish = db.rpcCalls.filter((c) => c.name === "slack_finish_backfill");
+    expect(finish).toHaveLength(1);
+    expect(finish[0].args).toMatchObject({ p_mark_read: false });
+  });
+
+  it("reads forward from an hour before the high watermark, to catch edits and reactions", async () => {
+    quiet();
+    const db = statefulDb(done());
+    await syncConversation(context(db.admin), "p-zac", done(), new Budget(60_000), entry());
+
+    // 3600 seconds before ts(9), which is the overlap the catch-up re-reads.
+    const expected = String(Number(ts(9)) - 3600);
+    expect(vi.mocked(historyPage).mock.calls[0][1]).toMatchObject({ oldest: expected });
+  });
+
+  it("fetches a thread's replies during the weekly deep pass, which is how an old thread's first reply arrives", async () => {
+    vi.mocked(conversationInfo).mockResolvedValue({ id: "C1", name: "general" });
+    vi.mocked(listMembers).mockResolvedValue(["U1"]);
+    vi.mocked(listBookmarks).mockResolvedValue([]);
+    // A parent Slack says has a reply. Our own reply_count is 0, so step 4 would never select it.
+    const old: SlackMessage = { ts: ts(2), user: "U1", text: "three weeks ago", reply_count: 1 };
+    vi.mocked(historyPage).mockImplementation(async (_c, opts: { oldest?: string } = {}) =>
+      // The forward walk finds nothing new; only the deep pass sees the old parent.
+      isDeepPass(opts.oldest) ? { messages: [old], hasMore: false } : { messages: [], hasMore: false },
+    );
+    vi.mocked(threadReplies).mockResolvedValue([
+      old,
+      { ts: ts(3), user: "U1", text: "a late reply", thread_ts: ts(2) },
+    ]);
+
+    // threads_checked_at long past, so the weekly pass is due.
+    const db = statefulDb(done({ threads_checked_at: new Date(Date.now() - 8 * 86_400_000).toISOString() }));
+    await syncConversation(
+      context(db.admin),
+      "p-zac",
+      done({ threads_checked_at: new Date(Date.now() - 8 * 86_400_000).toISOString() }),
+      new Budget(60_000),
+      entry(),
+    );
+
+    expect(vi.mocked(threadReplies)).toHaveBeenCalledWith("C1", ts(2));
+    const imported = db.rpcCalls
+      .filter((c) => c.name === "import_slack_messages")
+      .flatMap((c) => c.args.p_rows as { ts: string }[])
+      .map((r) => r.ts);
+    expect(imported).toContain(ts(3));
+  });
+
+  it("concludes nothing was deleted when the deep walk could not reach the end", async () => {
+    vi.mocked(conversationInfo).mockResolvedValue({ id: "C1", name: "general" });
+    vi.mocked(listMembers).mockResolvedValue(["U1"]);
+    vi.mocked(listBookmarks).mockResolvedValue([]);
+    vi.mocked(threadReplies).mockResolvedValue([]);
+    // has_more with no cursor: the loop ends, but it has not seen the whole window.
+    vi.mocked(historyPage).mockImplementation(async (_c, opts: { oldest?: string } = {}) =>
+      isDeepPass(opts.oldest)
+        ? { messages: [{ ts: ts(2), user: "U1", text: "one of many" }], hasMore: true, nextCursor: undefined }
+        : { messages: [], hasMore: false },
+    );
+
+    const stale = done({ threads_checked_at: new Date(Date.now() - 8 * 86_400_000).toISOString() });
+    // A message we hold that the truncated walk did not see. Were the walk trusted, this is the
+    // row that would be stamped deleted — so its absence from any mark_slack_deleted call is the
+    // whole assertion.
+    const db = statefulDb(stale, 0, { slack_messages: [{ ts: ts(5) }] });
+    await syncConversation(context(db.admin), "p-zac", stale, new Budget(60_000), entry());
+
+    expect(db.rpcCalls.map((c) => c.name)).not.toContain("mark_slack_deleted");
+  });
+
+  it("does conclude a deletion when the deep walk did reach the end", async () => {
+    vi.mocked(conversationInfo).mockResolvedValue({ id: "C1", name: "general" });
+    vi.mocked(listMembers).mockResolvedValue(["U1"]);
+    vi.mocked(listBookmarks).mockResolvedValue([]);
+    vi.mocked(threadReplies).mockResolvedValue([]);
+    vi.mocked(historyPage).mockImplementation(async (_c, opts: { oldest?: string } = {}) =>
+      isDeepPass(opts.oldest)
+        ? { messages: [{ ts: ts(2), user: "U1", text: "still here" }], hasMore: false }
+        : { messages: [], hasMore: false },
+    );
+
+    const stale = done({ threads_checked_at: new Date(Date.now() - 8 * 86_400_000).toISOString() });
+    const db = statefulDb(stale, 0, { slack_messages: [{ ts: ts(5) }] });
+    await syncConversation(context(db.admin), "p-zac", stale, new Budget(60_000), entry());
+
+    const marked = db.rpcCalls.find((c) => c.name === "mark_slack_deleted");
+    expect(marked?.args).toMatchObject({ p_channel_id: "C1", p_ts_list: [ts(5)] });
   });
 });

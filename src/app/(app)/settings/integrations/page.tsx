@@ -73,7 +73,13 @@ export default async function IntegrationsPage() {
       .order("name", { nullsFirst: false }),
     // Two numbers for the status card; the table itself would be thousands of rows.
     supabase.from("slack_files").select("status").in("status", ["pending", "dead"]),
-    supabase.from("conversations").select("id, name, slug, type").is("archived_at", null).order("name"),
+    // Groups and channels only: a Slack channel cannot be linked into a dm or a group dm.
+    supabase
+      .from("conversations")
+      .select("id, name, slug, type")
+      .in("type", ["owner", "internal"])
+      .is("archived_at", null)
+      .order("name"),
   ]);
 
   const config = (integration?.config ?? {}) as Record<string, unknown>;

@@ -152,12 +152,16 @@ export async function applyMessages(
         if (r.outcome === "inserted") {
           report.inserted += 1;
           if (n?.row.thread_ts) report.insertedReplies += 1;
-          if (n && r.message_id && n.files.length) {
-            await queueFiles(ctx.admin, ctx.orgId, conversationId, channelId, r.message_id, n.files);
-            report.filesQueued += n.files.length;
-          }
         } else if (r.outcome === "updated") report.updated += 1;
         else report.unchanged += 1;
+        // Not only on `inserted`. A batch commits up to 500 messages and the queue is written
+        // after, so a slice killed in between leaves messages whose files nothing would ever ask
+        // for: the page is re-read, every row answers `unchanged`, and the attachments are lost
+        // with no trace. The upsert ignores duplicates, so asking twice costs a statement.
+        if (n && r.message_id && n.files.length) {
+          await queueFiles(ctx.admin, ctx.orgId, conversationId, channelId, r.message_id, n.files);
+          if (r.outcome === "inserted") report.filesQueued += n.files.length;
+        }
       }
     }
     if (orphans.length === 0 || pass === 1) {

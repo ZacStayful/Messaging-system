@@ -212,6 +212,20 @@ export async function materialiseConversation(
   const createdAt = link.created_ts ? new Date(Number(link.created_ts) * 1000).toISOString() : new Date().toISOString();
 
   if (!conversationId) {
+    // Has this channel already been made one? slack_conversations.conversation_id is written one
+    // statement after the insert below, so a slice killed in between leaves a conversation that
+    // nothing points at — and without this lookup the next run would build a second one, named
+    // "general-2", or a second property group with its own pair of anchors.
+    const { data: already } = await admin
+      .from("conversations")
+      .select("id")
+      .eq("org_id", link.org_id)
+      .eq("slack_channel_id", link.slack_channel_id)
+      .maybeSingle();
+    conversationId = already?.id ?? null;
+  }
+
+  if (!conversationId) {
     const base = link.name ?? link.slack_channel_id;
     const { data: slug, error: slugError } = await actor.rpc("next_available_slug", {
       p_org: link.org_id,
@@ -232,6 +246,9 @@ export async function materialiseConversation(
           is_private: true,
           created_by: actorId,
           created_at: createdAt,
+          // Written in the same statement, so the conversation is findable by the channel it came
+          // from from the instant it exists rather than from the statement after.
+          slack_channel_id: link.slack_channel_id,
         })
         .select("id")
         .single();

@@ -201,6 +201,9 @@ begin
   v_link := public.slack_claim_conversation(interval '10 minutes');
   if v_link.slack_channel_id is not null then raise exception 'a claimed row was claimed again'; end if;
 
+  -- The backfill's finish marks the imported history read, and says nothing while doing it:
+  -- every one of those read-state rows would otherwise broadcast to its owner (0041).
+  delete from realtime.messages;
   perform public.slack_finish_backfill(v_conv);
   select * into v_link from public.slack_conversations where slack_channel_id = 'C1';
   if v_link.status <> 'complete' or v_link.next_sync_at <= now() or v_link.claimed_at is not null then
@@ -208,6 +211,31 @@ begin
   end if;
   if exists (select 1 from public.conversation_members where conversation_id = v_conv and last_read_at is null) then
     raise exception 'a member was left with the whole history unread';
+  end if;
+  select count(*) into v_n from realtime.messages;
+  if v_n <> 0 then raise exception 'the read-state sweep broadcast % events', v_n; end if;
+
+  -- The daily catch-up calls the same function and must NOT touch read state: clearing it would
+  -- hide both what the team posted here and what the catch-up just brought over.
+  update public.conversation_members set last_read_at = now() - interval '1 day'
+   where conversation_id = v_conv;
+  perform public.slack_finish_backfill(v_conv, false);
+  if exists (select 1 from public.conversation_members
+              where conversation_id = v_conv and last_read_at > now() - interval '1 hour') then
+    raise exception 'the catch-up marked the conversation read';
+  end if;
+
+  -- A re-read whose body differs only because a display name changed is not an edit.
+  perform public.import_slack_messages(v_conv, jsonb_build_array(
+    jsonb_build_object('channel_id', 'C1', 'ts', '1700000050.000500', 'sender_id', v_admin,
+                       'body', 'hello @Zac', 'kind', 'text')
+  ), true);
+  perform public.import_slack_messages(v_conv, jsonb_build_array(
+    jsonb_build_object('channel_id', 'C1', 'ts', '1700000050.000500', 'sender_id', v_admin,
+                       'body', 'hello @Zachary', 'kind', 'text')
+  ), true);
+  if (select edited_at from public.messages where external_ref = 'C1:1700000050.000500') is not null then
+    raise exception 're-rendering a mention stamped the message as edited';
   end if;
 
   -- -------------------------------------------------------------------------
