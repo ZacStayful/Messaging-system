@@ -294,14 +294,23 @@ describe("applyMessages", () => {
       },
     ]);
 
-    // The catch-up sees the same message again: nothing to queue.
+    // A re-read queues them again rather than assuming the first pass finished. A batch commits
+    // its messages before this loop runs, so a slice killed in between would otherwise leave
+    // attachments that nothing ever asks for: the page comes back `unchanged` and the files are
+    // gone with no trace. The upsert ignores duplicates, so the cost is one statement.
     rpcHandlers.import_slack_messages = importHandler({ [ts(1)]: "unchanged" });
     expect(await applyMessages(ctx, "conv-1", "C1", [message])).toMatchObject({
       inserted: 0,
       unchanged: 1,
+      // Counted only for a message this run inserted, so the number stays a count of new work.
       filesQueued: 0,
     });
-    expect(writes).toHaveLength(1);
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toMatchObject({
+      table: "slack_files",
+      op: "upsert",
+      options: { onConflict: "message_id,slack_file_id", ignoreDuplicates: true },
+    });
   });
 
   it("gives an unlisted bot a profile through the actor's client before importing its post", async () => {

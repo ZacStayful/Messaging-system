@@ -560,6 +560,7 @@ export type Database = {
           org_id: string;
           owner_user_id: string | null;
           property_id: string | null;
+          slack_channel_id: string | null;
           slug: string | null;
           topic: string | null;
           type: Database["public"]["Enums"]["conversation_type"];
@@ -578,6 +579,7 @@ export type Database = {
           org_id: string;
           owner_user_id?: string | null;
           property_id?: string | null;
+          slack_channel_id?: string | null;
           slug?: string | null;
           topic?: string | null;
           type: Database["public"]["Enums"]["conversation_type"];
@@ -596,6 +598,7 @@ export type Database = {
           org_id?: string;
           owner_user_id?: string | null;
           property_id?: string | null;
+          slack_channel_id?: string | null;
           slug?: string | null;
           topic?: string | null;
           type?: Database["public"]["Enums"]["conversation_type"];
@@ -2783,7 +2786,7 @@ export type Database = {
         };
       };
       slack_finish_backfill: {
-        Args: { p_conversation_id: string };
+        Args: { p_conversation_id: string; p_mark_read?: boolean };
         Returns: undefined;
       };
       start_call: {

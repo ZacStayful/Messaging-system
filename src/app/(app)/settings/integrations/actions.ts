@@ -438,6 +438,12 @@ export async function setSlackConversationDecision(input: SlackChannelDecisionIn
       .eq("id", input.conversationId)
       .maybeSingle();
     if (!target || target.archived_at) return { ok: false, error: "That group could not be found." };
+    // A channel's history belongs in a group or a channel, never in somebody's direct messages:
+    // the picker lists conversations by name and a dm has none, so the wrong row is one
+    // mis-click away and there is no undo for a few thousand imported messages.
+    if (target.type !== "owner" && target.type !== "internal") {
+      return { ok: false, error: "A Slack channel can only be linked to a customer group or an internal channel." };
+    }
     const { data: taken } = await admin
       .from("slack_conversations")
       .select("name")

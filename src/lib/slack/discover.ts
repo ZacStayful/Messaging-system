@@ -69,8 +69,16 @@ export async function discoverWorkspace(admin: Admin, settings: SlackSettings): 
   const ctx = { teamDomains, profilesByEmail, profilesBySlackId, takenDisplayNames };
   const userRows = users.map((u) => {
     const prev = previousById.get(u.id);
+    // Their own name must not count against them, or a second discovery would bump an imported
+    // person to "Sam W. 2".
     if (prev?.resolved_display) takenDisplayNames.delete(prev.resolved_display.toLowerCase());
     const d = decideUser(u, ctx);
+    // …and it has to go back, which decideUser only does for a name it chose itself. Someone
+    // already imported takes the `link` branch and returns before that, so without this line the
+    // name is freed for good and the next Sam is handed it — after which every @Sam W. resolves
+    // to two people, silently, which is the failure the de-duplication exists to prevent.
+    const keptName = prev?.profile_id ? (prev.resolved_display ?? d.displayName) : d.displayName;
+    takenDisplayNames.add(keptName.trim().toLowerCase());
     const keepManual = prev?.decision_source === "manual";
     return {
       org_id: settings.orgId,
@@ -150,7 +158,7 @@ export async function decidePendingConversations(
   admin: Admin,
   settings: SlackSettings,
   budget: Budget,
-): Promise<{ decided: number; remaining: number }> {
+): Promise<{ decided: number; blocked: number; remaining: number }> {
   const { data: pending } = await admin
     .from("slack_conversations")
     .select("*")
@@ -158,7 +166,7 @@ export async function decidePendingConversations(
     .eq("decision", "pending")
     .order("is_private", { ascending: true })
     .order("name");
-  if (!pending?.length) return { decided: 0, remaining: 0 };
+  if (!pending?.length) return { decided: 0, blocked: 0, remaining: 0 };
 
   const [{ data: users }, { data: convs }, { data: linked }, { data: customers }] = await Promise.all([
     admin
@@ -194,6 +202,7 @@ export async function decidePendingConversations(
   );
 
   let decided = 0;
+  let blocked = 0;
   for (const row of pending) {
     if (!budget.has(6_000)) break;
     const conv: SlackConversation = {
@@ -224,12 +233,16 @@ export async function decidePendingConversations(
       skipNamePatterns: settings.skipNamePatterns,
     });
     if (memberError && d.decision !== "skip") {
-      // Cannot read the room's members: leave it pending with the reason, try again next slice.
+      // Cannot read the room's members: leave it pending with the reason and try again next
+      // slice. Counted as handled even so — `remaining` gates every other phase, so one channel
+      // nobody can read would otherwise stop the import for all of them, with a progress note
+      // that reads like "wait".
       await admin
         .from("slack_conversations")
         .update({ last_error: memberError, updated_at: new Date().toISOString() })
         .eq("org_id", row.org_id)
         .eq("slack_channel_id", row.slack_channel_id);
+      blocked += 1;
       continue;
     }
     const { error } = await admin
@@ -256,5 +269,5 @@ export async function decidePendingConversations(
     }
     decided += 1;
   }
-  return { decided, remaining: pending.length - decided };
+  return { decided, blocked, remaining: pending.length - decided - blocked };
 }

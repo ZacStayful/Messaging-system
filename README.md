@@ -366,6 +366,18 @@ conversation_id)` dropped so there is one token per notification email rather th
     partial and PostgREST cannot target a partial index, so the Monday upsert had failed silently
     since 0024; and `next_available_slug` ignored archived rows while the unique index includes
     them. Asserted in `supabase/verify/checks/0042_slack_sync.sql`
+43. `0043_slack_sync_fixes.sql` four corrections to 0042, made before the first import ran.
+    `slack_finish_backfill` marked everything read on every call and the daily catch-up calls it,
+    so a channel synced at 09:30 cleared the badge on a message sent at 09:00 that nobody had
+    opened — including the Slack messages the catch-up had just brought over; it now takes
+    `p_mark_read`, which only the backfill sets. It also never raised `app.bulk_import`, so each
+    of its `thread_follows` updates fired the 0041 read-state broadcast — thousands of realtime
+    sends at the end of a long channel's backfill, the exact flood 0042 added the flag to prevent.
+    `conversations.slack_channel_id` makes an imported group findable by the channel it came from
+    in the same statement that creates it, because `slack_conversations.conversation_id` is
+    written one statement later and a run killed in between built a second group. And a re-read
+    whose body differs only because someone's display name changed since — mentions render
+    through the directory — no longer stamps "(edited)" on a message nobody edited
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
