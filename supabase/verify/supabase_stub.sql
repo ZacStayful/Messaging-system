@@ -9,6 +9,12 @@
 -- Everything here is a stub with the right shape and no behaviour: auth.uid() reads a GUC rather
 -- than a JWT, realtime.broadcast_changes does nothing, storage holds no files. That is enough to
 -- prove the SQL parses, the function bodies compile, the constraints hold and the triggers fire.
+--
+-- One exception, and it is deliberate: realtime.send RECORDS into realtime.messages rather than
+-- discarding. A no-op made every broadcast in the chain unobservable, so a check could pass
+-- against a trigger that fired nothing at all — see checks/0041_read_state_broadcast.sql. Nothing
+-- is emitted while the migrations apply (every realtime.send in the chain sits inside a function
+-- body), so the table is empty until a check does something.
 
 -- Minimal stand-in for the parts of a Supabase project the migrations lean on.
 create schema if not exists auth;
@@ -16,7 +22,11 @@ create schema if not exists extensions;
 create schema if not exists realtime;
 create schema if not exists storage;
 create extension if not exists pgcrypto with schema extensions;
-create extension if not exists pg_trgm;
+-- Into `extensions`, as the line above does and as hosted Supabase does. Unqualified, it lands in
+-- `public` and its ~31 functions become indistinguishable from the app's own — which matters now
+-- that scripts/verify-types-fresh.ts compares this cluster's public schema against the generated
+-- types. Nothing in the repo uses trgm; this exists only because hosted Supabase has it.
+create extension if not exists pg_trgm with schema extensions;
 
 do $r$ begin create role anon; exception when duplicate_object then null; end $r$;
 do $r$ begin create role authenticated; exception when duplicate_object then null; end $r$;
@@ -62,8 +72,13 @@ create table realtime.messages (
   inserted_at timestamptz default now(), id uuid default gen_random_uuid()
 );
 alter table realtime.messages enable row level security;
+-- Qualified with the function name throughout: the parameters shadow the column names exactly.
 create or replace function realtime.send(payload jsonb, event text, topic text, private boolean default true)
-returns void language sql as $$ select null::void $$;
+returns void language plpgsql as $$
+begin
+  insert into realtime.messages (topic, event, payload, private)
+  values (send.topic, send.event, send.payload, send.private);
+end $$;
 
 -- publication the realtime migration adds tables to
 create publication supabase_realtime;

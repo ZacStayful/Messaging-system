@@ -16,7 +16,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const rpc = vi.fn();
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc }) }));
 
-const { checkRateLimit } = await import("@/lib/api/rateLimit");
+const { checkRateLimit, RATE_LIMIT, RATE_WINDOW_SECONDS, retryAfterSeconds, secondsPerToken } =
+  await import("@/lib/api/rateLimit");
 
 afterEach(() => {
   rpc.mockReset();
@@ -64,5 +65,52 @@ describe("checkRateLimit", () => {
     await checkRateLimit("key-1");
     expect(logged).toHaveBeenCalled();
     expect(String(logged.mock.calls[0]?.join(" "))).toContain("boom");
+  });
+});
+
+/**
+ * What a turned-away client is told to do next.
+ *
+ * `retry-after` used to be a whole window for both verdicts, which was the honest answer under the
+ * fixed window 0040 replaced — you really did have to wait for the next one. Against a bucket that
+ * refills continuously it parks a well-behaved client for a minute when a tenth of a second would
+ * do, which is the opposite of what a limiter wants: a client that backs off correctly should be
+ * able to settle at the sustained rate, not be punished for having hit the edge once.
+ */
+describe("secondsPerToken", () => {
+  it("is one second at the configured rate", () => {
+    // 600 a minute is ten tokens a second, so a token is always less than a second away.
+    expect(secondsPerToken(RATE_LIMIT, RATE_WINDOW_SECONDS)).toBe(1);
+  });
+
+  it("grows as the limit falls", () => {
+    // The point of deriving it: a tighter limit means a longer wait, with nothing to remember to
+    // change by hand.
+    expect(secondsPerToken(10, 60)).toBe(6);
+    expect(secondsPerToken(1, 60)).toBe(60);
+  });
+
+  it("never drops below a second", () => {
+    // `retry-after` is whole seconds, so 0 would read as "immediately" and invite a hot loop.
+    expect(secondsPerToken(6000, 60)).toBe(1);
+    expect(secondsPerToken(1_000_000, 1)).toBe(1);
+  });
+
+  it("rounds up rather than down", () => {
+    // Rounding down would send the client back a fraction early, to be refused again.
+    expect(secondsPerToken(7, 60)).toBe(9); // 8.57… seconds per token
+  });
+});
+
+describe("retryAfterSeconds", () => {
+  it("offers a token's wait to a client that is simply too fast", () => {
+    expect(retryAfterSeconds("over")).toBe(1);
+  });
+
+  it("backs a client well off when the limiter itself is unavailable", () => {
+    // Not a statement about tokens at all: the limiter could not reach the database, and pointing
+    // a retry storm at one that is already struggling is the thing a limiter exists to prevent.
+    expect(retryAfterSeconds("unavailable")).toBe(RATE_WINDOW_SECONDS);
+    expect(retryAfterSeconds("unavailable")).toBeGreaterThan(retryAfterSeconds("over"));
   });
 });

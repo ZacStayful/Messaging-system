@@ -4,7 +4,7 @@ import { NotConfiguredError, jwtConfigured } from "./jwt";
 import { verifyApiKey, userClient, type ApiClient, type ApiKeyContext } from "./auth";
 import { ApiError, fail } from "./respond";
 import { logApiCall } from "./audit";
-import { checkRateLimit, RATE_LIMITED_MESSAGE, RATE_UNAVAILABLE_MESSAGE, RATE_WINDOW_SECONDS } from "./rateLimit";
+import { checkRateLimit, RATE_LIMITED_MESSAGE, RATE_UNAVAILABLE_MESSAGE, retryAfterSeconds } from "./rateLimit";
 
 export interface ApiHandlerArgs {
   request: Request;
@@ -61,7 +61,7 @@ export function withApiKey(handler: Handler, options: Options) {
       // trusted; and 429 with retry-after is a client's cue to back off, which is the behaviour
       // that helps a struggling database recover.
       return fail("rate_limited", verdict === "over" ? RATE_LIMITED_MESSAGE : RATE_UNAVAILABLE_MESSAGE, undefined, {
-        headers: { "retry-after": String(RATE_WINDOW_SECONDS) },
+        headers: { "retry-after": String(retryAfterSeconds(verdict)) },
       });
     }
 

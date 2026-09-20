@@ -1,20 +1,20 @@
-// Generated from the Supabase project with `supabase gen types typescript`
-// (or the Supabase MCP `generate_typescript_types`). Regenerate after every migration.
+// GENERATED FILE — DO NOT EDIT.
 //
-// One hand-applied correction survives every regeneration: the generator types every column of a
-// `RETURNS TABLE` function as NOT NULL, because Postgres does not record nullability for them.
-// Several are nullable in reality — a conversation with no messages yet has a null
-// last_message_at, a reaction row in my_activity has a null parent_id — so those are widened to
-// `| null` by hand. They are listed in CORRECTIONS in the regeneration step; re-apply them after
-// running `pnpm db:types` or the app will confidently dereference a null.
+// Written by `pnpm db:types` (scripts/gen-types.sh) from the hosted Supabase project, then
+// corrected. Every hand edit made here is destroyed the next time that runs.
 //
-// The same applies to RPC arguments: a parameter with a DEFAULT comes back optional but never
-// nullable, while passing null is exactly how a caller says "no topic". Those are widened too.
+// The generator is wrong about three things, because Postgres does not record what it would need:
 //
-// And conversation_members.member_side is NOT NULL with no default because a BEFORE INSERT
-// trigger fills it (0018). The generator cannot see triggers, so it marks it required; it is
-// made optional again here, because every caller but add_property_contact relies on that
-// trigger.
+//   - The columns of a `RETURNS TABLE` function are all typed NOT NULL. Several are nullable in
+//     reality — a conversation with no messages yet has a null last_message_at — so the app would
+//     confidently dereference a null.
+//   - An RPC argument with a DEFAULT comes back optional but never nullable, while passing null is
+//     exactly how a caller says "no topic".
+//   - conversation_members.member_side is NOT NULL with no default because a BEFORE INSERT trigger
+//     fills it (0018); a trigger is invisible to the generator, so it marks the column required.
+//
+// Each correction is listed in CORRECTIONS in scripts/types-corrections.ts, which is where to
+// change one. The type aliases at the foot of this file come from ALIASES in the same place.
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
@@ -92,27 +92,27 @@ export type Database = {
           },
         ];
       };
-      api_rate_limits: {
+      api_rate_buckets: {
         Row: {
-          count: number;
           key_id: string;
-          window_start: string;
+          tokens: number;
+          updated_at: string;
         };
         Insert: {
-          count?: number;
           key_id: string;
-          window_start: string;
+          tokens: number;
+          updated_at?: string;
         };
         Update: {
-          count?: number;
           key_id?: string;
-          window_start?: string;
+          tokens?: number;
+          updated_at?: string;
         };
         Relationships: [
           {
-            foreignKeyName: "api_rate_limits_key_id_fkey";
+            foreignKeyName: "api_rate_buckets_key_id_fkey";
             columns: ["key_id"];
-            isOneToOne: false;
+            isOneToOne: true;
             referencedRelation: "api_keys";
             referencedColumns: ["id"];
           },
@@ -276,6 +276,148 @@ export type Database = {
           },
         ];
       };
+      call_recordings: {
+        Row: {
+          call_id: string;
+          created_at: string;
+          duration_seconds: number | null;
+          org_id: string;
+          recording_sid: string;
+          url: string;
+        };
+        Insert: {
+          call_id: string;
+          created_at?: string;
+          duration_seconds?: number | null;
+          org_id: string;
+          recording_sid: string;
+          url: string;
+        };
+        Update: {
+          call_id?: string;
+          created_at?: string;
+          duration_seconds?: number | null;
+          org_id?: string;
+          recording_sid?: string;
+          url?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "call_recordings_call_id_fkey";
+            columns: ["call_id"];
+            isOneToOne: true;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "call_recordings_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      calls: {
+        Row: {
+          answered_at: string | null;
+          conversation_id: string;
+          direction: string;
+          duration_seconds: number | null;
+          ended_at: string | null;
+          from_number: string;
+          id: string;
+          org_id: string;
+          parent_message_id: string | null;
+          started_at: string;
+          started_by: string | null;
+          status: string;
+          summary_message_id: string | null;
+          to_number: string;
+          to_user_id: string | null;
+          twilio_call_sid: string | null;
+        };
+        Insert: {
+          answered_at?: string | null;
+          conversation_id: string;
+          direction: string;
+          duration_seconds?: number | null;
+          ended_at?: string | null;
+          from_number: string;
+          id?: string;
+          org_id: string;
+          parent_message_id?: string | null;
+          started_at?: string;
+          started_by?: string | null;
+          status?: string;
+          summary_message_id?: string | null;
+          to_number: string;
+          to_user_id?: string | null;
+          twilio_call_sid?: string | null;
+        };
+        Update: {
+          answered_at?: string | null;
+          conversation_id?: string;
+          direction?: string;
+          duration_seconds?: number | null;
+          ended_at?: string | null;
+          from_number?: string;
+          id?: string;
+          org_id?: string;
+          parent_message_id?: string | null;
+          started_at?: string;
+          started_by?: string | null;
+          status?: string;
+          summary_message_id?: string | null;
+          to_number?: string;
+          to_user_id?: string | null;
+          twilio_call_sid?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calls_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_parent_message_id_fkey";
+            columns: ["parent_message_id"];
+            isOneToOne: false;
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_started_by_fkey";
+            columns: ["started_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_summary_message_id_fkey";
+            columns: ["summary_message_id"];
+            isOneToOne: false;
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_to_user_id_fkey";
+            columns: ["to_user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       conversation_bookmarks: {
         Row: {
           conversation_id: string;
@@ -403,90 +545,6 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
-      };
-      call_recordings: {
-        Row: {
-          call_id: string;
-          created_at: string;
-          duration_seconds: number | null;
-          org_id: string;
-          recording_sid: string;
-          url: string;
-        };
-        Insert: {
-          call_id: string;
-          created_at?: string;
-          duration_seconds?: number | null;
-          org_id: string;
-          recording_sid: string;
-          url: string;
-        };
-        Update: {
-          call_id?: string;
-          created_at?: string;
-          duration_seconds?: number | null;
-          org_id?: string;
-          recording_sid?: string;
-          url?: string;
-        };
-        Relationships: [];
-      };
-      calls: {
-        Row: {
-          answered_at: string | null;
-          conversation_id: string;
-          direction: string;
-          duration_seconds: number | null;
-          ended_at: string | null;
-          from_number: string;
-          id: string;
-          org_id: string;
-          parent_message_id: string | null;
-          started_at: string;
-          started_by: string | null;
-          status: string;
-          summary_message_id: string | null;
-          to_number: string;
-          to_user_id: string | null;
-          twilio_call_sid: string | null;
-        };
-        Insert: {
-          answered_at?: string | null;
-          conversation_id: string;
-          direction: string;
-          duration_seconds?: number | null;
-          ended_at?: string | null;
-          from_number: string;
-          id?: string;
-          org_id: string;
-          parent_message_id?: string | null;
-          started_at?: string;
-          started_by?: string | null;
-          status?: string;
-          summary_message_id?: string | null;
-          to_number: string;
-          to_user_id?: string | null;
-          twilio_call_sid?: string | null;
-        };
-        Update: {
-          answered_at?: string | null;
-          conversation_id?: string;
-          direction?: string;
-          duration_seconds?: number | null;
-          ended_at?: string | null;
-          from_number?: string;
-          id?: string;
-          org_id?: string;
-          parent_message_id?: string | null;
-          started_at?: string;
-          started_by?: string | null;
-          status?: string;
-          summary_message_id?: string | null;
-          to_number?: string;
-          to_user_id?: string | null;
-          twilio_call_sid?: string | null;
-        };
-        Relationships: [];
       };
       conversations: {
         Row: {
@@ -680,7 +738,15 @@ export type Database = {
           reason?: string;
           resolved_at?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "inbound_messages_unmatched_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       integrations: {
         Row: {
@@ -758,7 +824,15 @@ export type Database = {
           title?: string | null;
           url?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "link_previews_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       message_templates: {
         Row: {
@@ -943,7 +1017,15 @@ export type Database = {
           outcome?: string;
           payload?: Json;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "monday_events_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       monday_links: {
         Row: {
@@ -1801,7 +1883,22 @@ export type Database = {
           owner_user_id?: string | null;
           phone?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "voice_numbers_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "voice_numbers_owner_user_id_fkey";
+            columns: ["owner_user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       whatsapp_accounts: {
         Row: {
@@ -2057,6 +2154,7 @@ export type Database = {
           title: string;
         }[];
       };
+      default_org_id: { Args: never; Returns: string };
       dm_between: { Args: { other: string }; Returns: string };
       ensure_maintenance_channel: { Args: { p_org: string }; Returns: string };
       file_message_to_property: {
@@ -2067,8 +2165,6 @@ export type Database = {
         };
         Returns: string;
       };
-      is_admin: { Args: never; Returns: boolean };
-      is_member: { Args: { cid: string }; Returns: boolean };
       import_lead_customer: {
         Args: {
           p_conversation_id: string;
@@ -2080,6 +2176,8 @@ export type Database = {
         };
         Returns: string;
       };
+      is_admin: { Args: never; Returns: boolean };
+      is_member: { Args: { cid: string }; Returns: boolean };
       is_team: { Args: never; Returns: boolean };
       mark_outbox: {
         Args: {
@@ -2222,12 +2320,43 @@ export type Database = {
       };
       shares_conversation_with: { Args: { other: string }; Returns: boolean };
       start_call: {
-        Args: { p_conversation_id: string; p_parent_message_id?: string | null; p_to_user_id: string };
-        Returns: Database["public"]["Tables"]["calls"]["Row"];
+        Args: {
+          p_conversation_id: string;
+          p_parent_message_id?: string | null;
+          p_to_user_id: string;
+        };
+        Returns: {
+          answered_at: string | null;
+          conversation_id: string;
+          direction: string;
+          duration_seconds: number | null;
+          ended_at: string | null;
+          from_number: string;
+          id: string;
+          org_id: string;
+          parent_message_id: string | null;
+          started_at: string;
+          started_by: string | null;
+          status: string;
+          summary_message_id: string | null;
+          to_number: string;
+          to_user_id: string | null;
+          twilio_call_sid: string | null;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "calls";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
       start_phone_verification: { Args: { p_phone: string }; Returns: string };
       storage_path_conversation_id: { Args: { name: string }; Returns: string };
       topic_conversation_id: { Args: { topic: string }; Returns: string };
+      topic_internal_conversation_id: {
+        Args: { topic: string };
+        Returns: string;
+      };
     };
     Enums: {
       account_type: "customer" | "team";

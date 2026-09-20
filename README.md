@@ -337,6 +337,23 @@ conversation_id)` dropped so there is one token per notification email rather th
     the conversation. No column on `conversation_members`, whose update policy does not restrict
     which columns move (which is what 0029 was about), and so no change to `my_conversations()`
 
+40. `0040_rate_limit_token_bucket.sql` the token bucket 0016 said was the real answer, replacing
+    its fixed window. A fixed window lets a key spend its whole allowance at 10:00:59 and the whole
+    of it again at 10:01:00 — twice the limit inside two seconds, with every window counted
+    correctly. A bucket has no boundary to sit on: one row per key, refilling continuously at
+    limit/window a second and capped at limit, so an idle key keeps its burst but a busy one cannot
+    exceed the refill rate. The per-window rows go, and with them the sweep 0016 added and 0035 had
+    to sample down — a bucket row is removed by its key's own cascade. `api_rate_hit` keeps its
+    signature, so the migration and the deploy can land in either order
+41. `0041_read_state_broadcast.sql` read state reaches the same person's other devices. All three
+    read markers — `conversation_members.last_read_at`, `thread_follows.last_read_at` and
+    `profiles.activity_seen_at` — moved in silence, so reading on a phone left the badge lit on the
+    laptop until that tab reloaded. Four triggers publish `read_state`, `thread_read_state` and
+    `activity_seen` to the reader's own `user:<id>` topic. Triggers rather than a broadcast inside
+    `mark_read`, because there are three writers: `messages_after_insert` moves the mark when you
+    send, and the UPDATE policy has no column list, so a client can PATCH the column directly.
+    Whether anything is still unread is decided in the trigger and shipped as a boolean
+
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
 
@@ -372,6 +389,14 @@ member's `user:<id>` topic. Reactions, pins and attachments broadcast `REACTION`
 `ATTACHMENT` events on the same conversation topic. Presence runs on `org:<id>`. Clients
 back-fill from Postgres after any reconnect.
 
+`user:<id>` also carries this person's own read state, so a conversation read on one device clears
+its badge on the others: `read_state`, `thread_read_state` and `activity_seen`
+(`0041_read_state_broadcast.sql`). These are the only events a device receives about itself —
+there is no sender to compare against, so the device that did the reading gets its own event back
+and reconciles `last_read_at` to the server's clock rather than its own. Whether anything is still
+unread is decided in the trigger and arrives as `has_unread`, so the client does no timestamp
+arithmetic. The rules for applying them are in `src/lib/realtime/readState.ts`.
+
 ## Attachments
 
 Files live in the private `attachments` bucket at
@@ -386,6 +411,10 @@ voice notes). Downloads use one-hour signed URLs.
   `https://chat.stayful.co.uk/auth/callback`, `http://localhost:3000/auth/callback` and the
   Vercel preview pattern `https://*-zacs-projects-bcdb6016.vercel.app/auth/callback` to the
   redirect allow list.
+- That wildcard is deliberately broad and should be narrowed once previews sit on a stable
+  host (see "Preview deployments and Chrome's password warning" under Deployment). The
+  `.vercel.app` arm of `siteOrigin()` in `src/app/auth/callback/route.ts` should be tightened
+  to that host at the same time.
 - Authentication > Providers > Google: enable and paste a Google OAuth client ID and
   secret (authorised redirect URI is `https://dqgdhmlgojhiidxlxzsr.supabase.co/auth/v1/callback`).
 - Magic links only work for existing users (`shouldCreateUser: false`); invitations create
@@ -563,6 +592,65 @@ lets the migrations run. It needs only the `postgresql-16` server package, which
 run it and `supabase start` cannot. It proves the SQL parses, the plpgsql bodies compile, the
 constraints hold and the triggers fire; it is not a substitute for
 `supabase start && supabase db reset` against the real thing.
+
+It then asks whether `src/lib/database.types.ts` still describes the schema those migrations just
+built. That question exists because `pnpm db:types` is safe to run but nothing makes anyone run it,
+and **stale types fail nothing**: `tsc` is perfectly happy with a table it has never heard of,
+because nothing references it. `0033` added `topic_internal_conversation_id` and the committed types
+went eight migrations without it; six tables carried empty `Relationships` for as long.
+
+It compares table, view, column, function and enum **names** in both directions, per-column
+**nullability**, the **write shape** of `Insert` and `Update` (whether each field is required,
+optional, or `never` for an identity column), **foreign keys** against the `Relationships` arrays,
+and that every hand correction in `scripts/types-corrections.ts` is still applied — those live
+outside the generated region, so a regeneration that dropped them all would otherwise pass clean.
+
+The write-shape rule is the generator's, derived and then checked against all 337 columns: a field
+is optional in `Insert` when the column has a default, is nullable, is an identity column or is
+generated, and typed `never` when it is `GENERATED ALWAYS AS IDENTITY`; in `Update` everything is
+optional. A column covered by a correction is exempt, because there the correction is the authority
+and the corrections check already asserts it.
+
+It deliberately does not compare Postgres-to-TypeScript type mappings: that mapping is a large table
+inside the generator, and a second copy here would drift, showing up as a failing build on a correct
+change. A pass therefore means nothing has been added, removed, made nullable, made required or
+re-pointed without the types being regenerated — not that the file is byte-identical to what
+`pnpm db:types` produces.
+
+When it fails there are two possible causes and the message says both: the types are stale (run
+`pnpm db:types`), or the hosted project has drifted from `supabase/migrations`, in which case
+regenerating reproduces the drift and the migrations are what need to catch up.
+
+### Regenerating the database types
+
+`pnpm db:types` rebuilds `src/lib/database.types.ts` from the hosted project. It is safe to run:
+nothing is written until the result has been corrected, formatted and passed `tsc --noEmit`, and
+every failure before that leaves the file alone. The script it replaced was a shell redirect, which
+emptied the file before it started — so a missing CLI destroyed it.
+
+The generator is right about almost everything and wrong about three things, because Postgres does
+not record what it would need: the columns of a `RETURNS TABLE` function are all typed NOT NULL, an
+RPC argument is never nullable even though passing null is how a caller says "no topic", and
+`conversation_members.member_side` is filled by a trigger the generator cannot see. Those
+corrections live in `CORRECTIONS` in `scripts/types-corrections.ts`, alongside the type aliases the
+app imports. **`src/lib/database.types.ts` is generated — edit the corrections, not the file.**
+
+Corrections are resolved through the TypeScript AST by structural path, not by matching text, so
+the generator's formatting can change without silently dropping one. Each must match exactly once,
+and the script says which of three things went wrong:
+
+| Message                                     | What it means                     | What to do                  |
+| ------------------------------------------- | --------------------------------- | --------------------------- |
+| `no such property`                          | the column was renamed or dropped | repoint or delete the entry |
+| `already correct in the generator's output` | the CLI or the SQL improved       | retire the entry            |
+| `expected X, found Y`                       | the column's type changed         | update `from` and `to`      |
+
+The Supabase CLI is deliberately not a dependency — the npm package downloads a ~30 MB platform
+binary on install, which every CI run would pay for a script CI never runs. The script uses
+`SUPABASE_CLI` if set, then one already on `PATH`, then `pnpm dlx supabase@$SUPABASE_VERSION`.
+Where there is no CLI and no `supabase login` — a sandbox, for instance — generate with the
+Supabase MCP `generate_typescript_types` and pass the file as `GEN_TYPES_INPUT` instead; the
+corrections and the typecheck still run.
 
 ## Calling (Twilio)
 
@@ -787,10 +875,13 @@ Scopes are checked per route: `conversations:read|write`, `messages:read|write`,
 
 Responses are `{"data": …}` or `{"error": {"code", "message"}}`, with codes `unauthorized`,
 `forbidden`, `insufficient_scope`, `not_found`, `invalid_request`, `conflict`, `rate_limited`,
-`not_configured` and `internal`. 600 requests per key per minute, counted in Postgres (a fixed
-window — coarse, but the only stateful option without adding Redis; a token bucket is a
-follow-up). Posting a message with the same `client_id` twice returns the original rather than
-a duplicate, enforced by a unique index.
+`not_configured` and `internal`. 600 requests per key per minute, as a token bucket in Postgres
+(`0040`): a key that has been idle can spend the whole allowance at once, and one that keeps going
+settles at ten requests a second. A `rate_limited` response carries `retry-after` — one second when
+you are simply going too fast, since that is how long an empty bucket takes to earn a token, and a
+minute when the limiter could not reach the database at all, because that is not about tokens and
+a retry storm is the last thing a struggling database needs. Posting a message with the same
+`client_id` twice returns the original rather than a duplicate, enforced by a unique index.
 
 `POST /api/email/capture` is the mailbox side of "Lead database customers": an automation that
 reads Gmail (an n8n Gmail trigger, say) posts each email as
@@ -879,12 +970,12 @@ whether Zapier's MCP client accepts a static bearer header before promising it t
 | `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint, TypeScript, Prettier                                                                                 |
 | `pnpm test`                                    | Vitest: unit tests; the RLS suite runs only when `SEED_TEST_PASSWORD` is set                                 |
 | `pnpm test:e2e`                                | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
-| `pnpm db:verify`                               | Applies every migration to a throwaway PostgreSQL cluster (no Docker, no Supabase CLI) — see below           |
+| `pnpm db:verify`                               | Applies every migration to a throwaway PostgreSQL cluster, asserts behaviour, checks the types — see below   |
+| `pnpm db:types`                                | Regenerates `src/lib/database.types.ts`, re-applies the hand corrections, typechecks the result — see below  |
 
 The RLS and sign-in tests expect the fixtures from `supabase/seed.sql` (test accounts and groups).
 Run them against a local stack (`supabase start && supabase db reset`) or a staging project, never
 against production, which holds real accounts only.
-| `pnpm db:types` | Regenerate `src/lib/database.types.ts` from the hosted project |
 
 Playwright options for sandboxes: `PW_CHROMIUM_EXECUTABLE` to use a preinstalled Chromium,
 `PW_CERT_SPKI_ALLOWLIST` to trust a proxy CA by SPKI hash, `PW_DIRECT=1` to bypass an HTTP
@@ -895,3 +986,46 @@ proxy that cannot upgrade WebSockets. None are needed on a normal machine or in 
 Vercel project `messaging-system` builds from this repository. Set the three
 `NEXT_PUBLIC_*` variables in the Vercel project settings. Production domain:
 `chat.stayful.co.uk`.
+
+### Browser security headers
+
+`next.config.ts` sets `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors
+'none'` (the sign-in form must never be framable — that is how a clean domain ends up embedded
+in someone else's phishing page), plus `nosniff`, `Referrer-Policy` and a `Permissions-Policy`
+that keeps camera and microphone on `self` for voice notes and Twilio Voice.
+
+There is no full CSP yet, on purpose. The app talks to Supabase REST and Realtime
+(`wss://*.supabase.co`), the Twilio Voice SDK and Resend, and ships Next.js inline bootstrap
+scripts and Tailwind v4 inline styles. Add the full policy as
+`Content-Security-Policy-Report-Only` first, exercise a real session (sign in, send a message,
+record a voice note, place a call, open a link preview), then promote it to enforcing.
+
+### Preview deployments and Chrome's password warning
+
+Vercel preview URLs change on every deploy, so each one is a hostname Chrome has never seen,
+on `vercel.app` — a public-suffix domain heavily used by real phishing kits. A password form
+on such a host draws Chrome's "you entered your password into a deceptive site" warning
+whenever the password typed is one Chrome protects (for example a Google Workspace password).
+`chat.stayful.co.uk` itself is not flagged; the preview hostnames are the problem.
+
+Vercel Deployment Protection is already enabled, so previews sit behind Vercel SSO and are not
+publicly reachable. That matters for the diagnosis: an unreachable host is not one Safe
+Browsing has crawled and classified, so this is the Chrome/Workspace **password-reuse** policy
+warning on a non-allow-listed domain, not a phishing verdict on the deployment.
+
+To stop it recurring:
+
+- Never reuse a Google Workspace password for a Stayful Messaging account. This is the whole
+  arming condition, and no change in this repo can override it. Prefer "Continue with Google",
+  which is now the first option on the sign-in page.
+- Give previews a **stable** host — a Vercel branch-alias domain, or better a subdomain you
+  own such as `preview.stayful.co.uk` — so an allow-list entry can actually hold. Per-deploy
+  hostnames defeat any allow-list by design.
+- Then add that host (and `chat.stayful.co.uk`) to `SafeBrowsingAllowlistDomains` in the
+  Google Admin console, under Chrome > Settings > Users.
+- Keep Deployment Protection on, so a sign-in form never becomes publicly reachable on
+  `vercel.app`.
+
+The sign-in page renders the host it is actually served from (`src/app/login/page.tsx`); it
+must never hardcode a domain, because a page naming a domain it is not on is precisely what a
+spoofed login page looks like.

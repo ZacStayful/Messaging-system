@@ -14,6 +14,15 @@ import type {
   SidebarSectionItem,
   ThreadSummary,
 } from "@/lib/database.types";
+import { loadSidebarState, type SavedRow } from "@/lib/sidebar/load";
+import { makeRecoveryGuard, RECOVER_MIN_INTERVAL_MS } from "@/lib/realtime/recoveryGuard";
+import {
+  applyReadState,
+  applyThreadReadState,
+  type ActivitySeenEvent,
+  type ReadStateEvent,
+  type ThreadReadStateEvent,
+} from "@/lib/realtime/readState";
 import { previewOf } from "@/lib/format";
 import { previewMentions } from "@/lib/richtext";
 import { isNav, type Nav } from "@/lib/nav";
@@ -63,8 +72,9 @@ export type ProfileChangedEvent = Pick<
   | "deactivated_at"
 >;
 
-/** A saved-for-later row with the message it points at (null if since deleted or hidden). */
-export type SavedRow = SavedItem & { message: Message | null };
+// Defined beside the query that produces it, and re-exported so the components that read it off
+// the store keep importing it from the store.
+export type { SavedRow };
 
 export interface ProfileCardState {
   id: string;
@@ -423,7 +433,13 @@ export function StoreProvider({
 
   const markThreadRead = useCallback(
     async (messageId: string) => {
-      setThreads((prev) => prev.map((t) => (t.message_id === messageId ? { ...t, unread_count: 0 } : t)));
+      // last_read_at as well as the count: my_threads returns the column, so ThreadSummary carries
+      // it, and leaving it stale here would make this path disagree with the read_state handler
+      // that now writes it on every other device.
+      const now = new Date().toISOString();
+      setThreads((prev) =>
+        prev.map((t) => (t.message_id === messageId ? { ...t, unread_count: 0, last_read_at: now } : t)),
+      );
       setActivity((prev) => prev.map((a) => (a.parent_id === messageId ? { ...a, unread: false } : a)));
       await supabase.rpc("mark_thread_read", { p_message_id: messageId });
     },
@@ -606,6 +622,45 @@ export function StoreProvider({
     [supabase, conversations, refresh],
   );
 
+  /**
+   * Everything in the shell, re-read after the socket was away.
+   *
+   * The sidebar is fed entirely by broadcasts — unread and mention counts, ordering, the activity
+   * list, threads, channels joined and left — and a broadcast missed is missed for good. Until
+   * this existed nothing noticed a drop at all: `user:<id>` subscribed with no status callback,
+   * so a badge that went wrong while the laptop was shut stayed wrong for as long as the tab
+   * stayed open. Reloading the page was the only cure, and nothing told anyone to.
+   *
+   * Replaces rather than merges. There is nothing optimistic to protect here the way there is in
+   * a message list — no sidebar row is waiting on a server id — and `refresh()` already replaces
+   * this same state wholesale on every conversation_changed. `activityRead` is deliberately left
+   * alone: it is this tab's own record of what has been looked at, and the server has no opinion
+   * on it.
+   */
+  const recoveryGuard = useRef(makeRecoveryGuard({ minIntervalMs: RECOVER_MIN_INTERVAL_MS, label: "sidebar" })).current;
+  const recoverSidebar = () =>
+    recoveryGuard(async () => {
+      const state = await loadSidebarState(supabase, { orgId: me.org_id, isTeam });
+      // A failed query and an empty result are the same shape from PostgREST. Bail rather than
+      // replace the sidebar with what a blip returned; the guard leaves its clock alone on a
+      // throw, so the next SUBSCRIBED tries again instead of waiting out the interval.
+      if (state.partial) throw new Error("a sidebar query failed");
+      setConversations(state.conversations);
+      setActivity(state.activity);
+      setThreads(state.threads);
+      setSaved(state.saved);
+      setSections(state.sections);
+      setSectionItems(state.sectionItems);
+      setProfiles(Object.fromEntries(state.profiles.map((p) => [p.id, p])));
+    });
+  // Held in a ref, as useConversationChannel holds its handlers, so the two channel effects below
+  // can call the current closure without naming it as a dependency — which would tear them down
+  // and re-subscribe both channels on every render.
+  const recoverRef = useRef(recoverSidebar);
+  useEffect(() => {
+    recoverRef.current = recoverSidebar;
+  });
+
   // ---- Realtime: personal topic (new messages anywhere, conversation changes) --------
   useEffect(() => {
     let cancelled = false;
@@ -711,14 +766,80 @@ export function StoreProvider({
       refresh();
     });
 
+    // ---- The same person, reading on another device -------------------------------------
+    // Unlike message_created these carry no sender, so the device that did the reading gets its
+    // own event back. That is wanted, not tolerated: markRead writes a browser-clock last_read_at
+    // and the echo replaces it with the server's. The rules live in @/lib/realtime/readState
+    // because two of them (clear only when the server says nothing is left; never reorder) are
+    // worth a test, and because copying the handler above would get both wrong.
+    //
+    // Note what is deliberately absent: no refresh() for a conversation this device does not know.
+    // message_created does that, and refresh is router.refresh() — a full server render. Because
+    // messages_after_insert fires before messages_broadcast, read_state arrives *first* for your
+    // own send, so the same reflex here would cost a server render per message sent.
+    //
+    // ConversationView freezes its "New" divider at open (initialLastRead), so none of this can
+    // move it under someone mid-read. That is the thing a careless last_read_at update breaks.
+    channel.on("broadcast", { event: "read_state" }, ({ payload }) => {
+      const evt = payload as ReadStateEvent;
+      setConversations((prev) => applyReadState(prev, evt));
+      if (!evt.has_unread) {
+        setActivity((prev) =>
+          prev.map((a) =>
+            a.conversation_id === evt.conversation_id && !a.parent_id && a.unread ? { ...a, unread: false } : a,
+          ),
+        );
+      }
+    });
+
+    // No refreshThreads() for an unknown thread either. One this device does not list contributes
+    // nothing to threadsUnread, so there is no badge to clear — and fetching my_threads to learn
+    // about a thread we have just been told is *read* would double the fetch on the first-reply
+    // path, which message_created already covers.
+    channel.on("broadcast", { event: "thread_read_state" }, ({ payload }) => {
+      const evt = payload as ThreadReadStateEvent;
+      setThreads((prev) => applyThreadReadState(prev, evt));
+      if (!evt.has_unread) {
+        setActivity((prev) =>
+          prev.map((a) => (a.parent_id === evt.message_id && a.unread ? { ...a, unread: false } : a)),
+        );
+      }
+    });
+
+    // Mirrors markAllActivityRead. Worth knowing: activity_seen_at only drives the `unread` of
+    // *reaction* rows in my_activity — message rows take theirs from conversation_members and
+    // reply rows from thread_follows — so clearing everything is already optimistic on the device
+    // that pressed it, and recovery brings those rows back. This reproduces that faithfully so the
+    // two devices agree with each other; making them agree with the server is a separate change.
+    channel.on("broadcast", { event: "activity_seen" }, ({ payload }) => {
+      const evt = payload as ActivitySeenEvent;
+      setActivity((prev) => prev.map((a) => (a.unread ? { ...a, unread: false } : a)));
+      setMeState((prev) => ({ ...prev, activity_seen_at: evt.activity_seen_at }));
+      patchProfile(me.id, { activity_seen_at: evt.activity_seen_at });
+    });
+
+    // The first SUBSCRIBED is this channel's initial join and recovers nothing — the shell was
+    // just server-rendered. Every one after it follows a drop, and everything above this line
+    // stopped being told about anything while it lasted. One flag per channel: the org channel
+    // below keeps its own, because whichever subscribed second would otherwise see this one's and
+    // recover on every page load.
+    let needsRecovery = false;
     supabase.realtime.setAuth().then(() => {
-      if (!cancelled) channel.subscribe();
+      if (cancelled) return;
+      channel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          if (needsRecovery) void recoverRef.current();
+          needsRecovery = true;
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          needsRecovery = true;
+        }
+      });
     });
     return () => {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [supabase, me.id, me.display_name, refresh, refreshThreads, router]);
+  }, [supabase, me.id, me.display_name, patchProfile, refresh, refreshThreads, router]);
 
   // ---- Realtime: org presence (with idle → away) and live profile changes ----
   useEffect(() => {
@@ -765,12 +886,23 @@ export function StoreProvider({
     for (const ev of events) window.addEventListener(ev, onActivity, { passive: true });
     const onVisible = () => document.visibilityState === "visible" && onActivity();
     document.addEventListener("visibilitychange", onVisible);
+    // This channel already reported, but only to re-announce presence. Presence repairs itself
+    // through its own sync event; `profile_changed` does not, so a rename or an avatar set while
+    // this socket was away stayed wrong. Recovery is shared with the personal topic and coalesced
+    // by the guard, so both channels reporting at once still does the work once.
+    let needsRecovery = false;
     supabase.realtime.setAuth().then(() => {
       if (cancelled) return;
       channel.subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
+          // Before the await, not after: recovery is the part that must not be skipped if
+          // re-announcing presence happens to fail.
+          if (needsRecovery) void recoverRef.current();
+          needsRecovery = true;
           await track();
           arm();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          needsRecovery = true;
         }
       });
     });

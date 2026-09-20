@@ -498,7 +498,9 @@ suite("api keys", () => {
   });
 
   it("nobody can read the rate-limit table", async () => {
-    const { data } = await staff.from("api_rate_limits").select("key_id").limit(1);
+    // 0040 replaced the fixed-window counters with one bucket row per key. RLS is on with no
+    // policy, so a signed-in user gets an empty result rather than an error, exactly as before.
+    const { data } = await staff.from("api_rate_buckets").select("key_id").limit(1);
     expect(data ?? []).toEqual([]);
   });
 
