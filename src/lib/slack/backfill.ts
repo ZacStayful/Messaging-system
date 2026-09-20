@@ -23,7 +23,6 @@ import {
   SlackApiError,
   conversationInfo,
   historyPage,
-  joinChannel,
   listBookmarks,
   listMembers,
   threadReplies,
@@ -151,32 +150,6 @@ async function phaseMembers(ctx: ApplyContext, link: LinkRow, actorId: string): 
   });
 }
 
-/**
- * Reads a page, joining the channel only if Slack says it must.
- *
- * `conversations.join` posts "X joined the channel" in the live workspace, so doing it up front
- * for every public channel would announce the import to everyone, hundreds of times, mostly
- * needlessly — a user token can usually read a public channel it is not in.
- */
-async function historyPageJoining(
-  ctx: ApplyContext,
-  link: LinkRow,
-  opts: { latest?: string; oldest?: string; limit?: number; cursor?: string },
-): Promise<Awaited<ReturnType<typeof historyPage>>> {
-  try {
-    return await historyPage(link.slack_channel_id, opts);
-  } catch (e) {
-    if (!(e instanceof SlackApiError) || e.code !== "not_in_channel" || link.is_private) throw e;
-    await joinChannel(link.slack_channel_id);
-    await ctx.admin
-      .from("slack_conversations")
-      .update({ is_member: true, updated_at: new Date().toISOString() })
-      .eq("org_id", link.org_id)
-      .eq("slack_channel_id", link.slack_channel_id);
-    return historyPage(link.slack_channel_id, opts);
-  }
-}
-
 async function phaseHistory(
   ctx: ApplyContext,
   link: LinkRow,
@@ -185,7 +158,7 @@ async function phaseHistory(
 ): Promise<LinkRow> {
   let current = link;
   while (budget.has(20_000)) {
-    const page = await historyPageJoining(ctx, current, {
+    const page = await historyPage(current.slack_channel_id, {
       latest: current.history_low_ts ?? undefined,
       limit: PAGE,
     });

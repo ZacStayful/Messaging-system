@@ -5,9 +5,11 @@
  * `fetch` is already how this codebase talks to Monday, Resend and TimelinesAI. Every call goes
  * through `fetchWithTimeout` so a stalled response cannot hold a cron slice until Vercel kills it.
  *
- * The token is a *user* token (xoxp-) from an internal app installed by an admin: it sees the
- * private channels that person is in, and an internal customer-built app keeps the ordinary
- * rate limits on `conversations.history` (Slack's May 2025 change applies to distributed apps).
+ * The token is a *user* token (xoxp-) from an internal app installed by an admin: it sees every
+ * public channel — Slack's own words are that only user tokens can read public channels they are
+ * not in — plus the private ones that person belongs to. Nothing is ever joined, so the import
+ * announces itself in no channel. An internal customer-built app also keeps the ordinary rate
+ * limits on `conversations.history`; Slack's May 2025 change applies to distributed apps.
  */
 
 import { fetchWithTimeout } from "@/lib/net/withTimeout";
@@ -223,10 +225,6 @@ export async function listMembers(channel: string): Promise<string[]> {
     { channel },
     (p) => p.members ?? [],
   );
-}
-
-export async function joinChannel(channel: string): Promise<void> {
-  await slackCall("conversations.join", { channel });
 }
 
 export interface HistoryPage {
