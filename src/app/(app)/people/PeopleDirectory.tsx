@@ -8,6 +8,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 import { PresenceDot } from "@/components/ui/PresenceDot";
 import { ROLE_LABEL, activeStatus, dndActive, presenceLook, presenceText } from "@/lib/presence";
+import { grantPortalAccess } from "./actions";
 
 type Chip = "All" | "Stayful team" | "Owners";
 const chipCls = "flex h-[34px] items-center gap-1.5 rounded-lg px-3.5 text-[15px]";
@@ -17,6 +18,10 @@ export function PeopleDirectory() {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [chip, setChip] = useState<Chip>("All");
+  // Per-person, because granting access is one deliberate act at a time and its result — a
+  // password to pass on when email is not configured — belongs beside the person it is for.
+  const [granting, setGranting] = useState<string | null>(null);
+  const [granted, setGranted] = useState<Record<string, string>>({});
   const needle = q.trim().toLowerCase();
 
   const people = Object.values(profiles)
@@ -32,6 +37,21 @@ export function PeopleDirectory() {
   const message = async (id: string) => {
     const cid = await openDm(id);
     if (cid) router.push(`/dms/${cid}`);
+  };
+
+  const grant = async (id: string, name: string) => {
+    setGranting(id);
+    const result = await grantPortalAccess(id);
+    setGranting(null);
+    setGranted((g) => ({
+      ...g,
+      [id]: !result.ok
+        ? (result.error ?? "That did not work.")
+        : result.emailed
+          ? `Login details emailed to ${name}.`
+          : `Access granted. Password for ${name}: ${result.password}`,
+    }));
+    if (result.ok) router.refresh();
   };
 
   return (
@@ -98,7 +118,7 @@ export function PeopleDirectory() {
             const status = presenceOf(p.id);
             const custom = activeStatus(p);
             return (
-              <li key={p.id} className="flex items-center gap-3 border-t border-line py-2.5">
+              <li key={p.id} className="flex flex-wrap items-center gap-3 border-t border-line py-2.5">
                 <button
                   type="button"
                   onClick={openProfile(p.id)}
@@ -123,11 +143,31 @@ export function PeopleDirectory() {
                     </span>
                   </span>
                 </button>
+                {!p.portal_access && (
+                  <span
+                    className="hidden rounded px-1.5 py-0.5 text-[12px] font-semibold text-muted md:block"
+                    title="On file from an import: their history is here, but they cannot sign in yet."
+                  >
+                    Dormant
+                  </span>
+                )}
                 <span
                   className={`hidden rounded px-1.5 py-0.5 text-[12px] font-semibold md:block ${p.account_type === "team" ? "bg-soft text-link" : "text-muted"}`}
                 >
                   {p.account_type === "team" ? "Stayful" : "Owner"}
                 </span>
+                {isAdmin && !p.portal_access && (
+                  <button
+                    type="button"
+                    onClick={() => void grant(p.id, p.display_name)}
+                    disabled={granting === p.id}
+                    className="flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-[14px] font-semibold hover:bg-hover disabled:opacity-60"
+                    aria-label={`Grant access to ${p.display_name}`}
+                  >
+                    <Icon name="userPlus" size={16} />
+                    <span className="hidden md:inline">{granting === p.id ? "Granting…" : "Grant access"}</span>
+                  </button>
+                )}
                 {p.id !== me.id && (
                   <button
                     type="button"
@@ -137,6 +177,9 @@ export function PeopleDirectory() {
                   >
                     <Icon name="dms" size={16} /> <span className="hidden md:inline">Message</span>
                   </button>
+                )}
+                {granted[p.id] && (
+                  <span className="basis-full text-[13px] text-muted md:basis-auto">{granted[p.id]}</span>
                 )}
               </li>
             );

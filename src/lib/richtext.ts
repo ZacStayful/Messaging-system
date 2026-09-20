@@ -27,7 +27,9 @@ export type Block =
 
 const URL_SRC = String.raw`https?:\/\/[^\s<>()\]]+[^\s<>()\].,;:!?'"]`;
 const URL_RE = new RegExp(URL_SRC, "g");
-const MENTION = String.raw`@\[([^\]\n]{1,80})\]|@([A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)*)`;
+// Not after a word character or a dot: "zac@stayful.co.uk" is an address, not a mention of
+// "stayful.co.uk". The composer only offers a mention at the start or after a space anyway.
+const MENTION = String.raw`(?<![\w.])(?:@\[([^\]\n]{1,80})\]|@([A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)*))`;
 // Order matters: labelled link, code, bold, italic, strike, mention, bare URL.
 const INLINE_RE = new RegExp(
   [
@@ -114,7 +116,8 @@ export function parseBlocks(body: string): Block[] {
       flushAll();
       continue;
     }
-    const heading = /^\*\*(.+)\*\*$/.exec(line.trim());
+    // No asterisk inside: "**Update:** all done **today**" is a paragraph with two bold runs.
+    const heading = /^\*\*([^*]+)\*\*$/.exec(line.trim());
     if (heading) {
       flushAll();
       blocks.push({ type: "h", text: heading[1] });

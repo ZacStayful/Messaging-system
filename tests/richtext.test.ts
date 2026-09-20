@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBlocks, parseInline, plainText, previewableLink, previewMentions } from "@/lib/richtext";
+import { mentionedNames, parseBlocks, parseInline, plainText, previewableLink, previewMentions } from "@/lib/richtext";
 
 describe("richtext inline", () => {
   it("parses bold, italic, strike and code", () => {
@@ -40,6 +40,24 @@ describe("richtext blocks", () => {
   });
   it("handles a one-line code fence", () => {
     expect(parseBlocks("```npm test```")).toEqual([{ type: "code", text: "npm test" }]);
+  });
+
+  // "**Update:** all done **today**" used to be one heading: the heading rule was greedy and
+  // matched from the first "**" to the last.
+  it("keeps a line that merely starts and ends in bold as a paragraph", () => {
+    expect(parseBlocks("**Update:** all done **today**")).toEqual([
+      {
+        type: "p",
+        lines: [
+          [
+            { type: "bold", text: "Update:" },
+            { type: "text", text: " all done " },
+            { type: "bold", text: "today" },
+          ],
+        ],
+      },
+    ]);
+    expect(parseBlocks("**Just a heading**")).toEqual([{ type: "h", text: "Just a heading" }]);
   });
 });
 
@@ -85,5 +103,37 @@ describe("previewMentions", () => {
   it("ignores an empty name rather than matching everything", () => {
     expect(previewMentions("@Zac hello", "")).toBe(false);
     expect(previewMentions("@Zac hello", "   ")).toBe(false);
+  });
+});
+
+describe("mentions next to other text", () => {
+  // "zac@stayful.co.uk" used to parse as the text "zac" followed by a mention of "stayful.co.uk":
+  // the bare-mention pattern had no left boundary.
+  it("leaves an email address as plain text", () => {
+    expect(parseInline("mail zac@stayful.co.uk today")).toEqual([
+      { type: "text", text: "mail zac@stayful.co.uk today" },
+    ]);
+    expect(parseInline("v1.@Zac")).toEqual([{ type: "text", text: "v1.@Zac" }]);
+  });
+
+  it("still mentions at the start of a line, after a space and after punctuation", () => {
+    const zac = { type: "mention", text: "@Zac", name: "Zac" };
+    expect(parseInline("@Zac hi")).toEqual([zac, { type: "text", text: " hi" }]);
+    expect(parseInline("hi @Zac")).toEqual([{ type: "text", text: "hi " }, zac]);
+    expect(parseInline("(@Zac)")).toEqual([{ type: "text", text: "(" }, zac, { type: "text", text: ")" }]);
+  });
+
+  it("applies the same boundary to the bracketed form", () => {
+    expect(parseInline("cc @[Nigel Hyde] please")).toEqual([
+      { type: "text", text: "cc " },
+      { type: "mention", text: "@Nigel Hyde", name: "Nigel Hyde" },
+      { type: "text", text: " please" },
+    ]);
+    expect(parseInline("x@[Nigel Hyde]")).toEqual([{ type: "text", text: "x@[Nigel Hyde]" }]);
+  });
+
+  it("reads the names out the same way, so nobody is badged for an email address", () => {
+    expect(mentionedNames("mail zac@stayful.co.uk and @Zac")).toEqual(["Zac"]);
+    expect(previewMentions("mail zac@stayful.co.uk", "stayful.co.uk")).toBe(false);
   });
 });

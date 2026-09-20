@@ -27,6 +27,8 @@ export interface IngestedFile {
   /** A voice note renders as a player rather than a file card. */
   voice?: boolean;
   durationMs?: number;
+  /** Anything else for attachments.meta — image dimensions, a provenance id such as slack_file_id. */
+  meta?: Record<string, unknown>;
 }
 
 export async function ingestAttachment(admin: Admin, file: IngestedFile): Promise<{ ok: boolean; error?: string }> {
@@ -46,7 +48,7 @@ export async function ingestAttachment(admin: Admin, file: IngestedFile): Promis
     mime: file.mime,
     size_bytes: file.body.byteLength,
     category: categoryFor(file.mime, file.voice),
-    meta: toJson({ duration_ms: file.durationMs, voice: file.voice || undefined }),
+    meta: toJson({ ...(file.meta ?? {}), duration_ms: file.durationMs, voice: file.voice || undefined }),
   });
   if (error) {
     // Leaving the object behind would be an orphan nobody can reach, since every read goes
