@@ -107,6 +107,6 @@ export function imageDimensions(file: File): Promise<{ width: number; height: nu
   });
 }
 
-export function toJson(meta: AttachmentMeta): Json {
+export function toJson(meta: AttachmentMeta & Record<string, unknown>): Json {
   return JSON.parse(JSON.stringify(meta)) as Json;
 }
