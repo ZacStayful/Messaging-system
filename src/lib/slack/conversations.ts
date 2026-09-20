@@ -152,7 +152,14 @@ export function decideConversation(
     // An existing customer group stays one whatever Slack says; an internal one takes the kind
     // Slack implies, which is what makes #maintenance the maintenance inbox and a property channel
     // a property group.
-    const kind: TargetKind = existing.type === "owner" ? "owner" : existing.propertyId ? "property" : targetKind === "owner" ? "internal" : targetKind;
+    const kind: TargetKind =
+      existing.type === "owner"
+        ? "owner"
+        : existing.propertyId
+          ? "property"
+          : targetKind === "owner"
+            ? "internal"
+            : targetKind;
     return {
       decision: "link",
       skipReason: null,
@@ -206,7 +213,10 @@ export async function materialiseConversation(
 
   if (!conversationId) {
     const base = link.name ?? link.slack_channel_id;
-    const { data: slug, error: slugError } = await actor.rpc("next_available_slug", { p_org: link.org_id, p_base: base });
+    const { data: slug, error: slugError } = await actor.rpc("next_available_slug", {
+      p_org: link.org_id,
+      p_base: base,
+    });
     if (slugError || !slug) return { error: slugError?.message ?? `no slug for ${base}` };
     let chosen = slug;
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -239,7 +249,11 @@ export async function materialiseConversation(
   if (link.target_kind === "property") {
     const address = (link.property_address ?? deslugify(slugify(link.name ?? ""))).trim();
     if (!propertyId) {
-      const { data: convo } = await admin.from("conversations").select("property_id").eq("id", conversationId).maybeSingle();
+      const { data: convo } = await admin
+        .from("conversations")
+        .select("property_id")
+        .eq("id", conversationId)
+        .maybeSingle();
       propertyId = convo?.property_id ?? null;
     }
     if (!propertyId) {
@@ -254,13 +268,21 @@ export async function materialiseConversation(
     if (!propertyId) {
       const { data: created, error } = await admin
         .from("properties")
-        .insert({ org_id: link.org_id, address: address || link.slack_channel_id, slack_channel_id: link.slack_channel_id })
+        .insert({
+          org_id: link.org_id,
+          address: address || link.slack_channel_id,
+          slack_channel_id: link.slack_channel_id,
+        })
         .select("id")
         .single();
       if (error || !created) return { error: error?.message ?? "property insert failed" };
       propertyId = created.id;
     }
-    await admin.from("conversations").update({ property_id: propertyId }).eq("id", conversationId).is("property_id", null);
+    await admin
+      .from("conversations")
+      .update({ property_id: propertyId })
+      .eq("id", conversationId)
+      .is("property_id", null);
     const { error: anchorError } = await admin.rpc("add_property_anchors", {
       p_conversation_id: conversationId,
       p_actor: actorId,

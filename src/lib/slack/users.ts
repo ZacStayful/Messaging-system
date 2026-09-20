@@ -73,6 +73,10 @@ function baseNames(u: SlackUser): { full: string; display: string } {
 
 /** "Sam" taken → "Sam W." → "Sam Walters" → "Sam (handle)". */
 export function uniqueDisplayName(preferred: string, fullName: string, handle: string, taken: Set<string>): string {
+  // Normalised here rather than trusted from the caller: a name that arrived in another case
+  // would collide with nothing, and the two people would then share every @mention — which is
+  // exactly the failure this function exists to prevent, and an invisible one.
+  const used = new Set(Array.from(taken, (t) => t.trim().toLowerCase()));
   const candidates = [preferred];
   const parts = fullName.split(/\s+/).filter(Boolean);
   if (parts.length > 1) {
@@ -82,10 +86,10 @@ export function uniqueDisplayName(preferred: string, fullName: string, handle: s
   if (handle) candidates.push(handle, `${preferred} (${handle})`);
   for (const c of candidates) {
     const key = c.trim().toLowerCase();
-    if (key && !taken.has(key)) return c.trim();
+    if (key && !used.has(key)) return c.trim();
   }
   let n = 2;
-  while (taken.has(`${preferred} ${n}`.toLowerCase())) n += 1;
+  while (used.has(`${preferred} ${n}`.toLowerCase())) n += 1;
   return `${preferred} ${n}`;
 }
 
@@ -106,7 +110,15 @@ export function decideUser(u: SlackUser, ctx: DecideUserContext): DecidedUser {
   };
 
   if (u.id === "USLACKBOT") {
-    return { ...base, decision: "skip", reason: "slackbot", accountType: "team", role: "staff", profileId: null, displayName: names.display };
+    return {
+      ...base,
+      decision: "skip",
+      reason: "slackbot",
+      accountType: "team",
+      role: "staff",
+      profileId: null,
+      displayName: names.display,
+    };
   }
 
   const linked = ctx.profilesBySlackId.get(u.id) ?? (email ? ctx.profilesByEmail.get(email) : undefined);
@@ -139,18 +151,58 @@ export function decideUser(u: SlackUser, ctx: DecideUserContext): DecidedUser {
     };
   }
   if (guest) {
-    return { ...base, decision: "create_customer", reason: deleted ? "guest_deleted" : "guest", accountType: "customer", role: "owner", profileId: null, displayName };
+    return {
+      ...base,
+      decision: "create_customer",
+      reason: deleted ? "guest_deleted" : "guest",
+      accountType: "customer",
+      role: "owner",
+      profileId: null,
+      displayName,
+    };
   }
   if (!email) {
-    return { ...base, decision: "skip", reason: "no_email", accountType: "team", role: "staff", profileId: null, displayName };
+    return {
+      ...base,
+      decision: "skip",
+      reason: "no_email",
+      accountType: "team",
+      role: "staff",
+      profileId: null,
+      displayName,
+    };
   }
   if (deleted) {
-    return { ...base, decision: "create_team", reason: "deleted", accountType: "team", role: "staff", profileId: null, displayName };
+    return {
+      ...base,
+      decision: "create_team",
+      reason: "deleted",
+      accountType: "team",
+      role: "staff",
+      profileId: null,
+      displayName,
+    };
   }
   if (!ctx.teamDomains.includes(domainOf(email))) {
-    return { ...base, decision: "create_team", reason: "domain_review", accountType: "team", role: "staff", profileId: null, displayName };
+    return {
+      ...base,
+      decision: "create_team",
+      reason: "domain_review",
+      accountType: "team",
+      role: "staff",
+      profileId: null,
+      displayName,
+    };
   }
-  return { ...base, decision: "invite_team", reason: "team_member", accountType: "team", role: "staff", profileId: null, displayName };
+  return {
+    ...base,
+    decision: "invite_team",
+    reason: "team_member",
+    accountType: "team",
+    role: "staff",
+    profileId: null,
+    displayName,
+  };
 }
 
 const AVATAR_HOSTS = /(^|\.)slack-edge\.com$|(^|\.)gravatar\.com$|(^|\.)slack\.com$/;
@@ -229,24 +281,23 @@ export async function applyUserDecision(
       return {
         outcome: "invited",
         profileId: invited.userId,
-        error: invited.emailStatus === "sent" ? undefined : `invite email ${invited.emailStatus}${invited.emailError ? `: ${invited.emailError}` : ""}`,
+        error:
+          invited.emailStatus === "sent"
+            ? undefined
+            : `invite email ${invited.emailStatus}${invited.emailError ? `: ${invited.emailError}` : ""}`,
       };
     }
 
     // create_customer / create_team / create_bot: dormant, through the RPC.
-    const { data: before } = await admin
-      .from("profiles")
-      .select("id")
-      .eq("slack_user_id", d.slackUserId)
-      .maybeSingle();
+    const { data: before } = await admin.from("profiles").select("id").eq("slack_user_id", d.slackUserId).maybeSingle();
     const { data: userId, error } = await actor.rpc("import_slack_account", {
       p_slack_user_id: d.slackUserId,
-      p_email: d.email ?? undefined,
+      p_email: d.email,
       p_full_name: d.fullName,
       p_display_name: d.displayName,
       p_account_type: d.accountType,
       p_role: d.role,
-      p_timezone: d.timezone ?? undefined,
+      p_timezone: d.timezone,
       p_deactivated: d.deactivated,
       p_is_bot: d.isBot,
     });

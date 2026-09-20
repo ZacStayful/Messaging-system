@@ -56,7 +56,9 @@ export async function loadDirectory(admin: Admin, orgId: string): Promise<Direct
   const [{ data: users }, { data: profiles }, { data: channels }] = await Promise.all([
     admin
       .from("slack_users")
-      .select("slack_user_id, profile_id, resolved_display, display_name, real_name, name, is_bot, is_app_user, is_restricted, is_ultra_restricted, raw")
+      .select(
+        "slack_user_id, profile_id, resolved_display, display_name, real_name, name, is_bot, is_app_user, is_restricted, is_ultra_restricted, raw",
+      )
       .eq("org_id", orgId),
     admin.from("profiles").select("id, display_name, account_type, deactivated_at, slack_user_id").eq("org_id", orgId),
     admin.from("slack_conversations").select("slack_channel_id, name").eq("org_id", orgId),

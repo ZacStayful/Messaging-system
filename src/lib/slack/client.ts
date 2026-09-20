@@ -218,7 +218,11 @@ export async function conversationInfo(channel: string): Promise<SlackConversati
 }
 
 export async function listMembers(channel: string): Promise<string[]> {
-  return paginate<string, Envelope & { members: string[] }>("conversations.members", { channel }, (p) => p.members ?? []);
+  return paginate<string, Envelope & { members: string[] }>(
+    "conversations.members",
+    { channel },
+    (p) => p.members ?? [],
+  );
 }
 
 export async function joinChannel(channel: string): Promise<void> {
@@ -243,7 +247,11 @@ export async function historyPage(
     limit: opts.limit ?? 200,
     cursor: opts.cursor,
   });
-  return { messages: page.messages ?? [], hasMore: Boolean(page.has_more), nextCursor: page.response_metadata?.next_cursor || undefined };
+  return {
+    messages: page.messages ?? [],
+    hasMore: Boolean(page.has_more),
+    nextCursor: page.response_metadata?.next_cursor || undefined,
+  };
 }
 
 /** Every message in a thread, oldest first, the parent as item 0. */
@@ -262,12 +270,19 @@ export async function listBookmarks(channel: string): Promise<SlackBookmark[]> {
 }
 
 /** A file's bytes. Slack's private URLs need the same bearer token; nothing else about the URL is trusted. */
-export async function downloadFile(url: string, maxBytes: number): Promise<{ ok: true; body: ArrayBuffer; contentType: string | null } | { ok: false; error: string }> {
+export async function downloadFile(
+  url: string,
+  maxBytes: number,
+): Promise<{ ok: true; body: ArrayBuffer; contentType: string | null } | { ok: false; error: string }> {
   const u = new URL(url);
   if (u.protocol !== "https:" || !/(^|\.)slack\.com$|(^|\.)slack-edge\.com$|(^|\.)slack-files\.com$/.test(u.hostname)) {
     return { ok: false, error: `refusing to fetch ${u.hostname}` };
   }
-  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token()}` }, redirect: "follow" }, 30_000);
+  const res = await fetchWithTimeout(
+    url,
+    { headers: { Authorization: `Bearer ${token()}` }, redirect: "follow" },
+    30_000,
+  );
   if (!res.ok) return { ok: false, error: `http_${res.status}` };
   const declared = Number(res.headers.get("content-length") ?? "0");
   if (declared > maxBytes) return { ok: false, error: "too_large" };

@@ -101,11 +101,19 @@ export async function processFiles(admin: Admin, budget: Budget, conversationId?
     if (!claimed?.length) continue;
 
     const finish = async (patch: Record<string, unknown>) =>
-      admin.from("slack_files").update({ ...patch, claimed_at: null }).match(key);
+      admin
+        .from("slack_files")
+        .update({ ...patch, claimed_at: null })
+        .match(key);
 
     const mime = baseMime(row.mimetype || "application/octet-stream");
     if (row.mode && ["tombstone", "hidden_by_limit", "external"].includes(row.mode)) {
-      await noteSkipped(admin, row.message_id, row.name, row.mode === "external" ? "external file" : "no longer available");
+      await noteSkipped(
+        admin,
+        row.message_id,
+        row.name,
+        row.mode === "external" ? "external file" : "no longer available",
+      );
       await finish({ status: "skipped_mode" });
       report.skipped += 1;
       continue;

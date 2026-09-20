@@ -71,6 +71,30 @@ export const CORRECTIONS: Correction[] = [
     why: "null is how a caller creates a group with no topic",
   },
   {
+    path: "Functions.import_slack_account.Args.p_email",
+    from: "string",
+    to: "string | null",
+    why: "null is how the import says a Slack bot has no address of its own",
+  },
+  {
+    path: "Functions.import_slack_account.Args.p_timezone",
+    from: "string",
+    to: "string | null",
+    why: "null is how the import says Slack reported no time zone",
+  },
+  {
+    path: "Functions.import_slack_account.Args.p_avatar_url",
+    from: "string",
+    to: "string | null",
+    why: "null is how the import says there is no photo to copy",
+  },
+  {
+    path: "Functions.import_slack_members.Args.p_joined_at",
+    from: "string",
+    to: "string | null",
+    why: "null is how the worker says to fall back to the conversation's own created_at",
+  },
+  {
     path: "Functions.mark_outbox.Args.p_error",
     from: "string",
     to: "string | null",

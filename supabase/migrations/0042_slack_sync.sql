@@ -788,3 +788,53 @@ begin
 end $$;
 revoke all on function public.grant_portal_access(uuid, text) from public, anon;
 grant execute on function public.grant_portal_access(uuid, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- The read-state broadcasts (0041) under bulk import
+-- ---------------------------------------------------------------------------
+-- messages_after_insert moves the sender's last_read_at on every top-level insert, and
+-- messages_thread_bookkeeping writes a thread_follows mark on every reply, so without this each
+-- imported message would be one more realtime.send to a tab that is not open. Bodies verbatim from
+-- 0041 with the one guard line, the same treatment the six broadcast functions above got.
+create or replace function public.broadcast_read_state()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_last_message_at timestamptz;
+begin
+  if public.bulk_import_active() then return null; end if;
+  select c.last_message_at into v_last_message_at
+    from public.conversations c where c.id = new.conversation_id;
+
+  perform realtime.send(
+    jsonb_build_object(
+      'conversation_id', new.conversation_id,
+      'last_read_at',    new.last_read_at,
+      'has_unread',      coalesce(v_last_message_at > new.last_read_at, false)),
+    'read_state', 'user:' || new.user_id::text, true);
+  return null;
+end $$;
+
+create or replace function public.broadcast_thread_read_state()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_last_reply_at timestamptz;
+begin
+  if public.bulk_import_active() then return null; end if;
+  select m.last_reply_at into v_last_reply_at from public.messages m where m.id = new.message_id;
+
+  perform realtime.send(
+    jsonb_build_object(
+      'message_id',   new.message_id,
+      'last_read_at', new.last_read_at,
+      'has_unread',   coalesce(v_last_reply_at > new.last_read_at, false)),
+    'thread_read_state', 'user:' || new.user_id::text, true);
+  return null;
+end $$;
+
+create or replace function public.broadcast_activity_seen()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if public.bulk_import_active() then return null; end if;
+  perform realtime.send(
+    jsonb_build_object('activity_seen_at', new.activity_seen_at),
+    'activity_seen', 'user:' || new.id::text, true);
+  return null;
+end $$;

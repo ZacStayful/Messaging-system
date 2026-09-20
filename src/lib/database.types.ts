@@ -1306,6 +1306,7 @@ export type Database = {
           presence: Database["public"]["Enums"]["presence_status"];
           presence_mode: string;
           role: Database["public"]["Enums"]["user_role"];
+          slack_user_id: string | null;
           status_emoji: string | null;
           status_expires_at: string | null;
           status_text: string | null;
@@ -1339,6 +1340,7 @@ export type Database = {
           presence?: Database["public"]["Enums"]["presence_status"];
           presence_mode?: string;
           role?: Database["public"]["Enums"]["user_role"];
+          slack_user_id?: string | null;
           status_emoji?: string | null;
           status_expires_at?: string | null;
           status_text?: string | null;
@@ -1372,6 +1374,7 @@ export type Database = {
           presence?: Database["public"]["Enums"]["presence_status"];
           presence_mode?: string;
           role?: Database["public"]["Enums"]["user_role"];
+          slack_user_id?: string | null;
           status_emoji?: string | null;
           status_expires_at?: string | null;
           status_text?: string | null;
@@ -1397,6 +1400,7 @@ export type Database = {
           id: string;
           monday_item_id: string | null;
           org_id: string;
+          slack_channel_id: string | null;
         };
         Insert: {
           address: string;
@@ -1405,6 +1409,7 @@ export type Database = {
           id?: string;
           monday_item_id?: string | null;
           org_id: string;
+          slack_channel_id?: string | null;
         };
         Update: {
           address?: string;
@@ -1413,6 +1418,7 @@ export type Database = {
           id?: string;
           monday_item_id?: string | null;
           org_id?: string;
+          slack_channel_id?: string | null;
         };
         Relationships: [
           {
@@ -1809,6 +1815,371 @@ export type Database = {
           },
         ];
       };
+      slack_conversations: {
+        Row: {
+          address_guessed: boolean;
+          attempts: number;
+          claimed_at: string | null;
+          completed_at: string | null;
+          conversation_id: string | null;
+          created_ts: string | null;
+          creator: string | null;
+          customer_channel_id: string | null;
+          decision: string;
+          decision_source: string;
+          history_high_ts: string | null;
+          history_low_ts: string | null;
+          imported_files: number;
+          imported_messages: number;
+          imported_replies: number;
+          is_archived: boolean;
+          is_member: boolean;
+          is_private: boolean;
+          kind: string;
+          last_error: string | null;
+          last_synced_at: string | null;
+          member_outcomes: Json;
+          members: Json;
+          name: string | null;
+          next_sync_at: string | null;
+          org_id: string;
+          property_address: string | null;
+          property_id: string | null;
+          purpose: string | null;
+          skip_reason: string | null;
+          skipped_files: number;
+          slack_channel_id: string;
+          status: string;
+          target_kind: string | null;
+          threads_checked_at: string | null;
+          topic: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          address_guessed?: boolean;
+          attempts?: number;
+          claimed_at?: string | null;
+          completed_at?: string | null;
+          conversation_id?: string | null;
+          created_ts?: string | null;
+          creator?: string | null;
+          customer_channel_id?: string | null;
+          decision?: string;
+          decision_source?: string;
+          history_high_ts?: string | null;
+          history_low_ts?: string | null;
+          imported_files?: number;
+          imported_messages?: number;
+          imported_replies?: number;
+          is_archived?: boolean;
+          is_member?: boolean;
+          is_private?: boolean;
+          kind: string;
+          last_error?: string | null;
+          last_synced_at?: string | null;
+          member_outcomes?: Json;
+          members?: Json;
+          name?: string | null;
+          next_sync_at?: string | null;
+          org_id?: string;
+          property_address?: string | null;
+          property_id?: string | null;
+          purpose?: string | null;
+          skip_reason?: string | null;
+          skipped_files?: number;
+          slack_channel_id: string;
+          status?: string;
+          target_kind?: string | null;
+          threads_checked_at?: string | null;
+          topic?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          address_guessed?: boolean;
+          attempts?: number;
+          claimed_at?: string | null;
+          completed_at?: string | null;
+          conversation_id?: string | null;
+          created_ts?: string | null;
+          creator?: string | null;
+          customer_channel_id?: string | null;
+          decision?: string;
+          decision_source?: string;
+          history_high_ts?: string | null;
+          history_low_ts?: string | null;
+          imported_files?: number;
+          imported_messages?: number;
+          imported_replies?: number;
+          is_archived?: boolean;
+          is_member?: boolean;
+          is_private?: boolean;
+          kind?: string;
+          last_error?: string | null;
+          last_synced_at?: string | null;
+          member_outcomes?: Json;
+          members?: Json;
+          name?: string | null;
+          next_sync_at?: string | null;
+          org_id?: string;
+          property_address?: string | null;
+          property_id?: string | null;
+          purpose?: string | null;
+          skip_reason?: string | null;
+          skipped_files?: number;
+          slack_channel_id?: string;
+          status?: string;
+          target_kind?: string | null;
+          threads_checked_at?: string | null;
+          topic?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "slack_conversations_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "slack_conversations_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "slack_conversations_property_id_fkey";
+            columns: ["property_id"];
+            isOneToOne: false;
+            referencedRelation: "properties";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      slack_files: {
+        Row: {
+          attempts: number;
+          channel_id: string;
+          claimed_at: string | null;
+          conversation_id: string;
+          created_at: string;
+          last_error: string | null;
+          message_id: string;
+          mimetype: string | null;
+          mode: string | null;
+          name: string | null;
+          org_id: string;
+          size: number | null;
+          slack_file_id: string;
+          status: string;
+          url_private: string | null;
+        };
+        Insert: {
+          attempts?: number;
+          channel_id: string;
+          claimed_at?: string | null;
+          conversation_id: string;
+          created_at?: string;
+          last_error?: string | null;
+          message_id: string;
+          mimetype?: string | null;
+          mode?: string | null;
+          name?: string | null;
+          org_id?: string;
+          size?: number | null;
+          slack_file_id: string;
+          status?: string;
+          url_private?: string | null;
+        };
+        Update: {
+          attempts?: number;
+          channel_id?: string;
+          claimed_at?: string | null;
+          conversation_id?: string;
+          created_at?: string;
+          last_error?: string | null;
+          message_id?: string;
+          mimetype?: string | null;
+          mode?: string | null;
+          name?: string | null;
+          org_id?: string;
+          size?: number | null;
+          slack_file_id?: string;
+          status?: string;
+          url_private?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "slack_files_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "conversations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "slack_files_message_id_fkey";
+            columns: ["message_id"];
+            isOneToOne: false;
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "slack_files_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      slack_leases: {
+        Row: {
+          expires_at: string | null;
+          holder: string | null;
+          name: string;
+        };
+        Insert: {
+          expires_at?: string | null;
+          holder?: string | null;
+          name: string;
+        };
+        Update: {
+          expires_at?: string | null;
+          holder?: string | null;
+          name?: string;
+        };
+        Relationships: [];
+      };
+      slack_messages: {
+        Row: {
+          channel_id: string;
+          created_at: string;
+          message_id: string;
+          org_id: string;
+          thread_ts: string | null;
+          ts: string;
+        };
+        Insert: {
+          channel_id: string;
+          created_at?: string;
+          message_id: string;
+          org_id?: string;
+          thread_ts?: string | null;
+          ts: string;
+        };
+        Update: {
+          channel_id?: string;
+          created_at?: string;
+          message_id?: string;
+          org_id?: string;
+          thread_ts?: string | null;
+          ts?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "slack_messages_message_id_fkey";
+            columns: ["message_id"];
+            isOneToOne: false;
+            referencedRelation: "messages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "slack_messages_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      slack_users: {
+        Row: {
+          decision: string;
+          decision_source: string;
+          deleted: boolean;
+          display_name: string | null;
+          email: string | null;
+          error: string | null;
+          image_url: string | null;
+          is_app_user: boolean;
+          is_bot: boolean;
+          is_restricted: boolean;
+          is_ultra_restricted: boolean;
+          name: string | null;
+          org_id: string;
+          outcome: string | null;
+          profile_id: string | null;
+          raw: Json;
+          real_name: string | null;
+          resolved_display: string | null;
+          slack_user_id: string;
+          tz: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          decision: string;
+          decision_source?: string;
+          deleted?: boolean;
+          display_name?: string | null;
+          email?: string | null;
+          error?: string | null;
+          image_url?: string | null;
+          is_app_user?: boolean;
+          is_bot?: boolean;
+          is_restricted?: boolean;
+          is_ultra_restricted?: boolean;
+          name?: string | null;
+          org_id?: string;
+          outcome?: string | null;
+          profile_id?: string | null;
+          raw?: Json;
+          real_name?: string | null;
+          resolved_display?: string | null;
+          slack_user_id: string;
+          tz?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          decision?: string;
+          decision_source?: string;
+          deleted?: boolean;
+          display_name?: string | null;
+          email?: string | null;
+          error?: string | null;
+          image_url?: string | null;
+          is_app_user?: boolean;
+          is_bot?: boolean;
+          is_restricted?: boolean;
+          is_ultra_restricted?: boolean;
+          name?: string | null;
+          org_id?: string;
+          outcome?: string | null;
+          profile_id?: string | null;
+          raw?: Json;
+          real_name?: string | null;
+          resolved_display?: string | null;
+          slack_user_id?: string;
+          tz?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "slack_users_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "slack_users_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       thread_follows: {
         Row: {
           created_at: string;
@@ -2068,6 +2439,14 @@ export type Database = {
         Args: { p_conversation_id: string; p_user_ids: string[] };
         Returns: undefined;
       };
+      add_property_anchors: {
+        Args: {
+          p_actor: string;
+          p_conversation_id: string;
+          p_created_at?: string;
+        };
+        Returns: undefined;
+      };
       add_property_contact: {
         Args: { p_conversation_id: string; p_kind: string; p_user_id: string };
         Returns: undefined;
@@ -2085,6 +2464,7 @@ export type Database = {
         Returns: undefined;
       };
       auth_org_id: { Args: never; Returns: string };
+      bulk_import_active: { Args: never; Returns: boolean };
       channel_system_message: {
         Args: { body: string; cid: string; event: string; extra?: Json };
         Returns: undefined;
@@ -2165,6 +2545,10 @@ export type Database = {
         };
         Returns: string;
       };
+      grant_portal_access: {
+        Args: { p_password: string; p_user_id: string };
+        Returns: undefined;
+      };
       import_lead_customer: {
         Args: {
           p_conversation_id: string;
@@ -2175,6 +2559,29 @@ export type Database = {
           p_phone: string | null;
         };
         Returns: string;
+      };
+      import_slack_account: {
+        Args: {
+          p_account_type: Database["public"]["Enums"]["account_type"];
+          p_avatar_url?: string | null;
+          p_deactivated?: boolean;
+          p_display_name: string;
+          p_email: string | null;
+          p_full_name: string;
+          p_is_bot?: boolean;
+          p_role: Database["public"]["Enums"]["user_role"];
+          p_slack_user_id: string;
+          p_timezone?: string | null;
+        };
+        Returns: string;
+      };
+      import_slack_members: {
+        Args: { p_conversation_id: string; p_joined_at?: string | null; p_rows: Json };
+        Returns: Json;
+      };
+      import_slack_messages: {
+        Args: { p_bulk?: boolean; p_conversation_id: string; p_rows: Json };
+        Returns: Json;
       };
       is_admin: { Args: never; Returns: boolean };
       is_member: { Args: { cid: string }; Returns: boolean };
@@ -2189,6 +2596,10 @@ export type Database = {
         Returns: undefined;
       };
       mark_read: { Args: { cid: string }; Returns: undefined };
+      mark_slack_deleted: {
+        Args: { p_channel_id: string; p_ts_list: string[] };
+        Returns: number;
+      };
       mark_thread_read: { Args: { p_message_id: string }; Returns: undefined };
       move_bookmark: {
         Args: { p_delta: number; p_id: string };
@@ -2319,6 +2730,62 @@ export type Database = {
         Returns: undefined;
       };
       shares_conversation_with: { Args: { other: string }; Returns: boolean };
+      slack_acquire_lease: {
+        Args: { p_holder: string; p_name: string; p_ttl?: string };
+        Returns: boolean;
+      };
+      slack_claim_conversation: {
+        Args: { p_stale?: string };
+        Returns: {
+          address_guessed: boolean;
+          attempts: number;
+          claimed_at: string | null;
+          completed_at: string | null;
+          conversation_id: string | null;
+          created_ts: string | null;
+          creator: string | null;
+          customer_channel_id: string | null;
+          decision: string;
+          decision_source: string;
+          history_high_ts: string | null;
+          history_low_ts: string | null;
+          imported_files: number;
+          imported_messages: number;
+          imported_replies: number;
+          is_archived: boolean;
+          is_member: boolean;
+          is_private: boolean;
+          kind: string;
+          last_error: string | null;
+          last_synced_at: string | null;
+          member_outcomes: Json;
+          members: Json;
+          name: string | null;
+          next_sync_at: string | null;
+          org_id: string;
+          property_address: string | null;
+          property_id: string | null;
+          purpose: string | null;
+          skip_reason: string | null;
+          skipped_files: number;
+          slack_channel_id: string;
+          status: string;
+          target_kind: string | null;
+          threads_checked_at: string | null;
+          topic: string | null;
+          updated_at: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "slack_conversations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      slack_finish_backfill: {
+        Args: { p_conversation_id: string };
+        Returns: undefined;
+      };
       start_call: {
         Args: {
           p_conversation_id: string;

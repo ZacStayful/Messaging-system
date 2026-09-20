@@ -19,8 +19,7 @@ interface Entry {
   skin_variations?: Record<string, { unified: string }>;
 }
 
-const toChar = (unified: string) =>
-  String.fromCodePoint(...unified.split("-").map((cp) => Number.parseInt(cp, 16)));
+const toChar = (unified: string) => String.fromCodePoint(...unified.split("-").map((cp) => Number.parseInt(cp, 16)));
 
 const SKIN: Record<string, string> = {
   "1F3FB": "skin-tone-2",

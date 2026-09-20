@@ -123,7 +123,9 @@ export function normaliseMessage(channelId: string, m: SlackMessage, ctx: Normal
       username: m.username ?? m.bot_profile?.name ?? null,
     },
     ...(converted.mentions.length ? { mentions: converted.mentions } : {}),
-    ...(system ? { event: SYSTEM_EVENTS[subtype], user_id: slackSender ? (ctx.profileId(slackSender) ?? null) : null } : {}),
+    ...(system
+      ? { event: SYSTEM_EVENTS[subtype], user_id: slackSender ? (ctx.profileId(slackSender) ?? null) : null }
+      : {}),
     ...((m.files?.length ?? 0) > 0 ? { attachment_count: m.files!.length } : {}),
   };
 

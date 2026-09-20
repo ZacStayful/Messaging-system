@@ -2,3 +2,6 @@ node_modules
 .next
 pnpm-lock.yaml
 supabase/migrations
+
+# Generated data: one line of 3,609 emoji names, rewritten by `pnpm slack:emoji`.
+src/lib/slack/emoji.json

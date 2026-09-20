@@ -158,7 +158,7 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 
 Out of scope for this pass (next passes): staff inbox with SLA, email attachments,
 huddles/calls, canvases, digest emails, Uplisting sync, per-property routing of inbound
-maintenance WhatsApp, outgoing webhooks, Slack import.
+maintenance WhatsApp, outgoing webhooks. Slack import shipped in the next pass — see "Slack" below.
 
 ## Stack
 
@@ -353,6 +353,19 @@ conversation_id)` dropped so there is one token per notification email rather th
     `mark_read`, because there are three writers: `messages_after_insert` moves the mark when you
     send, and the UPDATE policy has no column list, so a client can PATCH the column directly.
     Whether anything is still unread is decided in the trigger and shipped as a boolean
+42. `0042_slack_sync.sql` the Slack import: `profiles.slack_user_id`, `slack_users` and
+    `slack_conversations` (what discovery found and what was decided about each, reviewable before
+    anything is written), `slack_messages` (Slack's `(channel, ts)` → a message, which is how a
+    reply finds its parent and how a re-read is diffed), `slack_files` (the download queue; the
+    only unique key `attachments` gets), `slack_leases`; the three `import_slack_*` writers, each
+    idempotent on Slack's own ids and each raising the transaction-local `app.bulk_import` flag
+    that every broadcast function — the six from 0009/0010/0029 and the three from 0041 — now
+    checks first, so a three-year backfill sends nothing to nobody; `add_property_anchors`,
+    `mark_slack_deleted`, the claim / finish / lease functions the worker uses, and
+    `grant_portal_access` for cutover. Two fixes ride along: `properties_monday_item_idx` was
+    partial and PostgREST cannot target a partial index, so the Monday upsert had failed silently
+    since 0024; and `next_available_slug` ignored archived rows while the unique index includes
+    them. Asserted in `supabase/verify/checks/0042_slack_sync.sql`
 
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
@@ -651,6 +664,107 @@ binary on install, which every CI run would pay for a script CI never runs. The 
 Where there is no CLI and no `supabase login` — a sandbox, for instance — generate with the
 Supabase MCP `generate_typescript_types` and pass the file as `GEN_TYPES_INPUT` instead; the
 corrections and the typecheck still run.
+
+## Slack
+
+The Slack workspace, copied here so the move off Slack starts with everything already in place:
+every channel with its members, topic and purpose, the whole history with threads, edits, reactions,
+pins and files, and each channel's bookmarks. After the first import a worker catches up **once a
+day**. Nothing is ever written to Slack, DMs and group DMs are not copied (later, once the move is
+made), and nobody is contacted by the import except a team member who was not in the app yet — they
+get a real login, as they would if added from the workspace menu. It ships **switched off**.
+
+### The app in Slack
+
+An internal app, created by an admin from `docs/slack-app-manifest.json` (api.slack.com → Create New
+App → From a manifest → paste the file), installed to the workspace by an admin who is a member of
+every channel worth copying. Its **user** token (`xoxp-…`, Install App → User OAuth Token) goes in
+Vercel as `SLACK_USER_TOKEN`. A user token rather than a bot token because private channels are only
+visible to a member of them, and a bot is a member of nothing until invited two hundred times; an
+internal customer-built app also keeps the ordinary rate limits on `conversations.history`, which
+Slack's 2025 change took away from distributed apps.
+
+The scopes are all reads: `team:read`, `users:read`, `users:read.email`, `channels:read`,
+`groups:read`, `channels:history`, `groups:history`, `channels:join` (public channels the admin is
+not in are joined so they can be read), `files:read`, `reactions:read`, `pins:read`, `bookmarks:read`.
+
+### Running it
+
+Everything happens on `/settings/integrations`, under **Slack**, and in one worker,
+`/api/cron/slack`, which runs every minute and does as much as fits in 45 seconds — discovery, the
+user pass, the backfill and the daily catch-up are all the same loop, and it costs a few queries
+when nothing is due. `pnpm slack:backfill` runs that loop from a laptop instead, at full speed, for
+the first import.
+
+1. Choose the team member the import **acts as** (an admin: the account functions it calls are
+   admin-only), save, switch on.
+2. **Discover.** The worker lists members and channels into `slack_users` and `slack_conversations`,
+   reads every channel's member list, and decides what each becomes. Nothing is created.
+3. **Review.** Two tables. People: guests become dormant customer accounts, an address that already
+   has an account here is linked, a team member not here yet is invited for real (the rows that will
+   send an email are highlighted), a full member outside the team domain is held dormant for a
+   decision, bots and apps become deactivated profiles so their posts keep a name. Channels: one with
+   a guest in it becomes a customer group; one whose name is an address becomes a property group with
+   the Cleaning and Maintenance threads; a name an existing group already holds is **linked** so the
+   history lands where the team already works (`#maintenance`, the Monday-created groups); the rest
+   are internal channels; archived and test channels are skipped. Any of it can be changed per row.
+4. **Start backfill.** The worker creates the people, then works one channel at a time: the
+   conversation, its members, its history read backwards a page at a time with every thread's
+   replies, its files, its bookmarks; then marks the whole history read for every member, so nobody
+   opens the app to fifty thousand unread messages. Progress and errors are on the page; a channel
+   that fails five times stops with its reason and a Retry button.
+5. From then on each channel is caught up a day after it was last synced: new messages and the last
+   hour again for edits and reactions, threads with a reply in the last thirty days, new members,
+   topic and archive changes, files and bookmarks; once a week the last ninety days are re-read in
+   full, which is when deletions are noticed. **Sync now** brings everything forward.
+
+### What a message becomes
+
+`sent_via = 'slack'`, `external_ref = '<channel>:<ts>'`, `created_at` from Slack's `ts` to the
+microsecond, `edited_at` from Slack's edit time, `meta.mirrored = true` — the one flag
+`enqueue_message_notifications` (0034) honours, so an imported message never emails or WhatsApps
+anyone — and `meta.slack` with the original ids. Text is converted from mrkdwn
+(`src/lib/slack/mrkdwn.ts`): `*bold*` becomes `**bold**`, `<@U…>` becomes an `@Name` mention chip
+resolved through the imported people, `<#C…|name>` becomes plain `#name`, `<!here>` plain `@here`,
+links become `[label](url)`, `:shortcode:` becomes the character (`src/lib/slack/emoji.json`,
+regenerated with `pnpm slack:emoji`; a custom emoji stays as `:name:`), and Slack's entity escaping
+is undone last so nothing typed literally becomes markup. App posts with no text are read from
+their blocks. Join, leave, topic and rename lines become `kind = 'system'` messages.
+
+Every object has one idempotency key, so any slice can be re-run: people on `slack_user_id`,
+channels on `slack_channel_id`, messages on `(channel, ts)` in `slack_messages`, reactions and pins
+on their primary keys, files on `(message_id, slack_file_id)`, bookmarks on
+`template_key = 'slack:<id>'`. A re-read of a window compares each message and applies an edit; it
+never removes a reaction or a pin, because a team member may have added one here since.
+
+The backfill runs under a transaction-local `app.bulk_import` flag that every broadcast trigger
+checks, so it fires no realtime events; the daily catch-up runs without it for small batches, so
+open tabs update. `conversations.history` returns newest first, hence the two watermarks on each row:
+the backfill walks backwards from `history_low_ts` and resumes exactly where a killed run stopped,
+the catch-up walks forwards from `history_high_ts`.
+
+### What it cannot do
+
+- DMs and group DMs are not imported yet; only DMs the token's owner is party to are ever visible.
+- Other people's read state is not available from Slack; the import marks everything read.
+- Mentions here are by display name (`src/lib/richtext.ts`), so two people with the same first name
+  in Slack are given distinct display names on import (`Sam` and `Sam W.`).
+- `@here`, `@channel`, channel links and custom emoji have no equivalent here and land as text.
+- A file the bucket refuses (a type outside its allow-list, or over 50 MB) is not silently absent:
+  a `[file not imported: …]` line is appended to the message and `slack_files` says why.
+- A day's cadence means an edit or reaction on a message older than the re-read window, or a reply
+  on a thread quiet for more than thirty days, waits for the weekly pass.
+- A guest in more than one channel meets the one-customer-group rule (0018); the second membership
+  is recorded as `member_conflict` on the channel row for someone to resolve by hand.
+- Property channels are recognised by their name matching an address in a customer channel's topic,
+  or by looking like an address; a guess is marked `(guessed)` on the page and can be changed.
+
+### Cutover
+
+Imported guests cannot sign in until an admin presses **Grant access** on their row in the People
+directory, which lifts the ban, sets a password and emails them their login details
+(`grant_portal_access`). Team members invited by the import already have theirs. Leave the
+integration on: the daily catch-up keeps the copy current for as long as Slack is still in use.
 
 ## Calling (Twilio)
 
@@ -972,6 +1086,8 @@ whether Zapier's MCP client accepts a static bearer header before promising it t
 | `pnpm test:e2e`                                | Playwright smoke tests against a production build (`pnpm build` first); sign-in tests need a seeded database |
 | `pnpm db:verify`                               | Applies every migration to a throwaway PostgreSQL cluster, asserts behaviour, checks the types — see below   |
 | `pnpm db:types`                                | Regenerates `src/lib/database.types.ts`, re-applies the hand corrections, typechecks the result — see below  |
+| `pnpm slack:backfill`                          | Runs the Slack worker from a machine until nothing is due (`--once` for one slice) — see "Slack"             |
+| `pnpm slack:emoji`                             | Regenerates `src/lib/slack/emoji.json` (Slack short names → characters) from `emoji-datasource`              |
 
 The RLS and sign-in tests expect the fixtures from `supabase/seed.sql` (test accounts and groups).
 Run them against a local stack (`supabase start && supabase db reset`) or a staging project, never

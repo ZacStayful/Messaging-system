@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 
 type Admin = SupabaseClient<Database>;
 
@@ -69,7 +69,7 @@ export async function patchSlackConfig(admin: Admin, orgId: string, patch: Recor
     .eq("org_id", orgId)
     .eq("key", SLACK_INTEGRATION_KEY)
     .maybeSingle();
-  const config = { ...((data?.config ?? {}) as Record<string, unknown>), ...patch };
+  const config = { ...((data?.config ?? {}) as Record<string, unknown>), ...patch } as Json;
   await admin
     .from("integrations")
     .upsert(

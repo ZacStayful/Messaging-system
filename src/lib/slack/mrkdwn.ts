@@ -91,7 +91,10 @@ export function mrkdwnToBody(text: string, ctx: MrkdwnContext = noContext): Conv
  * as a legacy attachment. Best effort: rich_text and section blocks are read; images and
  * dividers are not. Returns mrkdwn, for mrkdwnToBody.
  */
-export function blocksToText(blocks: unknown[] | undefined, attachments?: { fallback?: string; text?: string; title?: string; title_link?: string }[]): string {
+export function blocksToText(
+  blocks: unknown[] | undefined,
+  attachments?: { fallback?: string; text?: string; title?: string; title_link?: string }[],
+): string {
   const lines: string[] = [];
   const el = (e: Record<string, unknown>): string => {
     const t = e.type;

@@ -34,5 +34,9 @@ export async function acquireLease(admin: Admin, name: string, holder: string, t
 }
 
 export async function releaseLease(admin: Admin, name: string, holder: string): Promise<void> {
-  await admin.from("slack_leases").update({ expires_at: new Date(0).toISOString() }).eq("name", name).eq("holder", holder);
+  await admin
+    .from("slack_leases")
+    .update({ expires_at: new Date(0).toISOString() })
+    .eq("name", name)
+    .eq("holder", holder);
 }

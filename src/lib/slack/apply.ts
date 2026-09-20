@@ -42,6 +42,9 @@ async function ensureBotProfile(ctx: ApplyContext, m: SlackMessage): Promise<voi
   const name = (m.username ?? m.bot_profile?.name ?? "Slack app").trim();
   const { data: userId, error } = await ctx.actor.rpc("import_slack_account", {
     p_slack_user_id: botId,
+    p_email: null,
+    p_timezone: null,
+    p_avatar_url: null,
     p_full_name: `${name} (Slack app)`,
     p_display_name: `${name} (Slack app)`,
     p_account_type: "team",
@@ -114,7 +117,15 @@ export async function applyMessages(
   messages: SlackMessage[],
   opts: { bulk?: boolean } = {},
 ): Promise<ApplyReport> {
-  const report: ApplyReport = { inserted: 0, updated: 0, unchanged: 0, orphans: 0, filesQueued: 0, droppedReactions: 0, insertedReplies: 0 };
+  const report: ApplyReport = {
+    inserted: 0,
+    updated: 0,
+    unchanged: 0,
+    orphans: 0,
+    filesQueued: 0,
+    droppedReactions: 0,
+    insertedReplies: 0,
+  };
   for (const m of messages) if (m.subtype === "bot_message" && m.bot_id) await ensureBotProfile(ctx, m);
 
   let items = normaliseAll(ctx, channelId, messages);
@@ -126,7 +137,12 @@ export async function applyMessages(
     const orphans: ImportRow[] = [];
     for (let i = 0; i < items.length; i += BATCH) {
       const slice = items.slice(i, i + BATCH);
-      const results = await importBatch(ctx, conversationId, slice.map((n) => n.row), bulk);
+      const results = await importBatch(
+        ctx,
+        conversationId,
+        slice.map((n) => n.row),
+        bulk,
+      );
       for (const r of results) {
         const n = byTs.get(r.ts);
         if (r.outcome === "orphan") {
@@ -166,7 +182,12 @@ export async function applyMessages(
     }
     const parents = normaliseAll(ctx, channelId, fetched);
     for (const p of parents) byTs.set(p.row.ts, p);
-    const parentResults = await importBatch(ctx, conversationId, parents.map((n) => n.row), bulk);
+    const parentResults = await importBatch(
+      ctx,
+      conversationId,
+      parents.map((n) => n.row),
+      bulk,
+    );
     for (const r of parentResults) {
       if (r.outcome === "inserted") {
         report.inserted += 1;

@@ -14,7 +14,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
 import { listConversations, listMembers, listUsers, teamInfo, SlackApiError, type SlackConversation } from "./client";
-import { addressesFromTopic, decideConversation, type CustomerAddress, type ExistingConversation } from "./conversations";
+import {
+  addressesFromTopic,
+  decideConversation,
+  type CustomerAddress,
+  type ExistingConversation,
+} from "./conversations";
 import { patchSlackConfig, type SlackSettings } from "./settings";
 import { decideUser, type ExistingProfile } from "./users";
 import type { Budget } from "./lease";
@@ -34,9 +39,9 @@ export async function discoverWorkspace(admin: Admin, settings: SlackSettings): 
   }
 
   const { data: org } = await admin.from("organisations").select("settings").eq("id", settings.orgId).single();
-  const teamDomains = (((org?.settings as { team_domains?: unknown } | null)?.team_domains as string[] | undefined) ?? []).map((d) =>
-    d.toLowerCase(),
-  );
+  const teamDomains = (
+    ((org?.settings as { team_domains?: unknown } | null)?.team_domains as string[] | undefined) ?? []
+  ).map((d) => d.toLowerCase());
   const { data: profiles } = await admin
     .from("profiles")
     .select("id, email, slack_user_id, display_name")
@@ -57,7 +62,8 @@ export async function discoverWorkspace(admin: Admin, settings: SlackSettings): 
     .eq("org_id", settings.orgId);
   const previousById = new Map((previous ?? []).map((r) => [r.slack_user_id, r]));
   // Names already given to imported people stay theirs.
-  for (const r of previous ?? []) if (r.resolved_display && r.profile_id) takenDisplayNames.add(r.resolved_display.toLowerCase());
+  for (const r of previous ?? [])
+    if (r.resolved_display && r.profile_id) takenDisplayNames.add(r.resolved_display.toLowerCase());
 
   const users = await listUsers();
   const ctx = { teamDomains, profilesByEmail, profilesBySlackId, takenDisplayNames };
@@ -90,7 +96,9 @@ export async function discoverWorkspace(admin: Admin, settings: SlackSettings): 
     };
   });
   for (let i = 0; i < userRows.length; i += 200) {
-    const { error } = await admin.from("slack_users").upsert(userRows.slice(i, i + 200), { onConflict: "org_id,slack_user_id" });
+    const { error } = await admin
+      .from("slack_users")
+      .upsert(userRows.slice(i, i + 200), { onConflict: "org_id,slack_user_id" });
     if (error) throw new Error(`slack_users: ${error.message}`);
   }
 
@@ -116,7 +124,9 @@ export async function discoverWorkspace(admin: Admin, settings: SlackSettings): 
       purpose: c.purpose?.value || null,
       creator: c.creator ?? null,
       created_ts: c.created ? String(c.created) : null,
-      ...(settled || prev?.decision_source === "manual" ? {} : { decision: "pending", skip_reason: null, status: "discovered" }),
+      ...(settled || prev?.decision_source === "manual"
+        ? {}
+        : { decision: "pending", skip_reason: null, status: "discovered" }),
       updated_at: new Date().toISOString(),
     };
   });
@@ -127,12 +137,20 @@ export async function discoverWorkspace(admin: Admin, settings: SlackSettings): 
     if (error) throw new Error(`slack_conversations: ${error.message}`);
   }
 
-  await patchSlackConfig(admin, settings.orgId, { team_id: team.id, team_name: team.name, discovered_at: new Date().toISOString() });
+  await patchSlackConfig(admin, settings.orgId, {
+    team_id: team.id,
+    team_name: team.name,
+    discovered_at: new Date().toISOString(),
+  });
   return { teamId: team.id, users: userRows.length, conversations: convRows.length };
 }
 
 /** Reads members and decides for as many pending channels as the budget allows. Returns how many are left. */
-export async function decidePendingConversations(admin: Admin, settings: SlackSettings, budget: Budget): Promise<{ decided: number; remaining: number }> {
+export async function decidePendingConversations(
+  admin: Admin,
+  settings: SlackSettings,
+  budget: Budget,
+): Promise<{ decided: number; remaining: number }> {
   const { data: pending } = await admin
     .from("slack_conversations")
     .select("*")
@@ -143,20 +161,37 @@ export async function decidePendingConversations(admin: Admin, settings: SlackSe
   if (!pending?.length) return { decided: 0, remaining: 0 };
 
   const [{ data: users }, { data: convs }, { data: linked }, { data: customers }] = await Promise.all([
-    admin.from("slack_users").select("slack_user_id, is_bot, is_app_user, is_restricted, is_ultra_restricted, decision").eq("org_id", settings.orgId),
+    admin
+      .from("slack_users")
+      .select("slack_user_id, is_bot, is_app_user, is_restricted, is_ultra_restricted, decision")
+      .eq("org_id", settings.orgId),
     admin.from("conversations").select("id, slug, type, property_id, archived_at").eq("org_id", settings.orgId),
-    admin.from("slack_conversations").select("conversation_id").eq("org_id", settings.orgId).not("conversation_id", "is", null),
+    admin
+      .from("slack_conversations")
+      .select("conversation_id")
+      .eq("org_id", settings.orgId)
+      .not("conversation_id", "is", null),
     admin.from("slack_conversations").select("slack_channel_id, topic, name").eq("org_id", settings.orgId),
   ]);
-  const guests = new Set((users ?? []).filter((u) => u.is_restricted || u.is_ultra_restricted).map((u) => u.slack_user_id));
+  const guests = new Set(
+    (users ?? []).filter((u) => u.is_restricted || u.is_ultra_restricted).map((u) => u.slack_user_id),
+  );
   const bots = new Set((users ?? []).filter((u) => u.is_bot || u.is_app_user).map((u) => u.slack_user_id));
   const linkedIds = new Set((linked ?? []).map((l) => l.conversation_id));
   const existingBySlug = new Map<string, ExistingConversation>();
   for (const c of convs ?? []) {
     if (!c.slug) continue;
-    existingBySlug.set(c.slug, { id: c.id, type: c.type, propertyId: c.property_id, archivedAt: c.archived_at, slackLinked: linkedIds.has(c.id) });
+    existingBySlug.set(c.slug, {
+      id: c.id,
+      type: c.type,
+      propertyId: c.property_id,
+      archivedAt: c.archived_at,
+      slackLinked: linkedIds.has(c.id),
+    });
   }
-  const customerAddresses: CustomerAddress[] = (customers ?? []).flatMap((c) => addressesFromTopic(c.slack_channel_id, c.topic));
+  const customerAddresses: CustomerAddress[] = (customers ?? []).flatMap((c) =>
+    addressesFromTopic(c.slack_channel_id, c.topic),
+  );
 
   let decided = 0;
   for (const row of pending) {

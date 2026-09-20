@@ -57,7 +57,14 @@ export interface SliceReport {
   phase: string;
   discovery?: { users: number; conversations: number } | { decided: number; remaining: number };
   users?: { applied: number; remaining: number };
-  conversations: { channel: string; name: string | null; from: string; to: string; report?: Partial<ApplyReport>; error?: string }[];
+  conversations: {
+    channel: string;
+    name: string | null;
+    from: string;
+    to: string;
+    report?: Partial<ApplyReport>;
+    error?: string;
+  }[];
   files?: { done: number; skipped: number; failed: number };
   stopped?: string;
 }
@@ -144,15 +151,29 @@ async function phaseMembers(ctx: ApplyContext, link: LinkRow, actorId: string): 
   });
 }
 
-async function phaseHistory(ctx: ApplyContext, link: LinkRow, budget: Budget, out: SliceReport["conversations"][number]): Promise<LinkRow> {
+async function phaseHistory(
+  ctx: ApplyContext,
+  link: LinkRow,
+  budget: Budget,
+  out: SliceReport["conversations"][number],
+): Promise<LinkRow> {
   let current = link;
   while (budget.has(10_000)) {
-    const page = await historyPage(current.slack_channel_id, { latest: current.history_low_ts ?? undefined, limit: PAGE });
+    const page = await historyPage(current.slack_channel_id, {
+      latest: current.history_low_ts ?? undefined,
+      limit: PAGE,
+    });
     if (page.messages.length === 0) {
       return patchLink(ctx.admin, current, { status: "files" });
     }
     const replies = await repliesFor(current.slack_channel_id, page.messages, budget);
-    const report = await applyMessages(ctx, current.conversation_id!, current.slack_channel_id, [...page.messages, ...replies], { bulk: true });
+    const report = await applyMessages(
+      ctx,
+      current.conversation_id!,
+      current.slack_channel_id,
+      [...page.messages, ...replies],
+      { bulk: true },
+    );
     out.report = report;
     const low = tsMin(page.messages)!;
     const high = current.history_high_ts ?? tsMax(page.messages)!;
@@ -205,7 +226,9 @@ async function phaseBookmarks(ctx: ApplyContext, link: LinkRow, actorId: string)
       template_key: `slack:${b.id}`,
     }));
   if (rows.length) {
-    await ctx.admin.from("conversation_bookmarks").upsert(rows, { onConflict: "conversation_id,template_key", ignoreDuplicates: true });
+    await ctx.admin
+      .from("conversation_bookmarks")
+      .upsert(rows, { onConflict: "conversation_id,template_key", ignoreDuplicates: true });
   }
   if (link.status === "complete") return link;
   const { error } = await ctx.admin.rpc("slack_finish_backfill", { p_conversation_id: link.conversation_id! });
@@ -217,13 +240,19 @@ async function phaseBookmarks(ctx: ApplyContext, link: LinkRow, actorId: string)
 // The daily catch-up
 // ---------------------------------------------------------------------------
 
-async function catchUp(ctx: ApplyContext, link: LinkRow, actorId: string, budget: Budget, out: SliceReport["conversations"][number]): Promise<LinkRow> {
+async function catchUp(
+  ctx: ApplyContext,
+  link: LinkRow,
+  actorId: string,
+  budget: Budget,
+  out: SliceReport["conversations"][number],
+): Promise<LinkRow> {
   let current = link;
   const channel = current.slack_channel_id;
 
   // 1. The channel itself: renamed, re-described, archived.
   const info = await conversationInfo(channel);
-  const patch: Record<string, unknown> = {};
+  const patch: Database["public"]["Tables"]["conversations"]["Update"] = {};
   if ((info.topic?.value ?? "") !== (current.topic ?? "")) patch.topic = info.topic?.value || null;
   if ((info.purpose?.value ?? "") !== (current.purpose ?? "")) patch.description = info.purpose?.value || null;
   if (info.is_archived) patch.archived_at = new Date().toISOString();
@@ -239,10 +268,20 @@ async function catchUp(ctx: ApplyContext, link: LinkRow, actorId: string, budget
   current = await phaseMembers(ctx, current, actorId);
 
   // 3. New top-level messages, plus recent ones again for edits and reactions.
-  const since = current.history_high_ts ? String(Math.max(0, Number(current.history_high_ts) - CATCHUP_OVERLAP_S)) : undefined;
+  const since = current.history_high_ts
+    ? String(Math.max(0, Number(current.history_high_ts) - CATCHUP_OVERLAP_S))
+    : undefined;
   let cursor: string | undefined;
   let newest = current.history_high_ts;
-  const report: ApplyReport = { inserted: 0, updated: 0, unchanged: 0, orphans: 0, filesQueued: 0, droppedReactions: 0, insertedReplies: 0 };
+  const report: ApplyReport = {
+    inserted: 0,
+    updated: 0,
+    unchanged: 0,
+    orphans: 0,
+    filesQueued: 0,
+    droppedReactions: 0,
+    insertedReplies: 0,
+  };
   do {
     if (!budget.has(10_000)) throw new OutOfTime();
     const page = await historyPage(channel, { oldest: since, cursor, limit: PAGE });
@@ -348,7 +387,11 @@ export async function syncConversation(
     if (current.status === "history") current = await phaseHistory(ctx, current, budget, out);
     if (current.status === "files") current = await phaseFiles(ctx, current, budget);
     if (current.status === "bookmarks") current = await phaseBookmarks(ctx, current, actorId);
-    if (current.status === "complete" && current.next_sync_at && new Date(current.next_sync_at).getTime() <= Date.now()) {
+    if (
+      current.status === "complete" &&
+      current.next_sync_at &&
+      new Date(current.next_sync_at).getTime() <= Date.now()
+    ) {
       current = await catchUp(ctx, current, actorId, budget, out);
     }
     out.to = current.status;
@@ -380,7 +423,12 @@ export async function syncConversation(
 // The users pass
 // ---------------------------------------------------------------------------
 
-async function applyPendingUsers(admin: Admin, actor: Admin, settings: SlackSettings, budget: Budget): Promise<{ applied: number; remaining: number }> {
+async function applyPendingUsers(
+  admin: Admin,
+  actor: Admin,
+  settings: SlackSettings,
+  budget: Budget,
+): Promise<{ applied: number; remaining: number }> {
   const { data: rows } = await admin
     .from("slack_users")
     .select("*")
@@ -389,7 +437,9 @@ async function applyPendingUsers(admin: Admin, actor: Admin, settings: SlackSett
     .neq("decision", "skip")
     .order("is_bot")
     .order("slack_user_id");
-  const pending = (rows ?? []).filter((r) => !r.outcome || !["linked", "invited", "created", "updated", "skipped"].includes(r.outcome));
+  const pending = (rows ?? []).filter(
+    (r) => !r.outcome || !["linked", "invited", "created", "updated", "skipped"].includes(r.outcome),
+  );
   let applied = 0;
   for (const r of pending) {
     if (!budget.has(6_000)) break;
@@ -410,7 +460,9 @@ async function applyPendingUsers(admin: Admin, actor: Admin, settings: SlackSett
     };
     if (d.decision === "link" && !d.profileId) {
       // Decided by hand as "link" but with nothing to link to: find the account by email now.
-      const { data: p } = d.email ? await admin.from("profiles").select("id").ilike("email", d.email).maybeSingle() : { data: null };
+      const { data: p } = d.email
+        ? await admin.from("profiles").select("id").ilike("email", d.email).maybeSingle()
+        : { data: null };
       d.profileId = p?.id ?? null;
     }
     const result = await applyUserDecision(admin, actor, settings.actorUserId!, d);
@@ -433,7 +485,11 @@ async function applyPendingUsers(admin: Admin, actor: Admin, settings: SlackSett
 // The slice
 // ---------------------------------------------------------------------------
 
-export async function runSlice(admin: Admin, budgetMs: number, opts: { holder?: string; maxConversations?: number } = {}): Promise<SliceReport> {
+export async function runSlice(
+  admin: Admin,
+  budgetMs: number,
+  opts: { holder?: string; maxConversations?: number } = {},
+): Promise<SliceReport> {
   const budget = new Budget(budgetMs);
   const holder = opts.holder ?? `slice-${Date.now()}`;
   const report: SliceReport = { phase: "idle", conversations: [] };
@@ -450,7 +506,8 @@ export async function runSlice(admin: Admin, budgetMs: number, opts: { holder?: 
 
   try {
     // Discovery, when asked for and not yet done.
-    const discoverDue = settings.discoverRequestedAt && (!settings.discoveredAt || settings.discoverRequestedAt > settings.discoveredAt);
+    const discoverDue =
+      settings.discoverRequestedAt && (!settings.discoveredAt || settings.discoverRequestedAt > settings.discoveredAt);
     if (discoverDue) {
       report.phase = "discover";
       report.discovery = await discoverWorkspace(admin, settings);
@@ -489,7 +546,13 @@ export async function runSlice(admin: Admin, budgetMs: number, opts: { holder?: 
 
     report.phase = "conversations";
     const directory = await loadDirectory(admin, settings.orgId);
-    const ctx: ApplyContext = { admin, actor, orgId: settings.orgId, directory, importBotMessages: settings.importBotMessages };
+    const ctx: ApplyContext = {
+      admin,
+      actor,
+      orgId: settings.orgId,
+      directory,
+      importBotMessages: settings.importBotMessages,
+    };
     let done = 0;
     while (budget.has(12_000) && done < (opts.maxConversations ?? 50)) {
       const { data: claimed } = await admin.rpc("slack_claim_conversation", { p_stale: "10 minutes" });
@@ -531,7 +594,11 @@ export async function runSlice(admin: Admin, budgetMs: number, opts: { holder?: 
     }
     return report;
   } finally {
-    await admin.from("slack_leases").update({ expires_at: new Date(0).toISOString() }).eq("name", "worker").eq("holder", holder);
+    await admin
+      .from("slack_leases")
+      .update({ expires_at: new Date(0).toISOString() })
+      .eq("name", "worker")
+      .eq("holder", holder);
   }
 }
 

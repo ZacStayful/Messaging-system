@@ -1,0 +1,30 @@
+{
+  "display_information": {
+    "name": "Stayful Messaging import",
+    "description": "Copies this workspace's channels and history into Stayful Messaging. Internal use only.",
+    "background_color": "#1f3d2b"
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": [
+        "team:read",
+        "users:read",
+        "users:read.email",
+        "channels:read",
+        "groups:read",
+        "channels:history",
+        "groups:history",
+        "channels:join",
+        "files:read",
+        "reactions:read",
+        "pins:read",
+        "bookmarks:read"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

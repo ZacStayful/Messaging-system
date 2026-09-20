@@ -29,7 +29,9 @@ async function main() {
     const started = Date.now();
     const report = await runSlice(admin, sliceSeconds * 1000, { holder: `cli-${process.pid}`, maxConversations: 1000 });
     const secs = ((Date.now() - started) / 1000).toFixed(1);
-    const rooms = report.conversations.map((c) => `${c.name ?? c.channel}: ${c.from}→${c.to}${c.error ? ` (${c.error})` : ""}`);
+    const rooms = report.conversations.map(
+      (c) => `${c.name ?? c.channel}: ${c.from}→${c.to}${c.error ? ` (${c.error})` : ""}`,
+    );
     console.log(`slice ${i} (${secs}s) phase=${report.phase}${report.stopped ? ` stopped=${report.stopped}` : ""}`);
     if (report.discovery) console.log("  discovery", report.discovery);
     if (report.users) console.log("  users", report.users);
