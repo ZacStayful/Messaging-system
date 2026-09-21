@@ -3,7 +3,7 @@
 -- Run against a fresh database after the migrations. Idempotent: every row has
 -- a fixed UUID and uses ON CONFLICT DO NOTHING.
 --
--- Team users get no password (they sign in with a magic link or Google).
+-- Team users get no password (they sign in with a magic link).
 -- Two clearly-named test accounts get a password so the RLS test-suite can
 -- sign in: replace __TEST_PASSWORD__ before running, never commit the value.
 

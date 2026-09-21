@@ -5,8 +5,7 @@ import type { NextConfig } from "next";
  *
  * The load-bearing one is frame-ancestors / X-Frame-Options: a framable sign-in form is how a
  * clean domain ends up embedded inside someone else's phishing page and gets blocklisted for
- * it. Nothing here frames itself (Google sign-in is a full-page redirect, Twilio Voice is
- * WebRTC), so DENY is safe.
+ * it. Nothing here frames itself (Twilio Voice is WebRTC), so DENY is safe.
  *
  * A full Content-Security-Policy is deliberately NOT enforced yet. This app talks to Supabase
  * REST and Realtime (wss://*.supabase.co), the Twilio Voice SDK and Resend, and ships Next.js

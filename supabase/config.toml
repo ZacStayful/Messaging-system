@@ -36,12 +36,6 @@ double_confirm_changes = true
 enable_confirmations = false
 otp_expiry = 3600
 
-[auth.external.google]
-enabled = false
-client_id = "env(SUPABASE_AUTH_GOOGLE_CLIENT_ID)"
-secret = "env(SUPABASE_AUTH_GOOGLE_SECRET)"
-redirect_uri = ""
-
 [realtime]
 enabled = true
 

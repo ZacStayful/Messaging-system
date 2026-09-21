@@ -37,7 +37,12 @@ function siteOrigin(request: NextRequest) {
   return `${proto}://${forwardedHost}`;
 }
 
-/** Completes a magic-link or OAuth sign-in and lands the user in the app. */
+/**
+ * Completes a magic-link sign-in and lands the user in the app.
+ *
+ * Both arms are still load-bearing with no OAuth provider enabled: @supabase/ssr uses PKCE, so
+ * a magic link comes back as ?code= to exchange, and ?token_hash= is the non-PKCE form.
+ */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const origin = siteOrigin(request);

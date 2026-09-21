@@ -69,7 +69,7 @@ export function AccountSettings({ profile, hasPassword }: { profile: Profile; ha
           <p className="mb-4 text-[14px] text-muted">
             {hasPassword
               ? "Pick something only you know. Your browser can remember it for next time."
-              : "You currently sign in with email links or Google. Set a password to sign in directly."}
+              : "You currently sign in with email links. Set a password to sign in directly."}
           </p>
           <form onSubmit={changePassword} className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5 text-[14px] font-semibold">

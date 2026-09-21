@@ -16,7 +16,6 @@ function safeNext(next?: string) {
 
 const inputClass =
   "h-[46px] w-full rounded-lg border border-input-border bg-input px-3.5 text-[16px] font-normal text-ink outline-none focus:border-brand focus:shadow-[0_0_0_3px_rgba(93,129,86,0.35)]";
-const primaryBtn = "h-12 rounded-lg bg-brand text-[16px] font-semibold text-white hover:opacity-90 disabled:opacity-60";
 const secondaryBtn =
   "h-[46px] rounded-lg border border-input-border bg-input text-[15px] font-medium text-ink hover:bg-hover";
 
@@ -82,19 +81,6 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
     setStatus("sent");
   }
 
-  async function google() {
-    setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: redirectTo(), queryParams: { prompt: "select_account" } },
-    });
-    if (error) {
-      setStatus("error");
-      setError(error.message);
-    }
-  }
-
   const switchMode = (m: Mode) => {
     setMode(m);
     setStatus("idle");
@@ -115,17 +101,6 @@ export function LoginForm({ next, initialError }: { next?: string; initialError?
         </div>
       ) : (
         <form onSubmit={mode === "password" ? signInWithPassword : sendLink} className="flex flex-col gap-3.5">
-          {/* Google first. The team signs in with Workspace accounts, and a password typed here
-              is a password that can be reused from somewhere else — which is what sets off
-              Chrome's "you entered your password into a deceptive site" warning. */}
-          <button type="button" onClick={google} className={primaryBtn}>
-            Continue with Google
-          </button>
-          <div className="flex items-center gap-2.5 text-[13px] text-muted">
-            <div className="h-px flex-1 bg-line" />
-            or
-            <div className="h-px flex-1 bg-line" />
-          </div>
           <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
             Email address
             <input
