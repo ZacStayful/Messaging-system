@@ -8,7 +8,7 @@ Supabase (Postgres with Row Level Security, Auth, Realtime Broadcast, Storage).
 ## What is in this pass
 
 - Sign in with email + password (customers get a generated password by email when the team
-  creates their account), an email magic link, or Google (Supabase Auth). Sessions persist.
+  creates their account) or an email magic link (Supabase Auth). Sessions persist.
 - Desktop layout: top bar, icon rail (Home, DMs, Activity, Files, Later),
   sidebar and conversation pane on the dark green frame (dark theme only).
 - Mobile layout: single pane with a bottom tab bar (Home, DMs, Activity, You).
@@ -388,7 +388,7 @@ After every migration regenerate types: `pnpm db:types`.
 design prototype, the conversations, messages and pins. Replace `__TEST_PASSWORD__` with a
 random value before running it and put the same value in `.env.local` as
 `SEED_TEST_PASSWORD`. Only the two `*@stayful.test` accounts get a password; everyone else
-signs in with a magic link or Google.
+signs in with a magic link.
 
 Locally: `supabase start && supabase db reset` (runs migrations and the seed).
 
@@ -440,10 +440,10 @@ voice notes). Downloads use one-hour signed URLs.
   host (see "Preview deployments and Chrome's password warning" under Deployment). The
   `.vercel.app` arm of `siteOrigin()` in `src/app/auth/callback/route.ts` should be tightened
   to that host at the same time.
-- Authentication > Providers > Google: enable and paste a Google OAuth client ID and
-  secret (authorised redirect URI is `https://dqgdhmlgojhiidxlxzsr.supabase.co/auth/v1/callback`).
+- Authentication > Providers: email only. No OAuth provider is enabled, and the sign-in
+  page offers none — email and password, or a magic link.
 - Magic links only work for existing users (`shouldCreateUser: false`); invitations create
-  the user first. Google sign-in creates users on first login.
+  the user first. Nobody signs themselves up.
 
 ## Email set-up (Resend)
 
@@ -536,7 +536,7 @@ properties, plan, enquiry date, website) and an account — and that is where it
 is emailed, WhatsApped or given a way in.** Specifically (`import_lead_customer`, 0034):
 
 - the password is random and discarded, and `auth.users.banned_until` is set to 2999, which
-  Supabase Auth honours for every sign-in method (password, magic link, Google);
+  Supabase Auth honours for every sign-in method (password and magic link alike);
   `profiles.portal_access = false` is the readable version of the same fact;
 - `email_notifications = 'off'`: a notification email carries the login link;
 - `whatsapp_notifications = 'instant'`: a reply typed in the app reaches them as a **plain**
@@ -1147,8 +1147,9 @@ warning on a non-allow-listed domain, not a phishing verdict on the deployment.
 To stop it recurring:
 
 - Never reuse a Google Workspace password for a Stayful Messaging account. This is the whole
-  arming condition, and no change in this repo can override it. Prefer "Continue with Google",
-  which is now the first option on the sign-in page.
+  arming condition, and no change in this repo can override it. The password a customer is
+  emailed is generated, so this only arises when somebody changes theirs to one they use
+  elsewhere.
 - Give previews a **stable** host — a Vercel branch-alias domain, or better a subdomain you
   own such as `preview.stayful.co.uk` — so an allow-list entry can actually hold. Per-deploy
   hostnames defeat any allow-list by design.

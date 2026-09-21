@@ -39,7 +39,9 @@ test("unauthenticated users land on the login page", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Sign in to Stayful" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+  // No OAuth provider is offered. Asserted rather than deleted: a stray "Continue with"
+  // button reappearing is exactly the regression worth catching.
+  await expect(page.getByRole("button", { name: /continue with/i })).toHaveCount(0);
 });
 
 test("staff can browse, open a channel and send a message", async ({ page, context }, testInfo) => {
