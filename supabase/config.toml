@@ -27,11 +27,15 @@ site_url = "http://localhost:3000"
 additional_redirect_urls = ["http://localhost:3000/auth/callback"]
 jwt_expiry = 3600
 enable_refresh_token_rotation = true
-enable_signup = true
+# Nobody signs themselves up: accounts are created at /customers/new and /team/new, or by the
+# lead database and Slack imports. 0046 enforces the same thing in the database, so a local
+# stack that left this on would disagree with both production and the migration. The seed is
+# unaffected — it inserts into auth.users in SQL and never touches GoTrue's sign-up path.
+enable_signup = false
 enable_anonymous_sign_ins = false
 
 [auth.email]
-enable_signup = true
+enable_signup = false
 double_confirm_changes = true
 enable_confirmations = false
 otp_expiry = 3600

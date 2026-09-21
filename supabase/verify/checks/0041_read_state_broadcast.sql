@@ -32,6 +32,10 @@ begin
 
   -- A trigger on auth.users creates the profile (0001), so these update it into the org.
   v_reader := gen_random_uuid();
+  -- 0046 makes handle_new_user reject an untrusted insert, the way it does for a self-service
+  -- sign-up. A fixture is creating the account the same way the app does, so it announces itself
+  -- the same way every legitimate creator does.
+  perform set_config('app.trusted_signup', 'on', true);
   insert into auth.users (id, email) values (v_reader, 'reader@example.test');
   update public.profiles set org_id = v_org, display_name = 'Reader', account_type = 'team'
    where id = v_reader;

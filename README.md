@@ -379,6 +379,15 @@ conversation_id)` dropped so there is one token per notification email rather th
     whose body differs only because someone's display name changed since — mentions render
     through the directory — no longer stamps "(edited)" on a message nobody edited
 
+44. `0046_invite_only_signup.sql` `handle_new_user` now rejects an untrusted insert into
+    `auth.users` instead of quietly building a customer profile for it, which is what 0029's own
+    header said it was a backstop against. Five writers raise `app.trusted_signup` and they are
+    the only ways an account is legitimately made, so its absence means exactly "somebody signed
+    themselves up". Invitations, the lead import, the Slack import and the seed are unaffected;
+    "Add user" in the Supabase dashboard is not, deliberately. Asserted in both directions in
+    `supabase/verify/checks/0046_invite_only_signup.sql` — a gate that refused everyone would
+    pass a one-sided test and take the imports down with it
+
 Apply them with the Supabase CLI (`supabase db push`) or the Supabase MCP `apply_migration`.
 After every migration regenerate types: `pnpm db:types`.
 
@@ -442,6 +451,11 @@ voice notes). Downloads use one-hour signed URLs.
   to that host at the same time.
 - Authentication > Providers: email only. No OAuth provider is enabled, and the sign-in
   page offers none — email and password, or a magic link.
+- Authentication > Sign In / Providers: **Allow new users to sign up is off.** The publishable
+  key ships in the browser, so with it on anyone could `POST /auth/v1/signup` and land a
+  customer profile in this organisation. `0046_invite_only_signup.sql` enforces the same rule in
+  the database, so it holds if the switch is ever turned back on — and it is the reason "Add
+  user" in the Supabase dashboard no longer works. Use `/customers/new` or `/team/new`.
 - Magic links only work for existing users (`shouldCreateUser: false`); invitations create
   the user first. Nobody signs themselves up.
 

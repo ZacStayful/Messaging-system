@@ -31,6 +31,10 @@ begin
 
   -- An admin to act as. handle_new_user (0001/0029) creates the profile; it is moved into the org.
   v_admin := gen_random_uuid();
+  -- 0046 makes handle_new_user reject an untrusted insert, the way it does for a self-service
+  -- sign-up. A fixture is creating the account the same way the app does, so it announces itself
+  -- the same way every legitimate creator does.
+  perform set_config('app.trusted_signup', 'on', true);
   insert into auth.users (id, email) values (v_admin, 'admin@slack-sync.test');
   update public.profiles set org_id = v_org, display_name = 'Zac', account_type = 'team', role = 'admin'
    where id = v_admin;
