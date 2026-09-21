@@ -118,6 +118,160 @@ export type Database = {
           },
         ];
       };
+      archived_conversations: {
+        Row: {
+          id: string;
+          org_id: string;
+          slug: string | null;
+          title: string | null;
+          type: string | null;
+          topic: string | null;
+          description: string | null;
+          slack_channel_id: string | null;
+          slack_channel_name: string | null;
+          target_kind: string | null;
+          property_id: string | null;
+          property_address: string | null;
+          created_at: string | null;
+          last_message_at: string | null;
+          message_count: number;
+          members: Json;
+          reason: string | null;
+          archived_at: string;
+          archived_by: string | null;
+        };
+        Insert: {
+          id: string;
+          org_id: string;
+          slug?: string | null;
+          title?: string | null;
+          type?: string | null;
+          topic?: string | null;
+          description?: string | null;
+          slack_channel_id?: string | null;
+          slack_channel_name?: string | null;
+          target_kind?: string | null;
+          property_id?: string | null;
+          property_address?: string | null;
+          created_at?: string | null;
+          last_message_at?: string | null;
+          message_count?: number;
+          members?: Json;
+          reason?: string | null;
+          archived_at?: string;
+          archived_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          slug?: string | null;
+          title?: string | null;
+          type?: string | null;
+          topic?: string | null;
+          description?: string | null;
+          slack_channel_id?: string | null;
+          slack_channel_name?: string | null;
+          target_kind?: string | null;
+          property_id?: string | null;
+          property_address?: string | null;
+          created_at?: string | null;
+          last_message_at?: string | null;
+          message_count?: number;
+          members?: Json;
+          reason?: string | null;
+          archived_at?: string;
+          archived_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "archived_conversations_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      archived_messages: {
+        Row: {
+          id: string;
+          org_id: string;
+          conversation_id: string;
+          slack_channel_id: string | null;
+          slack_ts: string | null;
+          thread_ts: string | null;
+          parent_id: string | null;
+          sender_id: string | null;
+          sender_name: string | null;
+          body: string | null;
+          kind: string | null;
+          visibility: string | null;
+          sent_via: string | null;
+          external_ref: string | null;
+          meta: Json | null;
+          attachments: Json;
+          reactions: Json;
+          created_at: string | null;
+          edited_at: string | null;
+          deleted_at: string | null;
+          archived_at: string;
+        };
+        Insert: {
+          id: string;
+          org_id: string;
+          conversation_id: string;
+          slack_channel_id?: string | null;
+          slack_ts?: string | null;
+          thread_ts?: string | null;
+          parent_id?: string | null;
+          sender_id?: string | null;
+          sender_name?: string | null;
+          body?: string | null;
+          kind?: string | null;
+          visibility?: string | null;
+          sent_via?: string | null;
+          external_ref?: string | null;
+          meta?: Json | null;
+          attachments?: Json;
+          reactions?: Json;
+          created_at?: string | null;
+          edited_at?: string | null;
+          deleted_at?: string | null;
+          archived_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          conversation_id?: string;
+          slack_channel_id?: string | null;
+          slack_ts?: string | null;
+          thread_ts?: string | null;
+          parent_id?: string | null;
+          sender_id?: string | null;
+          sender_name?: string | null;
+          body?: string | null;
+          kind?: string | null;
+          visibility?: string | null;
+          sent_via?: string | null;
+          external_ref?: string | null;
+          meta?: Json | null;
+          attachments?: Json;
+          reactions?: Json;
+          created_at?: string | null;
+          edited_at?: string | null;
+          deleted_at?: string | null;
+          archived_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "archived_messages_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       attachments: {
         Row: {
           category: string | null;
